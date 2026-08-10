@@ -28,7 +28,6 @@ reader = CSVReader(
         "high": 3,
         "low": 4,
         "close": 5,
-        "volume": 6,
     }
 )
 
@@ -41,7 +40,6 @@ reader = CSVReader(
         "high": "high",
         "low": "low",
         "close": "close",
-        "volume": "volume",
     }
 )
 ```
@@ -59,7 +57,7 @@ Values are integers (column indices) or lists of integers:
     "high": 3,
     "low": 4,
     "close": 5,
-    "volume": 6,
+    "volume": 6,         # Additional fields supported
     "open_interest": 7,  # Additional fields supported
 }
 ```
@@ -73,7 +71,6 @@ Values are strings (header names) or lists of strings:
     "high": "high",
     "low": "low",
     "close": "close",
-    "volume": "volume",
 }
 ```
 
@@ -90,7 +87,6 @@ Returns `list[dict]` with keys matching the mapping:
         "high": "737.20",
         "low": "737.20",
         "close": "737.20",
-        "volume": "1",
     },
     ...
 ]

@@ -4,7 +4,7 @@ from loguru import logger
 
 
 class CSVReader:
-    REQUIRED_KEYS = ("datetime", "open", "high", "low", "close", "volume")
+    REQUIRED_KEYS = ("datetime", "open", "high", "low", "close")
 
     def __init__(self, file_path: str, column_mapping: dict):
         self.file_path = file_path
