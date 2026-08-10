@@ -1,0 +1,23 @@
+[project]
+name = "quantrex-data"
+version = "0.1.0"
+description = "Quantrex data providers package"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ["loguru"]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.uv.sources]
+quantrex-data = { path = "." }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

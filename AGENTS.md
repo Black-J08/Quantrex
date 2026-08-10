@@ -97,7 +97,7 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 
 **Use `uv` for all Python package management.** It is the single tool for dependency resolution, virtual environments, and building.
 
-### Monorepo Layout (when needed)
+### Monorepo Layout (example)
 ```
 quantrex/
 ├── packages/
