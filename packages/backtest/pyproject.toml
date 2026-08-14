@@ -5,6 +5,7 @@ description = "Quantrex backtest engine package"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "quantrex-core",
     "quantrex-data",
     "loguru",
 ]
@@ -19,6 +20,7 @@ where = ["src"]
 pythonpath = ["src"]
 
 [tool.uv.sources]
+quantrex-core = { workspace = true }
 quantrex-data = { workspace = true }
 quantrex-test-support = { workspace = true }
 

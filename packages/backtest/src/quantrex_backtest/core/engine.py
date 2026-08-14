@@ -3,8 +3,8 @@
 from collections.abc import Callable
 from loguru import logger
 
-from ..feeders.data_feeder import DataFeeder
-from ..models.candle import Candle
+from quantrex_core.models import Candle
+from quantrex_core.protocols import DataFeeder
 from ..exceptions.backtest_error import ProviderError
 
 

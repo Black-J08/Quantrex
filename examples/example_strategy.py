@@ -4,8 +4,9 @@ One script works for backtesting, paper trading, and live trading.
 This version uses synthetic data generated via quantrex-test-support helpers.
 """
 
+from quantrex_core.models import Candle
 from quantrex_data.providers.csv_reader import CSVReader
-from quantrex_backtest import BacktestEngine, Candle
+from quantrex_backtest import BacktestEngine
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 

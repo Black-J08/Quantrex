@@ -220,6 +220,7 @@ version = "0.1.0"
 source = { editable = "packages/backtest" }
 dependencies = [
     { name = "loguru" },
+    { name = "quantrex-core" },
     { name = "quantrex-data" },
 ]
 
@@ -235,6 +236,7 @@ requires-dist = [
     { name = "loguru" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "quantrex-core", editable = "packages/core" },
     { name = "quantrex-data", editable = "packages/data" },
     { name = "quantrex-test-support", marker = "extra == 'dev'", editable = "packages/test-support" },
 ]

@@ -3,10 +3,11 @@
 from unittest.mock import Mock, MagicMock
 from datetime import datetime
 
+from quantrex_core.models import Candle
 from quantrex_data.providers.csv_reader import CSVReader
-from quantrex_backtest import BacktestEngine, Candle
+from quantrex_backtest import BacktestEngine
 from quantrex_backtest.exceptions.backtest_error import ProviderError
-from quantrex_backtest.feeders.data_feeder import DataFeeder
+from quantrex_core.protocols import DataFeeder
 from quantrex_test_support.csv import (
     make_ohlc_series,
     csv_rows_to_string,

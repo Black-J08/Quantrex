@@ -1,7 +1,7 @@
 """Tests for DataFeeder protocol compliance."""
 
 from quantrex_data.providers.csv_reader import CSVReader
-from quantrex_backtest.feeders.data_feeder import DataFeeder
+from quantrex_core.protocols import DataFeeder
 from quantrex_test_support.csv import (
     make_ohlc_series,
     csv_rows_to_string,

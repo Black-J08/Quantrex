@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from quantrex_data.providers.csv_reader import CSVReader
-from quantrex_backtest.models.candle import Candle
+from quantrex_core.models import Candle
 from quantrex_test_support.csv import (
     make_ohlc_series,
     csv_rows_to_string,
