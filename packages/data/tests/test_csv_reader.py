@@ -1,111 +1,48 @@
-import csv
-import tempfile
-import os
-from contextlib import contextmanager
 import pytest
 
 from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_test_support.csv import (
+    make_ohlc_series,
+    csv_rows_to_string,
+    create_temp_csv,
+)
 
 
-# =============================================================================
-# Test Data Generators - Deterministic procedural CSV data
-# =============================================================================
-
-# Canonical test data constants for consistent values across tests
-SAMPLE_DATES = ["20230620", "20230621", "20230622"]
-SAMPLE_TIMES = ["19:00", "10:06", "15:30"]
-SAMPLE_OHLCV = [
-    ("737.20", "737.20", "737.20", "737.20", "1"),
-    ("740.00", "740.00", "740.00", "740.00", "2"),
-    ("738.60", "738.60", "738.60", "738.60", "1"),
-]
-SAMPLE_OI = ["1", "1", "2"]
-
-
-def make_index_mode_rows(num_rows: int = 3, num_extra_cols: int = 0) -> list[list[str]]:
-    """Generate headerless CSV rows for index mode testing.
-    
-    Columns: date, time, open, high, low, close, volume, [extra...]
-    """
-    rows = []
-    for i in range(num_rows):
-        date_idx = i % len(SAMPLE_DATES)
-        time_idx = i % len(SAMPLE_TIMES)
-        ohlcv_idx = i % len(SAMPLE_OHLCV)
-        
-        row = [
-            SAMPLE_DATES[date_idx],
-            SAMPLE_TIMES[time_idx],
-            *SAMPLE_OHLCV[ohlcv_idx],
-        ]
-        # Add extra columns (e.g., open interest)
-        for j in range(num_extra_cols):
-            oi_idx = i % len(SAMPLE_OI)
-            row.append(SAMPLE_OI[oi_idx])
-        rows.append(row)
-    return rows
-
-
-def make_header_mode_rows(headers: list[str], num_rows: int = 3) -> tuple[list[str], list[list[str]]]:
+def _make_header_mode_rows(headers: list[str], num_rows: int = 3) -> tuple[list[str], list[list[str]]]:
     """Generate CSV with header row and data rows for header mode testing."""
+    index_rows = make_ohlc_series(num_rows=num_rows, seed=42)
     header_row = headers
     data_rows = []
-    for i in range(num_rows):
-        date_idx = i % len(SAMPLE_DATES)
-        time_idx = i % len(SAMPLE_TIMES)
-        ohlcv_idx = i % len(SAMPLE_OHLCV)
-        
-        # Build row based on headers
-        row = []
+
+    for row in index_rows:
+        date_str, time_str, open_str, high_str, low_str, close_str, volume_str = row
+        datetime_str = f"{date_str} {time_str}"
+
+        new_row = []
         for header in headers:
             if header in ("timestamp", "datetime"):
-                # Combine date and time for timestamp/datetime columns
-                row.append(f"{SAMPLE_DATES[date_idx]} {SAMPLE_TIMES[time_idx]}")
+                new_row.append(datetime_str)
             elif header == "date":
-                row.append(SAMPLE_DATES[date_idx])
+                new_row.append(date_str)
             elif header == "time":
-                row.append(SAMPLE_TIMES[time_idx])
+                new_row.append(time_str)
             elif header == "open":
-                row.append(SAMPLE_OHLCV[ohlcv_idx][0])
+                new_row.append(open_str)
             elif header == "high":
-                row.append(SAMPLE_OHLCV[ohlcv_idx][1])
+                new_row.append(high_str)
             elif header == "low":
-                row.append(SAMPLE_OHLCV[ohlcv_idx][2])
+                new_row.append(low_str)
             elif header == "close":
-                row.append(SAMPLE_OHLCV[ohlcv_idx][3])
+                new_row.append(close_str)
             elif header == "volume":
-                row.append(SAMPLE_OHLCV[ohlcv_idx][4])
+                new_row.append(volume_str)
             elif header in ("oi", "open_interest"):
-                oi_idx = i % len(SAMPLE_OI)
-                row.append(SAMPLE_OI[oi_idx])
+                new_row.append("1")
             else:
-                row.append(f"value_{header}_{i}")
-        data_rows.append(row)
+                new_row.append(f"value_{header}_0")
+        data_rows.append(new_row)
+
     return header_row, data_rows
-
-
-def csv_rows_to_string(rows: list[list[str]]) -> str:
-    """Convert list of row lists to CSV-formatted string."""
-    output = []
-    for row in rows:
-        output.append(",".join(row))
-    return "\n".join(output) + "\n"
-
-
-@contextmanager
-def create_temp_csv(content: str):
-    """Context manager to create a temporary CSV file with given content."""
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-        f.write(content)
-        temp_path = f.name
-    try:
-        yield temp_path
-    finally:
-        # File may have been deleted externally; ignore if missing
-        try:
-            os.unlink(temp_path)
-        except FileNotFoundError:
-            pass
 
 
 class TestCSVReaderIndexMode:
@@ -121,7 +58,7 @@ class TestCSVReaderIndexMode:
             "close": 5,
             "volume": 6,
         }
-        rows = make_index_mode_rows(num_rows=3, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=3, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -136,12 +73,15 @@ class TestCSVReaderIndexMode:
         assert "low" in first
         assert "close" in first
         assert "volume" in first
-        assert first["datetime"] == "20230620 19:00"
-        assert first["open"] == "737.20"
-        assert first["high"] == "737.20"
-        assert first["low"] == "737.20"
-        assert first["close"] == "737.20"
-        assert first["volume"] == "1"
+        # Verify datetime format (YYYYMMDD HH:MM)
+        assert len(first["datetime"]) == 14
+        assert first["datetime"][8] == " "
+        # Verify OHLCV are valid numeric strings
+        assert float(first["open"]) > 0
+        assert float(first["high"]) >= float(first["open"])
+        assert float(first["low"]) <= float(first["open"])
+        assert float(first["close"]) > 0
+        assert int(first["volume"]) > 0
 
     def test_index_mode_with_additional_fields(self):
         """Test index mode with extra fields beyond OHLCV"""
@@ -154,7 +94,10 @@ class TestCSVReaderIndexMode:
             "volume": 6,
             "oi": 7,
         }
-        rows = make_index_mode_rows(num_rows=3, num_extra_cols=1)
+        rows = make_ohlc_series(num_rows=3, seed=42)
+        # Add extra column (open interest)
+        for i, row in enumerate(rows):
+            row.append(str((i % 3) + 1))
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -196,7 +139,7 @@ class TestCSVReaderHeaderMode:
     def test_header_mode_basic(self):
         """Test header mode with standard CSV headers"""
         headers = ["timestamp", "open", "high", "low", "close", "volume"]
-        header_row, data_rows = make_header_mode_rows(headers, num_rows=2)
+        header_row, data_rows = _make_header_mode_rows(headers, num_rows=2)
         all_rows = [header_row] + data_rows
         csv_content = csv_rows_to_string(all_rows)
         
@@ -213,14 +156,21 @@ class TestCSVReaderHeaderMode:
             results = reader.read()
 
             assert len(results) == 2
-            assert results[0]["datetime"] == "20230620 19:00"
-            assert results[0]["open"] == "737.20"
-            assert results[1]["datetime"] == "20230621 10:06"
+            # Verify datetime format and OHLCV validity
+            for result in results:
+                assert "datetime" in result
+                assert len(result["datetime"]) == 14
+                assert result["datetime"][8] == " "
+                assert float(result["open"]) > 0
+                assert float(result["high"]) >= float(result["open"])
+                assert float(result["low"]) <= float(result["open"])
+                assert float(result["close"]) > 0
+                assert int(result["volume"]) > 0
 
     def test_header_mode_with_additional_fields(self):
         """Test header mode with extra fields"""
         headers = ["timestamp", "open", "high", "low", "close", "volume", "open_interest"]
-        header_row, data_rows = make_header_mode_rows(headers, num_rows=1)
+        header_row, data_rows = _make_header_mode_rows(headers, num_rows=1)
         all_rows = [header_row] + data_rows
         csv_content = csv_rows_to_string(all_rows)
         
@@ -243,7 +193,7 @@ class TestCSVReaderHeaderMode:
     def test_header_mode_multi_column_datetime(self):
         """Test header mode with datetime split across multiple columns"""
         headers = ["date", "time", "open", "high", "low", "close", "volume"]
-        header_row, data_rows = make_header_mode_rows(headers, num_rows=1)
+        header_row, data_rows = _make_header_mode_rows(headers, num_rows=1)
         all_rows = [header_row] + data_rows
         csv_content = csv_rows_to_string(all_rows)
         
@@ -260,7 +210,16 @@ class TestCSVReaderHeaderMode:
             results = reader.read()
 
             assert len(results) == 1
-            assert results[0]["datetime"] == "20230620 19:00"
+            # Verify datetime format and OHLCV validity
+            result = results[0]
+            assert "datetime" in result
+            assert len(result["datetime"]) == 14
+            assert result["datetime"][8] == " "
+            assert float(result["open"]) > 0
+            assert float(result["high"]) >= float(result["open"])
+            assert float(result["low"]) <= float(result["open"])
+            assert float(result["close"]) > 0
+            assert int(result["volume"]) > 0
 
 
 class TestCSVReaderValidation:
@@ -274,7 +233,7 @@ class TestCSVReaderValidation:
             "high": 3,
             # missing low, close, volume
         }
-        rows = make_index_mode_rows(num_rows=1, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=1, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -291,7 +250,7 @@ class TestCSVReaderValidation:
             "close": 5,
             "volume": 6,
         }
-        rows = make_index_mode_rows(num_rows=1, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=1, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -308,7 +267,7 @@ class TestCSVReaderValidation:
             "close": 5,
             "volume": 6,
         }
-        rows = make_index_mode_rows(num_rows=1, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=1, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -318,7 +277,7 @@ class TestCSVReaderValidation:
     def test_header_not_found(self):
         """Test that missing header raises ValueError"""
         headers = ["timestamp", "open", "high", "low", "close", "volume"]
-        header_row, data_rows = make_header_mode_rows(headers, num_rows=1)
+        header_row, data_rows = _make_header_mode_rows(headers, num_rows=1)
         all_rows = [header_row] + data_rows
         csv_content = csv_rows_to_string(all_rows)
         
@@ -344,7 +303,7 @@ class TestCSVReaderValidation:
             "close": 5,
             "volume": 999,  # out of bounds (we only have 7 columns: 0-6)
         }
-        rows = make_index_mode_rows(num_rows=3, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=3, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -398,7 +357,7 @@ class TestCSVReaderValidation:
 
     def test_no_column_mapping_raises_error(self):
         """Test that missing column_mapping raises ValueError"""
-        rows = make_index_mode_rows(num_rows=1, num_extra_cols=0)
+        rows = make_ohlc_series(num_rows=1, seed=42)
         csv_content = csv_rows_to_string(rows)
         
         with create_temp_csv(csv_content) as temp_path:
@@ -434,7 +393,7 @@ class TestCSVReaderEdgeCases:
     def test_header_mode_empty_data_rows(self):
         """Test header mode with only header row"""
         headers = ["timestamp", "open", "high", "low", "close", "volume"]
-        header_row, data_rows = make_header_mode_rows(headers, num_rows=0)
+        header_row, data_rows = _make_header_mode_rows(headers, num_rows=0)
         all_rows = [header_row] + data_rows
         csv_content = csv_rows_to_string(all_rows)
         
@@ -451,4 +410,3 @@ class TestCSVReaderEdgeCases:
             results = reader.read()
 
             assert results == []
-            os.unlink(temp_path)

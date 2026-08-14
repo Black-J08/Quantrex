@@ -1,7 +1,13 @@
 """Tests for Candle model."""
 
 from datetime import datetime
+from quantrex_data.providers.csv_reader import CSVReader
 from quantrex_backtest.models.candle import Candle
+from quantrex_test_support.csv import (
+    make_ohlc_series,
+    csv_rows_to_string,
+    create_temp_csv,
+)
 
 
 class TestCandle:
@@ -66,6 +72,76 @@ class TestCandle:
         assert candle.low == 737.20
         assert candle.close == 737.20
         assert candle.volume == 1.0
+
+    def test_candle_from_csv_integration(self):
+        """Test Candle.from_row with data from full CSV pipeline using test-support."""
+        # Generate realistic OHLC data using test-support
+        rows = make_ohlc_series(num_rows=3, seed=42)
+        csv_content = csv_rows_to_string(rows)
+
+        with create_temp_csv(csv_content) as temp_path:
+            mapping = {
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            }
+            reader = CSVReader(temp_path, mapping)
+            csv_rows = reader.read()
+
+            candles = [Candle.from_row(row, symbol="COPPER") for row in csv_rows]
+
+            assert len(candles) == 3
+            for candle in candles:
+                assert candle.symbol == "COPPER"
+                assert isinstance(candle.timestamp, datetime)
+                assert candle.open > 0
+                assert candle.high >= candle.open
+                assert candle.low <= candle.open
+                assert candle.close > 0
+                assert candle.volume > 0
+
+    def test_candle_from_csv_with_custom_datetime_format(self):
+        """Test Candle.from_row with custom datetime format through CSV pipeline."""
+        # Generate data with custom datetime format
+        rows = make_ohlc_series(
+            num_rows=2,
+            start_datetime=datetime(2023, 6, 20, 19, 0),
+            interval_minutes=60,
+            seed=42,
+        )
+        # Convert to custom format: YYYY-MM-DD HH:MM:SS
+        custom_rows = []
+        for row in rows:
+            date_str, time_str = row[0], row[1]
+            dt = datetime.strptime(f"{date_str} {time_str}", "%Y%m%d %H:%M")
+            custom_datetime = dt.strftime("%Y-%m-%d %H:%M:%S")
+            custom_rows.append([custom_datetime] + row[2:])
+
+        csv_content = csv_rows_to_string(custom_rows)
+
+        with create_temp_csv(csv_content) as temp_path:
+            mapping = {
+                "datetime": 0,
+                "open": 1,
+                "high": 2,
+                "low": 3,
+                "close": 4,
+                "volume": 5,
+            }
+            reader = CSVReader(temp_path, mapping)
+            csv_rows = reader.read()
+
+            candles = [
+                Candle.from_row(row, symbol="COPPER", datetime_format="%Y-%m-%d %H:%M:%S")
+                for row in csv_rows
+            ]
+
+            assert len(candles) == 2
+            assert candles[0].timestamp == datetime(2023, 6, 20, 19, 0, 0)
+            assert candles[1].timestamp == datetime(2023, 6, 20, 20, 0, 0)
 
     def test_candle_from_row_missing_key(self):
         """Test Candle.from_row raises ValueError for missing key."""

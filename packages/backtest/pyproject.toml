@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov"]
+dev = ["pytest", "pytest-cov", "quantrex-test-support"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -20,6 +20,7 @@ pythonpath = ["src"]
 
 [tool.uv.sources]
 quantrex-data = { workspace = true }
+quantrex-test-support = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=61.0"]

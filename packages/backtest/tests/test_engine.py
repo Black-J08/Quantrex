@@ -1,7 +1,5 @@
 """Tests for BacktestEngine."""
 
-import tempfile
-import os
 from unittest.mock import Mock, MagicMock
 from datetime import datetime
 
@@ -9,6 +7,11 @@ from quantrex_data.providers.csv_reader import CSVReader
 from quantrex_backtest import BacktestEngine, Candle
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 from quantrex_backtest.feeders.data_feeder import DataFeeder
+from quantrex_test_support.csv import (
+    make_ohlc_series,
+    csv_rows_to_string,
+    create_temp_csv,
+)
 
 
 class TestBacktestEngine:
@@ -32,16 +35,14 @@ class TestBacktestEngine:
 
     def test_engine_processes_candles_in_timestamp_order(self):
         """Engine should process candles sorted by timestamp."""
-        # Create CSV with out-of-order timestamps
-        csv_content = (
-            "20230621,10:06,740.00,740.00,740.00,740.00,2,1\n"  # Later
-            "20230620,19:00,737.20,737.20,737.20,737.20,1,1\n"  # Earlier
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        # Create CSV with out-of-order timestamps using test-support
+        rows = [
+            ["20230621", "10:06", "740.00", "740.00", "740.00", "740.00", "2", "1"],  # Later
+            ["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
+        ]
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -60,21 +61,13 @@ class TestBacktestEngine:
             # Should be sorted by timestamp (earlier first)
             assert received_candles[0].timestamp == datetime(2023, 6, 20, 19, 0)
             assert received_candles[1].timestamp == datetime(2023, 6, 21, 10, 6)
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_calls_callback_for_each_candle(self):
         """Engine should invoke on_candle callback for each candle."""
-        csv_content = (
-            "20230620,19:00,737.20,737.20,737.20,737.20,1,1\n"
-            "20230621,10:06,740.00,740.00,740.00,740.00,2,1\n"
-            "20230621,10:36,738.60,738.60,738.60,738.60,1,2\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        rows = make_ohlc_series(num_rows=3, seed=42)
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -94,8 +87,6 @@ class TestBacktestEngine:
                 candle = call_args[0][0]
                 assert isinstance(candle, Candle)
                 assert candle.symbol == "COPPER"
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_handles_empty_data(self):
         """Engine should handle empty data gracefully."""
@@ -111,12 +102,12 @@ class TestBacktestEngine:
 
     def test_engine_passes_candle_with_correct_values(self):
         """Engine should pass correctly parsed Candle to callback."""
-        csv_content = "20230620,19:00,737.20,738.00,736.50,737.50,100,50\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        rows = [
+            ["20230620", "19:00", "737.20", "738.00", "736.50", "737.50", "100", "50"],
+        ]
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -140,8 +131,6 @@ class TestBacktestEngine:
             assert candle.low == 736.50
             assert candle.close == 737.50
             assert candle.volume == 100.0
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_raises_on_feeder_read_failure(self):
         """Engine should wrap feeder read() failures in ProviderError."""
@@ -160,12 +149,12 @@ class TestBacktestEngine:
     def test_engine_raises_on_invalid_candle_data(self):
         """Engine should raise ProviderError for malformed candle data."""
         # CSV with invalid float value
-        csv_content = "20230620,19:00,not_a_number,738.00,736.50,737.50,100,50\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        rows = [
+            ["20230620", "19:00", "not_a_number", "738.00", "736.50", "737.50", "100", "50"],
+        ]
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -182,20 +171,16 @@ class TestBacktestEngine:
                 assert False, "Should have raised ProviderError"
             except ProviderError as e:
                 assert "Failed to process candle" in str(e)
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_deterministic_order(self):
         """Engine should produce identical callback sequence on repeated runs."""
-        csv_content = (
-            "20230621,10:06,740.00,740.00,740.00,740.00,2,1\n"
-            "20230620,19:00,737.20,737.20,737.20,737.20,1,1\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        rows = [
+            ["20230621", "10:06", "740.00", "740.00", "740.00", "740.00", "2", "1"],  # Later
+            ["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
+        ]
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -215,17 +200,11 @@ class TestBacktestEngine:
 
             assert run1_timestamps == run2_timestamps
             assert run1_timestamps == [datetime(2023, 6, 20, 19, 0), datetime(2023, 6, 21, 10, 6)]
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_custom_datetime_format(self):
         """Engine should respect custom datetime_format parameter."""
         csv_content = "2023-06-20 19:00:00,737.20,738.00,736.50,737.50,100\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
-
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": 0,
                 "open": 1,
@@ -242,8 +221,6 @@ class TestBacktestEngine:
 
             assert len(received) == 1
             assert received[0].timestamp == datetime(2023, 6, 20, 19, 0, 0)
-        finally:
-            os.unlink(temp_path)
 
     def test_engine_with_mock_feeder(self):
         """Engine should work with any DataFeeder implementation."""

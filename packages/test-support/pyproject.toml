@@ -1,13 +1,13 @@
 [project]
-name = "quantrex-data"
+name = "quantrex-test-support"
 version = "0.1.0"
-description = "Quantrex data providers package"
+description = "Quantrex test support utilities - temporary CSV file generation"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = ["loguru"]
+dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "quantrex-test-support"]
+dev = ["pytest", "pytest-cov"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -16,8 +16,7 @@ where = ["src"]
 pythonpath = ["src"]
 
 [tool.uv.sources]
-quantrex-data = { path = "." }
-quantrex-test-support = { workspace = true }
+quantrex-test-support = { path = "." }
 
 [build-system]
 requires = ["setuptools>=61.0"]

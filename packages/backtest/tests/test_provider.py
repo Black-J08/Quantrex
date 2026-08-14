@@ -1,9 +1,12 @@
 """Tests for DataFeeder protocol compliance."""
 
-import tempfile
-import os
 from quantrex_data.providers.csv_reader import CSVReader
 from quantrex_backtest.feeders.data_feeder import DataFeeder
+from quantrex_test_support.csv import (
+    make_ohlc_series,
+    csv_rows_to_string,
+    create_temp_csv,
+)
 
 
 class TestDataFeederProtocol:
@@ -11,13 +14,11 @@ class TestDataFeederProtocol:
 
     def test_csv_reader_implements_data_feeder(self):
         """CSVReader should satisfy DataFeeder protocol via duck typing."""
-        # Create a minimal CSV file
-        csv_content = "20230620,19:00,737.20,737.20,737.20,737.20,1,1\n"
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        # Create a minimal CSV file using test-support
+        rows = make_ohlc_series(num_rows=1, seed=42)
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -47,20 +48,13 @@ class TestDataFeederProtocol:
             # Protocol compliance: can be used where DataFeeder is expected
             feeder: DataFeeder = reader
             assert feeder.read() == result
-        finally:
-            os.unlink(temp_path)
 
     def test_csv_reader_read_returns_expected_shape(self):
         """CSVReader.read() returns list of dicts with required keys."""
-        csv_content = (
-            "20230620,19:00,737.20,737.20,737.20,737.20,1,1\n"
-            "20230621,10:06,740.00,740.00,740.00,740.00,2,1\n"
-        )
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
-            f.write(csv_content)
-            temp_path = f.name
+        rows = make_ohlc_series(num_rows=2, seed=42)
+        csv_content = csv_rows_to_string(rows)
 
-        try:
+        with create_temp_csv(csv_content) as temp_path:
             mapping = {
                 "datetime": [0, 1],
                 "open": 2,
@@ -75,5 +69,3 @@ class TestDataFeederProtocol:
             assert len(result) == 2
             for row in result:
                 assert set(row.keys()) >= {"datetime", "open", "high", "low", "close", "volume"}
-        finally:
-            os.unlink(temp_path)
