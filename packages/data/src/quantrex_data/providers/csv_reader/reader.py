@@ -10,8 +10,6 @@ class CSVReader:
         self.file_path = file_path
         self.column_mapping = column_mapping
         self._mode: Literal["index", "header"] | None = None
-        
-        self.read()  # Automatically read the CSV file upon initialization
 
     def read(self) -> list[dict]:
         self._validate_mapping()

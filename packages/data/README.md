@@ -30,6 +30,7 @@ reader = CSVReader(
         "close": 5,
     }
 )
+data = reader.read()  # Explicitly read the CSV file
 
 # Header mode (CSV with headers)
 reader = CSVReader(
@@ -42,6 +43,7 @@ reader = CSVReader(
         "close": "close",
     }
 )
+data = reader.read()  # Explicitly read the CSV file
 ```
 
 ## Column Mapping
