@@ -1,0 +1,26 @@
+[project]
+name = "quantrex-backtest"
+version = "0.1.0"
+description = "Quantrex backtest engine package"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "quantrex-data",
+    "loguru",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.uv.sources]
+quantrex-data = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

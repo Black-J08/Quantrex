@@ -5,6 +5,7 @@ requires-python = ">=3.13"
 [manifest]
 members = [
     "quantrex",
+    "quantrex-backtest",
     "quantrex-data",
 ]
 
@@ -209,6 +210,30 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
 ]
+
+[[package]]
+name = "quantrex-backtest"
+version = "0.1.0"
+source = { editable = "packages/backtest" }
+dependencies = [
+    { name = "loguru" },
+    { name = "quantrex-data" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru" },
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "quantrex-data", editable = "packages/data" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "quantrex-data"
