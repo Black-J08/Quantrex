@@ -1,0 +1,28 @@
+[project]
+name = "quantrex-live"
+version = "0.1.0"
+description = "Quantrex live trading package"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "quantrex-core",
+    "quantrex-data",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "quantrex-test-support"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.uv.sources]
+quantrex-core = { workspace = true }
+quantrex-data = { workspace = true }
+quantrex-test-support = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

@@ -6,7 +6,9 @@ requires-python = ">=3.13"
 members = [
     "quantrex",
     "quantrex-backtest",
+    "quantrex-core",
     "quantrex-data",
+    "quantrex-live",
     "quantrex-test-support",
 ]
 
@@ -239,6 +241,26 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
+name = "quantrex-core"
+version = "0.1.0"
+source = { editable = "packages/core" }
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "quantrex-data" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "quantrex-data", marker = "extra == 'dev'", editable = "packages/data" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "quantrex-data"
 version = "0.1.0"
 source = { editable = "packages/data" }
@@ -258,6 +280,32 @@ requires-dist = [
     { name = "loguru" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "quantrex-test-support", marker = "extra == 'dev'", editable = "packages/test-support" },
+]
+provides-extras = ["dev"]
+
+[[package]]
+name = "quantrex-live"
+version = "0.1.0"
+source = { editable = "packages/live" }
+dependencies = [
+    { name = "quantrex-core" },
+    { name = "quantrex-data" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "quantrex-test-support" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pytest", marker = "extra == 'dev'" },
+    { name = "pytest-cov", marker = "extra == 'dev'" },
+    { name = "quantrex-core", editable = "packages/core" },
+    { name = "quantrex-data", editable = "packages/data" },
     { name = "quantrex-test-support", marker = "extra == 'dev'", editable = "packages/test-support" },
 ]
 provides-extras = ["dev"]
