@@ -223,3 +223,4 @@ __marimo__/
 *.py[oc]
 
 example_csv_data/
+/data/
