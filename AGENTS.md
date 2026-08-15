@@ -95,7 +95,7 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 
 ## Monorepo & Python Packaging (uv + pyproject.toml)
 
-**Use `uv` for all Python package management.** It is the single tool for dependency resolution, virtual environments, and building. Use `uv` exclusively for Python execution and testing. Run Python scripts with `uv run python <script.py>` and run pytest with `uv run pytest`. Do not use `python`, `python3`, `pip`, or manually activate virtual environments. Ensure dependencies are managed through the project's `pyproject.toml` and `uv.lock`.
+**Use `uv` for all Python package management.** It is the single tool for dependency resolution, virtual environments, and building. Use `uv` exclusively for Python execution and testing. Run Python scripts with `uv run python <script.py>` and run pytest with `uv run pytest`. Do not use `python`, `python3`, `pip`, or manually activate virtual environments. Ensure dependencies are managed through the project's `pyproject.toml` and `uv.lock`. Use `uv sync --dev` when setting up or updating the environment.
 
 
 ### Monorepo Layout (example)

@@ -12,17 +12,22 @@ class LiveEngine:
     Will eventually connect to brokers and execute strategies in real-time.
     """
     
-    def __init__(self) -> None:
-        """Initialize live engine."""
-        pass
-    
-    def run(self, strategy: Strategy) -> None:
-        """Run strategy with live market data.
-        
+    def __init__(self, strategy: Strategy) -> None:
+        """Initialize live engine with a strategy.
+
         Args:
-            strategy: Strategy instance to run
-            
+            strategy: Strategy instance to execute
+        """
+        self._strategy = strategy
+    
+    def run(self) -> None:
+        """Run strategy with live market data.
+
+        Calls strategy.on_start(), then strategy.on_candle() for each live candle,
+        then strategy.on_stop().
+
         Raises:
             NotImplementedError: Always, as this is a placeholder.
         """
+        self._strategy.on_start()
         raise NotImplementedError("Live engine not yet implemented")
