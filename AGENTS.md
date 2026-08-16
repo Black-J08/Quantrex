@@ -50,6 +50,16 @@ Before implementing:
 * If a simpler approach exists, say so. Push back when warranted.
 * If something is unclear, stop. Name what's confusing. Ask.
 
+## Object-Oriented Design
+
+* Follow core OOP principles consistently in Python: **encapsulation, abstraction, composition, polymorphism, and single responsibility**.
+* Model real-world/domain entities as cohesive classes that encapsulate both their state and the behavior operating on that state.
+* Prefer **composition and dependency injection** over inheritance when establishing relationships between components.
+* Keep classes focused, modular, reusable, and independently testable; avoid god classes and unnecessary coupling.
+* Use `Protocol` only to define genuine behavioral contracts or replaceable dependencies—not merely because two classes interact.
+* Expose behavior through well-defined public interfaces and keep implementation details private.
+* Before introducing an abstraction, verify that it represents a real domain responsibility or architectural boundary; avoid speculative abstractions.
+
 ## Simplicity First
 **Minimum code that solves the problem. Nothing speculative.**
 
