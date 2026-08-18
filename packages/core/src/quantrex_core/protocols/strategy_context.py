@@ -12,11 +12,20 @@ class StrategyContext(Protocol):
         symbol: str,
         side: OrderSide,
         quantity: float,
+        price: float,
         order_type: OrderType = OrderType.MARKET,
     ) -> Order:
         """Submit a MARKET order. Returns Order with status ACCEPTED/REJECTED.
         Order accepted immediately; net position updated synchronously.
-        Order recorded for audit trail only."""
+        Order recorded for audit trail only.
+
+        Args:
+            symbol: Trading symbol
+            side: BUY or SELL
+            quantity: Order quantity (must be > 0)
+            price: Fill price for the order (required, no default)
+            order_type: Order type (MARKET only in MVP)
+        """
         ...
 
     def get_position(self, symbol: str) -> Position:

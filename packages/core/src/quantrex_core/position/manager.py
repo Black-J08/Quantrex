@@ -5,14 +5,16 @@ from typing import Dict, List, Optional
 from ..models.enums import OrderSide, OrderType, OrderStatus, PositionSide
 from ..models.order import Order
 from ..models.position import Position
+from ..models.trade import TradeRecord
 
 
 class PositionManager:
     """Authoritative order/position state and behavior. Immediate acceptance, no fill simulation."""
 
     def __init__(self) -> None:
-        self._orders: Dict[str, Order] = {}      # Audit trail: order_id -> Order
-        self._positions: Dict[str, Position] = {} # Current exposure: symbol -> Position
+        self._orders: Dict[str, Order] = {}           # Audit trail: order_id -> Order
+        self._positions: Dict[str, Position] = {}      # Current exposure: symbol -> Position
+        self._closed_trades: List[TradeRecord] = []    # Completed trade records
         self._order_counter: int = 0
 
     def _make_position(
@@ -52,9 +54,14 @@ class PositionManager:
         quantity: float,
         order_type: OrderType,
         timestamp: datetime,
+        price: float,
     ) -> Order:
         """Process order immediately: validate, record for audit, update position, return Order.
-        Order recording serves ONLY as audit trail — does not imply fill/execution semantics."""
+        Order recording serves ONLY as audit trail — does not imply fill/execution semantics.
+
+        When position's absolute quantity decreases (|new_qty| < |current_qty|),
+        a TradeRecord is created for the closed portion.
+        """
         self._order_counter += 1
         order_id = str(self._order_counter)
 
@@ -92,13 +99,35 @@ class PositionManager:
                 symbol=symbol,
                 quantity=new_qty,
                 entry_timestamp=timestamp,
-                entry_price=0.0,  # MARKET order price not known at submission
+                entry_price=price,
                 side=side,
             )
         else:
             # Update existing position
             new_qty = current.quantity + delta
-            # Preserve original entry_timestamp and entry_price
+
+            # Check if position's absolute quantity decreased (trade closed)
+            if abs(new_qty) < abs(current.quantity):
+                closed_qty = abs(current.quantity) - abs(new_qty)
+                # Determine trade side from the position being reduced
+                trade_side = current.position_side
+                # P&L calculation: (exit_price - entry_price) * closed_qty * side_multiplier
+                side_multiplier = 1.0 if trade_side == PositionSide.LONG else -1.0
+                pnl = (price - current.entry_price) * closed_qty * side_multiplier
+
+                trade_record = TradeRecord(
+                    symbol=symbol,
+                    side=trade_side,
+                    quantity=closed_qty,
+                    entry_timestamp=current.entry_timestamp,
+                    entry_price=current.entry_price,
+                    exit_timestamp=timestamp,
+                    exit_price=price,
+                    pnl=pnl,
+                )
+                self._closed_trades.append(trade_record)
+
+            # Preserve original entry_timestamp and entry_price for remaining position
             self._positions[symbol] = self._make_position(
                 symbol=symbol,
                 quantity=new_qty,
@@ -118,3 +147,7 @@ class PositionManager:
     def get_all_positions(self) -> List[Position]:
         """Return a list of all current positions."""
         return list(self._positions.values())
+
+    def get_closed_trades(self) -> List[TradeRecord]:
+        """Return a copy of all closed trade records."""
+        return list(self._closed_trades)
