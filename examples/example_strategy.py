@@ -1,18 +1,34 @@
-"""Minimal example strategy demonstrating the Quantrex researcher workflow.
+"""Example strategy demonstrating the new StrategyContext API.
 
 One script works for backtesting, paper trading, and live trading.
 This version uses synthetic data generated via quantrex-test-support helpers.
 """
 
 from quantrex_core.models import Candle
+from quantrex_core.models.enums import OrderSide
+from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.csv_reader import CSVReader
 from quantrex_backtest import BacktestEngine
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 
-def strategy(candle: Candle) -> None:
-    """Strategy logic: print each candle (replace with your logic)."""
-    print(f"{candle.timestamp} | {candle.symbol} | O:{candle.open} H:{candle.high} L:{candle.low} C:{candle.close} V:{candle.volume}")
+class MyStrategy(Strategy):
+    """Example strategy that buys when close > open and reports position."""
+
+    def on_candle(self, candle: Candle) -> None:
+        """Simple logic: if candle is bullish, buy 10 units."""
+        if candle.close > candle.open:
+            # Submit a market buy order for 10 units
+            order = self.ctx.submit_order(
+                symbol=candle.symbol,
+                side=OrderSide.BUY,
+                quantity=10.0
+            )
+            print(f"[{candle.timestamp}] Submitted BUY 10 {candle.symbol} -> Order {order.id} ({order.status})")
+        
+        # Always report current position
+        position = self.ctx.get_position(candle.symbol)
+        print(f"[{candle.timestamp}] Position for {candle.symbol}: {position.quantity}")
 
 
 if __name__ == "__main__":
@@ -34,8 +50,9 @@ if __name__ == "__main__":
             },
         )
 
-        # 3. Create engine with data feeder
-        engine = BacktestEngine(reader, symbol="COPPER")
+        # 3. Create engine with data feeder and strategy instance
+        strategy = MyStrategy()
+        engine = BacktestEngine(reader, strategy, symbol="COPPER")
 
-        # 4. Run backtest - engine calls strategy(candle) for each candle in timestamp order
-        engine.run(strategy)
+        # 4. Run backtest - engine will call strategy.on_start(), on_candle(), on_stop()
+        engine.run()

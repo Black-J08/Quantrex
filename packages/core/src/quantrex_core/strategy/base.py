@@ -5,6 +5,8 @@ all execution environments (backtest, live, paper trading, etc.).
 """
 
 from abc import ABC, abstractmethod
+
+from ..protocols import StrategyContext
 from ..models.candle import Candle
 
 
@@ -27,7 +29,17 @@ class Strategy(ABC):
                 self.position = 0
                 self.indicator_values = []
         """
-        pass
+        self._ctx: StrategyContext | None = None
+    
+    def set_context(self, ctx: StrategyContext) -> None:
+        """Inject StrategyContext after construction. Called by Engine."""
+        self._ctx = ctx
+    
+    @property
+    def ctx(self) -> StrategyContext:
+        if self._ctx is None:
+            raise RuntimeError("StrategyContext not set. Call set_context() first.")
+        return self._ctx
     
     @abstractmethod
     def on_candle(self, candle: Candle) -> None:

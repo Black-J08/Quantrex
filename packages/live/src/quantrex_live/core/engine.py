@@ -3,7 +3,10 @@
 Minimal placeholder to establish future integration point for live trading.
 """
 
+from datetime import datetime
 from quantrex_core.strategy.base import Strategy
+from quantrex_core.position.manager import PositionManager
+from .context import LiveStrategyContext
 
 
 class LiveEngine:
@@ -19,6 +22,9 @@ class LiveEngine:
             strategy: Strategy instance to execute
         """
         self._strategy = strategy
+        self._position_manager = PositionManager()
+        self._context = LiveStrategyContext(self._position_manager)
+        self._strategy.set_context(self._context)
     
     def run(self) -> None:
         """Run strategy with live market data.

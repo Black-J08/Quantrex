@@ -1,10 +1,13 @@
 """Backtest engine core orchestration."""
 
+from datetime import datetime
 from loguru import logger
 
 from quantrex_core.models import Candle
 from quantrex_core.protocols import DataFeeder
 from quantrex_core.strategy.base import Strategy
+from quantrex_core.position.manager import PositionManager
+from .context import BacktestStrategyContext
 from ..exceptions.backtest_error import ProviderError
 
 
@@ -57,6 +60,13 @@ class BacktestEngine:
         self._symbol = symbol
         self._datetime_format = datetime_format
 
+        # NEW: Create PositionManager and StrategyContext
+        self._position_manager = PositionManager()
+        self._context = BacktestStrategyContext(self._position_manager, datetime.min)
+        
+        # Inject context into Strategy
+        self._strategy.set_context(self._context)
+
     def run(self) -> None:
         """Run the backtest, invoking the strategy's lifecycle methods.
 
@@ -89,6 +99,8 @@ class BacktestEngine:
         for idx, row in enumerate(raw_data):
             try:
                 candle = Candle.from_row(row, self._symbol, self._datetime_format)
+                # Update context time for order timestamps
+                self._context.update_time(candle.timestamp)
                 self._strategy.on_candle(candle)
             except Exception as e:
                 logger.exception("Failed to process candle at index {}", idx)
