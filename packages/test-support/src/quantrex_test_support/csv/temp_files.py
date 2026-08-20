@@ -18,8 +18,11 @@ def create_temp_csv(content: str) -> Generator[str, None, None]:
 
     Example:
         with create_temp_csv("date,time,open,high,low,close,volume\n20230620,19:00,737.20,737.20,737.20,737.20,1") as path:
-            reader = CSVReader(path, mapping)
-            results = reader.read()
+            from quantrex_data.providers.csv_provider import CSVDataProvider
+            from quantrex_data.adapters.csv_adapter import CSVDataAdapter
+            provider = CSVDataProvider(path, has_header=True)
+            adapter = CSVDataAdapter(provider, mapping={...})
+            results = adapter.read()
     """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         f.write(content)

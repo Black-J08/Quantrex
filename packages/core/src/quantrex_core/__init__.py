@@ -5,13 +5,13 @@ from .models.candle import Candle
 from .models.enums import OrderSide, OrderType, OrderStatus
 from .models.order import Order
 from .models.position import Position
-from .protocols.data_feeder import DataFeeder
-from .protocols.strategy_context import StrategyContext
+from .protocols import DataProvider, DataAdapter, StrategyContext
 from .strategy.base import Strategy
 
 __all__ = [
     "Candle",
-    "DataFeeder",
+    "DataProvider",
+    "DataAdapter",
     "Strategy",
     "StrategyError",
     # Enums

@@ -1,7 +1,8 @@
 """Tests for Candle model."""
 
 from datetime import datetime
-from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_data.providers.csv_provider import CSVDataProvider
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_core.models import Candle
 from quantrex_test_support.csv import (
     make_ohlc_series,
@@ -80,16 +81,16 @@ class TestCandle:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
-            csv_rows = reader.read()
+            })
+            csv_rows = adapter.read()
 
             candles = [Candle.from_row(row, symbol="COPPER") for row in csv_rows]
 
@@ -123,16 +124,16 @@ class TestCandle:
         csv_content = csv_rows_to_string(custom_rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": 0,
                 "open": 1,
                 "high": 2,
                 "low": 3,
                 "close": 4,
                 "volume": 5,
-            }
-            reader = CSVReader(temp_path, mapping)
-            csv_rows = reader.read()
+            })
+            csv_rows = adapter.read()
 
             candles = [
                 Candle.from_row(row, symbol="COPPER", datetime_format="%Y-%m-%d %H:%M:%S")

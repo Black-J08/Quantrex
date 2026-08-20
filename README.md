@@ -12,14 +12,15 @@ This is a monorepo with the following packages:
 
 | Package | Description |
 |---------|-------------|
-| `quantrex-data` | Data providers for reading CSV market data |
+| `quantrex-data` | Data providers and adapters for market data |
 | `quantrex-backtest` | Deterministic event-driven backtest engine |
 | `quantrex-test-support` | Test utilities for generating temporary CSV data |
 
 ## Quick Start
 
 ```python
-from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_data.providers.csv_provider import CSVDataProvider
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_backtest import BacktestEngine
 from quantrex_test_support.csv import make_ohlc_series, create_temp_csv
 
@@ -27,10 +28,11 @@ from quantrex_test_support.csv import make_ohlc_series, create_temp_csv
 rows = make_ohlc_series(num_rows=10, start_price=737.20, seed=42)
 csv_content = csv_rows_to_string(rows)
 
-# Create temporary CSV and configure reader
+# Create temporary CSV and configure data pipeline
 with create_temp_csv(csv_content) as temp_path:
-    reader = CSVReader(
-        temp_path,
+    provider = CSVDataProvider(temp_path, has_header=False)
+    adapter = CSVDataAdapter(
+        provider,
         column_mapping={
             "datetime": [0, 1],
             "open": 2,
@@ -42,7 +44,7 @@ with create_temp_csv(csv_content) as temp_path:
     )
 
     # Run backtest
-    engine = BacktestEngine(reader, symbol="COPPER")
+    engine = BacktestEngine(adapter, symbol="COPPER")
     engine.run(lambda candle: print(candle.timestamp, candle.close))
 ```
 

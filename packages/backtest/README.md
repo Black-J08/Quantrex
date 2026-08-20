@@ -5,7 +5,8 @@ Deterministic event-driven backtest engine for Quantrex.
 ## Usage
 
 ```python
-from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_data.providers.csv_provider import CSVDataProvider
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_backtest import BacktestEngine
 from quantrex_core import Strategy, Candle
 
@@ -15,26 +16,27 @@ class MyStrategy(Strategy):
         print(f"{candle.timestamp} - Close: {candle.close}")
 
 
-reader = CSVReader("data.csv", mapping={...})
+provider = CSVDataProvider("data.csv", has_header=False)
+adapter = CSVDataAdapter(provider, column_mapping={...})
 strategy = MyStrategy()
-engine = BacktestEngine(reader, strategy, symbol="COPPER")
+engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 engine.run()
 ```
 
 ## API
 
-### `BacktestEngine(feeder, strategy, symbol="", datetime_format="%Y%m%d %H:%M")`
+### `BacktestEngine(adapter, strategy, symbol="", datetime_format="%Y%m%d %H:%M")`
 
-- `feeder`: DataFeeder instance providing candle data via `read()`
+- `adapter`: DataAdapter instance providing normalized candle data via `read()`
 - `strategy`: Strategy instance to execute
 - `symbol`: Trading symbol for the candles (optional)
-- `datetime_format`: Format string for parsing datetime from feeder data (optional)
+- `datetime_format`: Format string for parsing datetime from adapter data (optional)
 
 ### `engine.run()`
 
 Executes the backtest:
 1. Calls `strategy.on_start()`
-2. For each candle from feeder (sorted by timestamp): calls `strategy.on_candle(candle)`
+2. For each candle from adapter (sorted by timestamp): calls `strategy.on_candle(candle)`
 3. Calls `strategy.on_stop()`
 
 ## Installation
@@ -46,7 +48,7 @@ uv add quantrex-backtest
 
 ## Error Handling
 
-- `ProviderError`: Raised when feeder is None, strategy is None, or feeder.read() fails
+- `ProviderError`: Raised when adapter is None, strategy is None, or adapter.read() fails
 - Malformed rows are skipped with WARNING logs (via loguru)
 
 ## Testing
