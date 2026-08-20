@@ -1,13 +1,14 @@
 """Example strategy demonstrating the new StrategyContext API.
 
 One script works for backtesting, paper trading, and live trading.
-This version uses synthetic data generated via quantrex-test-support helpers.
+This version uses the new DataProvider → DataAdapter pattern.
 """
 
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
-from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_data.providers.csv_provider import CSVDataProvider
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_backtest import BacktestEngine
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
@@ -36,10 +37,11 @@ if __name__ == "__main__":
     rows = make_ohlc_series(num_rows=10, start_price=737.20, seed=42)
     csv_content = csv_rows_to_string(rows)
 
-    # 2. Create temporary CSV file and configure data source
+    # 2. Create temporary CSV file and configure data source using new pattern
     with create_temp_csv(csv_content) as temp_path:
-        reader = CSVReader(
-            temp_path,
+        provider = CSVDataProvider(temp_path, has_header=False)
+        adapter = CSVDataAdapter(
+            provider,
             column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -50,9 +52,9 @@ if __name__ == "__main__":
             },
         )
 
-        # 3. Create engine with data feeder and strategy instance
+        # 3. Create engine with data adapter and strategy instance
         strategy = MyStrategy()
-        engine = BacktestEngine(reader, strategy, symbol="COPPER")
+        engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
         # 4. Run backtest - engine will call strategy.on_start(), on_candle(), on_stop()
         engine.run()

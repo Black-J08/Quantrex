@@ -6,7 +6,7 @@ import csv
 from loguru import logger
 
 from quantrex_core.models import Candle
-from quantrex_core.protocols import DataFeeder
+from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.position.manager import PositionManager
 from .context import BacktestStrategyContext
@@ -20,7 +20,8 @@ class BacktestEngine:
     invoking a strategy's lifecycle methods for each candle.
 
     Example:
-        >>> from quantrex_data.providers.csv_reader import CSVReader
+        >>> from quantrex_data.providers.csv_provider import CSVDataProvider
+        >>> from quantrex_data.adapters.csv_adapter import CSVDataAdapter
         >>> from quantrex_backtest import BacktestEngine
         >>> from quantrex_core import Strategy, Candle
         >>>
@@ -28,15 +29,16 @@ class BacktestEngine:
         ...     def on_candle(self, candle: Candle) -> None:
         ...         print(candle.timestamp, candle.close)
         >>>
-        >>> reader = CSVReader("data.csv", mapping={...})
+        >>> provider = CSVDataProvider("data.csv", has_header=False)
+        >>> adapter = CSVDataAdapter(provider, mapping={...})
         >>> strategy = MyStrategy()
-        >>> engine = BacktestEngine(reader, strategy, symbol="COPPER")
+        >>> engine = BacktestEngine(adapter, strategy, symbol="COPPER")
         >>> engine.run()
     """
 
     def __init__(
         self,
-        feeder: DataFeeder,
+        adapter: DataAdapter,
         strategy: Strategy,
         symbol: str = "",
         datetime_format: str = "%Y%m%d %H:%M",
@@ -44,20 +46,20 @@ class BacktestEngine:
         """Initialize the backtest engine.
 
         Args:
-            feeder: DataFeeder instance providing candle data via read()
+            adapter: DataAdapter instance providing normalized candle data via read()
             strategy: Strategy instance to execute
             symbol: Trading symbol for the candles
-            datetime_format: Format string for parsing datetime from feeder data
+            datetime_format: Format string for parsing datetime from adapter data
 
         Raises:
-            ProviderError: If feeder is None or strategy is None.
+            ProviderError: If adapter is None or strategy is None.
         """
-        if feeder is None:
-            raise ProviderError("DataFeeder is required; received None")
+        if adapter is None:
+            raise ProviderError("DataAdapter is required; received None")
         if strategy is None:
             raise ProviderError("Strategy is required; received None")
 
-        self._feeder = feeder
+        self._adapter = adapter
         self._strategy = strategy
         self._symbol = symbol
         self._datetime_format = datetime_format
@@ -77,7 +79,7 @@ class BacktestEngine:
         After completion, exports closed trades to CSV.
 
         Raises:
-            ProviderError: If feeder.read() fails or returns invalid data.
+            ProviderError: If adapter.read() fails or returns invalid data.
         """
         backtest_start_utc = datetime.now(timezone.utc)
         logger.info("Starting backtest for symbol: {}", self._symbol)
@@ -85,13 +87,13 @@ class BacktestEngine:
         self._strategy.on_start()
 
         try:
-            raw_data = self._feeder.read()
+            raw_data = self._adapter.read()
         except Exception as e:
-            logger.exception("Feeder read() failed")
-            raise ProviderError(f"Failed to read data from feeder: {e}") from e
+            logger.exception("Adapter read() failed")
+            raise ProviderError(f"Failed to read data from adapter: {e}") from e
 
         if not raw_data:
-            logger.warning("No data returned from feeder; backtest completed with zero candles")
+            logger.warning("No data returned from adapter; backtest completed with zero candles")
             self._strategy.on_stop()
             self._export_trades_csv(backtest_start_utc, None, None)
             return

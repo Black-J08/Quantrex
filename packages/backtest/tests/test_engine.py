@@ -8,10 +8,11 @@ import csv
 from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.models.enums import OrderSide
-from quantrex_data.providers.csv_reader import CSVReader
+from quantrex_data.providers.csv_provider import CSVDataProvider
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_backtest import BacktestEngine
 from quantrex_backtest.exceptions.backtest_error import ProviderError
-from quantrex_core.protocols import DataFeeder
+from quantrex_core.protocols import DataAdapter
 from quantrex_test_support.csv import (
     make_ohlc_series,
     csv_rows_to_string,
@@ -110,32 +111,32 @@ class PartialCloseStrategy(Strategy):
 class TestBacktestEngine:
     """Tests for BacktestEngine core functionality."""
 
-    def test_engine_rejects_none_feeder(self):
-        """Engine should raise ProviderError when feeder is None."""
+    def test_engine_rejects_none_adapter(self):
+        """Engine should raise ProviderError when adapter is None."""
         strategy = TestStrategy()
         try:
             BacktestEngine(None, strategy, symbol="COPPER")
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
-            assert "DataFeeder is required" in str(e)
+            assert "DataAdapter is required" in str(e)
 
     def test_engine_rejects_none_strategy(self):
         """Engine should raise ProviderError when strategy is None."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.return_value = []
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = []
         try:
-            BacktestEngine(mock_feeder, None, symbol="COPPER")
+            BacktestEngine(mock_adapter, None, symbol="COPPER")
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
             assert "Strategy is required" in str(e)
 
-    def test_engine_accepts_valid_feeder_and_strategy(self):
-        """Engine should accept a valid DataFeeder and Strategy."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.return_value = []
+    def test_engine_accepts_valid_adapter_and_strategy(self):
+        """Engine should accept a valid DataAdapter and Strategy."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = []
         strategy = TestStrategy()
 
-        engine = BacktestEngine(mock_feeder, strategy, symbol="COPPER")
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
         assert engine is not None
 
     def test_engine_processes_candles_in_timestamp_order(self):
@@ -148,17 +149,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -173,17 +174,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -194,12 +195,12 @@ class TestBacktestEngine:
 
     def test_engine_calls_lifecycle_methods(self):
         """Engine should call on_start before and on_stop after processing."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.return_value = [
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = [
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
         ]
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_feeder, strategy, symbol="COPPER")
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
         engine.run()
 
@@ -209,11 +210,11 @@ class TestBacktestEngine:
 
     def test_engine_handles_empty_data(self):
         """Engine should handle empty data gracefully."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.return_value = []
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = []
 
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_feeder, strategy, symbol="COPPER")
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
         engine.run()
 
@@ -229,17 +230,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -253,19 +254,19 @@ class TestBacktestEngine:
             assert candle.close == 737.50
             assert candle.volume == 100.0
 
-    def test_engine_raises_on_feeder_read_failure(self):
-        """Engine should wrap feeder read() failures in ProviderError."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.side_effect = IOError("Disk error")
+    def test_engine_raises_on_adapter_read_failure(self):
+        """Engine should wrap adapter read() failures in ProviderError."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.side_effect = IOError("Disk error")
         strategy = TestStrategy()
 
-        engine = BacktestEngine(mock_feeder, strategy, symbol="COPPER")
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
         try:
             engine.run()
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
-            assert "Failed to read data from feeder" in str(e)
+            assert "Failed to read data from adapter" in str(e)
             assert "Disk error" in str(e)
 
     def test_engine_raises_on_invalid_candle_data(self):
@@ -277,17 +278,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             try:
                 engine.run()
@@ -304,23 +305,23 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             
             strategy1 = TestStrategy()
-            engine1 = BacktestEngine(reader, strategy1, symbol="COPPER")
+            engine1 = BacktestEngine(adapter, strategy1, symbol="COPPER")
             engine1.run()
             run1_timestamps = [c.timestamp for c in strategy1.candles]
 
             strategy2 = TestStrategy()
-            engine2 = BacktestEngine(reader, strategy2, symbol="COPPER")
+            engine2 = BacktestEngine(adapter, strategy2, symbol="COPPER")
             engine2.run()
             run2_timestamps = [c.timestamp for c in strategy2.candles]
 
@@ -334,32 +335,32 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER", datetime_format="%d-%m-%Y %H:%M")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER", datetime_format="%d-%m-%Y %H:%M")
 
             engine.run()
 
             assert len(strategy.candles) == 1
             assert strategy.candles[0].timestamp == datetime(2023, 6, 20, 19, 0)
 
-    def test_engine_with_mock_feeder(self):
-        """Engine should work with a mock feeder returning dict rows."""
-        mock_feeder = Mock(spec=DataFeeder)
-        mock_feeder.read.return_value = [
+    def test_engine_with_mock_adapter(self):
+        """Engine should work with a mock adapter returning dict rows."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = [
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"},
             {"datetime": "20230621 10:00", "open": "101", "high": "102", "low": "100", "close": "101", "volume": "20"},
         ]
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_feeder, strategy, symbol="COPPER")
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
         engine.run()
 
@@ -379,17 +380,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TradeRecordingStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -431,17 +432,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = PartialCloseStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -490,17 +491,17 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = TestStrategy()  # No orders submitted
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -557,17 +558,17 @@ class TestBacktestEngine:
                 pass
 
         with create_temp_csv(csv_content) as temp_path:
-            mapping = {
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
                 "high": 3,
                 "low": 4,
                 "close": 5,
                 "volume": 6,
-            }
-            reader = CSVReader(temp_path, mapping)
+            })
             strategy = ShortStrategy()
-            engine = BacktestEngine(reader, strategy, symbol="COPPER")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
