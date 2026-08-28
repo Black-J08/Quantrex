@@ -68,9 +68,9 @@ class TestDhanIntegration:
         # Create adapter
         adapter = DhanDataAdapter(mock_provider)
 
-        # Create strategy and engine - use Dhan's datetime format
+        # Create strategy and engine - adapter owns the datetime format
         strategy = TestStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE", datetime_format="%Y-%m-%d %H:%M:%S")
+        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
         # Run backtest
         engine.run()
@@ -110,7 +110,7 @@ class TestDhanIntegration:
 
         adapter = DhanDataAdapter(mock_provider)
         strategy = OrderStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE", datetime_format="%Y-%m-%d %H:%M:%S")
+        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
         engine.run()
 
@@ -303,23 +303,28 @@ class TestDhanExampleStrategyDatetimeFormat:
         assert first_row["datetime"].count(":") == 2  # HH:MM:SS
 
     def test_engine_with_mismatched_format_fails(self, mock_provider):
-        """Default BacktestEngine ("%Y%m%d %H:%M") cannot parse the adapter's output."""
+        """Mismatch is impossible: engine reads format from adapter (single source of truth).
+
+        Before the fix, passing a different ``datetime_format`` to the
+        engine than the adapter produced caused ``Candle.from_row`` to
+        fail. After the fix, the engine reads ``adapter.datetime_format``
+        directly, so no duplicate configuration exists and mismatch is
+        impossible by architecture.
+        """
         adapter = DhanDataAdapter(mock_provider)
         strategy = TestStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")  # engine default
-
-        from quantrex_backtest.exceptions.backtest_error import ProviderError
-
-        with pytest.raises(ProviderError, match="Failed to process candle"):
-            engine.run()
+        # Engine no longer accepts datetime_format; it reads from adapter.
+        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+        # Should succeed because adapter and engine agree automatically.
+        engine.run()
+        assert strategy.started
+        assert len(strategy.candles) == 5
 
     def test_engine_with_matching_format_succeeds(self, mock_provider):
         """When both adapter and engine use "%Y-%m-%d %H:%M:%S", the backtest runs cleanly."""
         adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
         strategy = TestStrategy()
-        engine = BacktestEngine(
-            adapter, strategy, symbol="RELIANCE", datetime_format="%Y-%m-%d %H:%M:%S"
-        )
+        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
         engine.run()
 
@@ -398,12 +403,7 @@ class TestDhanClosedTradesTimestampRegression:
                         self.ctx.submit_order(symbol=candle.symbol, side=OrderSide.SELL, quantity=pos.quantity)
 
         adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
-        engine = BacktestEngine(
-            adapter,
-            BuyAndSellStrategy(),
-            symbol="RELIANCE",
-            datetime_format="%Y-%m-%d %H:%M:%S",
-        )
+        engine = BacktestEngine(adapter, BuyAndSellStrategy(), symbol="RELIANCE")
         engine.run()
 
         # Locate the CSV the engine just wrote.

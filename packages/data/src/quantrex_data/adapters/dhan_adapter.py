@@ -91,6 +91,11 @@ class DhanDataAdapter:
         self._provider = provider
         self._datetime_format = datetime_format
         self._timezone_name = timezone
+    
+    @property
+    def datetime_format(self) -> str:
+        """Format string used for datetime parsing (single source of truth)."""
+        return self._datetime_format
 
         logger.debug(
             "DhanDataAdapter initialized with datetime_format='{}', source='{}', output='{}'",

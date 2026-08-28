@@ -118,7 +118,7 @@ def main() -> None:
     adapter = DhanDataAdapter(provider, datetime_format=DATETIME_FORMAT)
 
     strategy = SmaCrossoverStrategy(fast_period=FAST_PERIOD, slow_period=SLOW_PERIOD)
-    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE", datetime_format=DATETIME_FORMAT)
+    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
     try:
         print("\nStarting backtest...")

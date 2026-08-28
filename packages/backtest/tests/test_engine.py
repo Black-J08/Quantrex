@@ -124,6 +124,7 @@ class TestBacktestEngine:
         """Engine should raise ProviderError when strategy is None."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read.return_value = []
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
         try:
             BacktestEngine(mock_adapter, None, symbol="COPPER")
             assert False, "Should have raised ProviderError"
@@ -199,6 +200,7 @@ class TestBacktestEngine:
         mock_adapter.read.return_value = [
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
         ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
@@ -212,6 +214,7 @@ class TestBacktestEngine:
         """Engine should handle empty data gracefully."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read.return_value = []
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
 
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
@@ -258,6 +261,7 @@ class TestBacktestEngine:
         """Engine should wrap adapter read() failures in ProviderError."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read.side_effect = IOError("Disk error")
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
         strategy = TestStrategy()
 
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
@@ -336,16 +340,20 @@ class TestBacktestEngine:
 
         with create_temp_csv(csv_content) as temp_path:
             provider = CSVDataProvider(temp_path, has_header=False)
-            adapter = CSVDataAdapter(provider, column_mapping={
-                "datetime": [0, 1],
-                "open": 2,
-                "high": 3,
-                "low": 4,
-                "close": 5,
-                "volume": 6,
-            })
+            adapter = CSVDataAdapter(
+                provider,
+                column_mapping={
+                    "datetime": [0, 1],
+                    "open": 2,
+                    "high": 3,
+                    "low": 4,
+                    "close": 5,
+                    "volume": 6,
+                },
+                datetime_format="%d-%m-%Y %H:%M",
+            )
             strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER", datetime_format="%d-%m-%Y %H:%M")
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
 
             engine.run()
 
@@ -359,6 +367,7 @@ class TestBacktestEngine:
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"},
             {"datetime": "20230621 10:00", "open": "101", "high": "102", "low": "100", "close": "101", "volume": "20"},
         ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 

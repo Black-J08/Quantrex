@@ -41,7 +41,6 @@ class BacktestEngine:
         adapter: DataAdapter,
         strategy: Strategy,
         symbol: str = "",
-        datetime_format: str = "%Y%m%d %H:%M",
     ) -> None:
         """Initialize the backtest engine.
 
@@ -49,7 +48,6 @@ class BacktestEngine:
             adapter: DataAdapter instance providing normalized candle data via read()
             strategy: Strategy instance to execute
             symbol: Trading symbol for the candles
-            datetime_format: Format string for parsing datetime from adapter data
 
         Raises:
             ProviderError: If adapter is None or strategy is None.
@@ -62,7 +60,8 @@ class BacktestEngine:
         self._adapter = adapter
         self._strategy = strategy
         self._symbol = symbol
-        self._datetime_format = datetime_format
+        # Single source of truth: read datetime format directly from adapter
+        self._datetime_format = adapter.datetime_format
 
         # Create PositionManager and StrategyContext
         self._position_manager = PositionManager()

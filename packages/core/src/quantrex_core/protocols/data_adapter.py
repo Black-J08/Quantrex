@@ -34,6 +34,19 @@ class DataAdapter(Protocol):
         """
         ...
     
+    @property
+    def datetime_format(self) -> str:
+        """Format string used by the adapter for datetime parsing.
+        
+        The engine reads this property to know how to parse the
+        'datetime' values produced by ``read()``. This ensures a
+        single source of truth: the adapter owns the format.
+        
+        Returns:
+            The datetime format string (e.g., "%Y%m%d %H:%M").
+        """
+        ...
+    
     def close(self) -> None:
         """Close the underlying provider and release resources."""
         ...

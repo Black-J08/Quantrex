@@ -23,6 +23,10 @@ class TestDataAdapterProtocol:
         """DataAdapter should have close method."""
         assert hasattr(DataAdapter, 'close')
     
+    def test_data_adapter_has_datetime_format_property(self):
+        """DataAdapter protocol should expose datetime_format property."""
+        assert hasattr(DataAdapter, 'datetime_format')
+    
     def test_data_adapter_read_returns_list_of_dicts(self):
         """DataAdapter.read() should return list[dict]."""
         # This is a protocol check - the return type is documented

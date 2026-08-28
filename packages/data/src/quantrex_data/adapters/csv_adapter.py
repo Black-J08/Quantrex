@@ -44,6 +44,11 @@ class CSVDataAdapter:
         self._mode: Literal["index", "header"] | None = None
         self._header_index: dict[str, int] | None = None
     
+    @property
+    def datetime_format(self) -> str:
+        """Format string used for datetime parsing (single source of truth)."""
+        return self._datetime_format
+    
     def read(self) -> list[dict]:
         """Read normalized OHLCV data from the CSV provider.
         

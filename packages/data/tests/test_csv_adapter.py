@@ -259,3 +259,42 @@ class TestCSVDataAdapter:
                 "close": 4,
                 "volume": 5,
             })
+
+    def test_adapter_datetime_format_property(self):
+        """Adapter should expose datetime_format property (single source of truth)."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(
+                provider,
+                column_mapping={
+                    "datetime": [0, 1],
+                    "open": 2,
+                    "high": 3,
+                    "low": 4,
+                    "close": 5,
+                    "volume": 6,
+                },
+                datetime_format="%d-%m-%Y %H:%M",
+            )
+            assert adapter.datetime_format == "%d-%m-%Y %H:%M"
+
+    def test_adapter_datetime_format_default(self):
+        """Adapter datetime_format property should return the default."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(
+                provider,
+                column_mapping={
+                    "datetime": [0, 1],
+                    "open": 2,
+                    "high": 3,
+                    "low": 4,
+                    "close": 5,
+                    "volume": 6,
+                },
+            )
+            assert adapter.datetime_format == "%Y%m%d %H:%M"

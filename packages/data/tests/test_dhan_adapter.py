@@ -193,6 +193,40 @@ class TestDhanDataAdapter:
         with pytest.raises(ValueError, match="Open interest array length mismatch"):
             adapter.read()
 
+    def test_adapter_datetime_format_property(self, mock_provider):
+        """Adapter should expose datetime_format property (single source of truth)."""
+        adapter = DhanDataAdapter(mock_provider, datetime_format="%Y/%m/%d %H:%M")
+        assert adapter.datetime_format == "%Y/%m/%d %H:%M"
+
+    def test_adapter_datetime_format_default(self, mock_provider):
+        """Adapter datetime_format property should return the default."""
+        adapter = DhanDataAdapter(mock_provider)
+        assert adapter.datetime_format == "%Y-%m-%d %H:%M:%S"
+
+    def test_engine_uses_adapter_datetime_format_regression(self, mock_provider):
+        """Regression: engine must read format from adapter, not duplicate config.
+
+        Before the fix, BacktestEngine maintained its own ``datetime_format``
+        parameter. If it didn't match the adapter's output, ``Candle.from_row``
+        raised ``ValueError``. After the fix, the engine reads the format
+        directly from ``adapter.datetime_format``, making mismatch impossible.
+        """
+        adapter = DhanDataAdapter(mock_provider)
+        # The adapter's property is the single source of truth.
+        assert adapter.datetime_format == adapter._datetime_format
+        # Engine should be able to initialize without passing datetime_format.
+        from quantrex_backtest import BacktestEngine
+        from quantrex_core.strategy.base import Strategy
+
+        class DummyStrategy(Strategy):
+            def on_start(self): pass
+            def on_candle(self, candle): pass
+            def on_stop(self): pass
+
+        engine = BacktestEngine(adapter, DummyStrategy(), symbol="RELIANCE")
+        # Engine's internal format must match adapter's property.
+        assert engine._datetime_format == adapter.datetime_format
+
 
 class TestDhanAdapterTimezoneRegression:
     """Regression tests for the IST/UTC misinterpretation bug.
