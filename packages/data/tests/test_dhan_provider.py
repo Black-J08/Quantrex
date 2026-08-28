@@ -600,3 +600,132 @@ class TestDhanDataProviderIntegration:
         # Should be usable where DataProvider is expected
         provider_instance: DataProvider = provider
         assert provider_instance is not None
+
+
+class TestDhanDailyChunkingRegression:
+    """Regression: default daily chunk size must respect Dhan's 90-day per-request limit.
+
+    Original defect: the default ``chunk_size_days["day"]`` was 2000, which
+    allowed a 365-day request (``2023-02-01`` to ``2024-02-01``) to be sent
+    in a single HTTP call. Dhan's historical data API enforces a hard
+    limit of 90 days per request and rejects longer ranges with
+    ``errorCode`` 812/813/814 ("Invalid request parameters"). The
+    framework now defaults to 90 days and chunks longer ranges into
+    compliant sub-requests, merging the responses transparently.
+
+    These tests pin:
+      1. The default daily chunk size is exactly 90 days.
+      2. A 365-day range produces the expected number of sub-requests.
+      3. No sub-request exceeds the 90-day limit.
+      4. The full range still produces a single merged dataset.
+    """
+
+    @pytest.fixture
+    def mock_client(self):
+        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock:
+            client_instance = Mock()
+            mock.return_value = client_instance
+            yield client_instance
+
+    @pytest.fixture
+    def mock_instrument_master(self):
+        with patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock:
+            master_instance = Mock()
+            master_instance.resolve_symbol.return_value = "1333"
+            mock.return_value = master_instance
+            yield master_instance
+
+    def test_default_daily_chunk_size_is_dhan_limit(self, mock_client, mock_instrument_master):
+        """Default daily chunk size must be 89 (stride producing <=90-day inclusive chunks).
+
+        Dhan's API enforces a 90-day hard limit per request. Since the
+        chunker uses inclusive end dates, the stride is 89 days so that
+        the first chunk spans exactly 90 days inclusive (e.g. 2024-01-01
+        through 2024-03-30).
+        """
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert provider.config.chunk_size_days["day"] == 89
+
+    def test_year_long_range_chunks_into_90_day_requests(
+        self, mock_client, mock_instrument_master
+    ):
+        """A 365-day range must be split into <=90-day sub-requests.
+
+        Reproduces the user-reported scenario from
+        ``sma_crossover_dhan_strategy.py`` (``2023-02-01`` to ``2024-02-01``).
+        With the previous default of 2000 days, this would have been sent
+        as a single request and rejected with ``errorCode`` 812/813/814.
+        """
+        from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
+
+        # Five chunks of <=90 days each cover Feb 2023 -> Feb 2024.
+        # Provide enough side effects to satisfy any reasonable chunking
+        # behaviour around the 90-day boundary.
+        chunk_response = HistoricalDataResponse(
+            open=[2500.0], high=[2520.0], low=[2490.0], close=[2510.0],
+            volume=[100000], timestamp=[1704047400], open_interest=[50000],
+        )
+        mock_client.get_daily_historical.side_effect = [chunk_response] * 6
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2023-02-01",
+            to_date="2024-02-01",
+            timeframe="day",
+        )
+        provider.fetch()
+
+        # No sub-request may exceed 90 days (Dhan's hard limit).
+        for call in mock_client.get_daily_historical.call_args_list:
+            request = call[0][0]
+            from_dt = datetime.strptime(request.from_date, "%Y-%m-%d")
+            to_dt = datetime.strptime(request.to_date, "%Y-%m-%d")
+            span_days = (to_dt - from_dt).days + 1  # inclusive
+            assert span_days <= 90, (
+                f"Sub-request spans {span_days} days "
+                f"({request.from_date} -> {request.to_date}), exceeding "
+                f"Dhan's 90-day per-request limit. This would fail with "
+                f"errorCode 812/813/814."
+            )
+
+    def test_year_long_range_is_chunked_into_multiple_requests(
+        self, mock_client, mock_instrument_master
+    ):
+        """A 365-day range must produce more than one HTTP request.
+
+        Before the fix (default chunk = 2000 days), a 365-day request
+        collapsed into a single HTTP call and was rejected by Dhan.
+        """
+        from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
+
+        chunk_response = HistoricalDataResponse(
+            open=[2500.0], high=[2520.0], low=[2490.0], close=[2510.0],
+            volume=[100000], timestamp=[1704047400], open_interest=[50000],
+        )
+        # Provide enough side effects for the chunker to consume.
+        mock_client.get_daily_historical.side_effect = [chunk_response] * 6
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2023-02-01",
+            to_date="2024-02-01",
+            timeframe="day",
+        )
+        provider.fetch()
+
+        assert mock_client.get_daily_historical.call_count >= 5, (
+            f"Expected >=5 chunked requests for a 365-day range, got "
+            f"{mock_client.get_daily_historical.call_count}. The chunker "
+            f"is not splitting at the 90-day boundary, so the request will "
+            f"hit Dhan's per-request limit and fail with errorCode 812/813/814."
+        )

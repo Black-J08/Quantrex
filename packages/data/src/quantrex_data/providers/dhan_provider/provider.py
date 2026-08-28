@@ -89,9 +89,17 @@ class DhanDataProvider:
             ValueError: If configuration is invalid.
         """
         # Create config object (validates all inputs)
-        # Merge default chunk sizes with user-provided ones
+        # Merge default chunk sizes with user-provided ones.
+        # Dhan's historical data API enforces a hard limit of 90 days
+        # per request; requests exceeding it fail with ``errorCode``
+        # 812/813/814 ("Invalid request parameters"). The chunking layer
+        # splits the user's date range into <=90-day sub-requests and
+        # merges the responses transparently. We use ``89`` as the
+        # stride so the inclusive end-of-chunk stays within the limit
+        # even when ``from == to`` (a single inclusive day counts as
+        # 1 day, so a 90-day inclusive range needs a 89-day stride).
         default_chunk_sizes = {
-            "day": 2000,
+            "day": 89,
             "1minute": 30,
             "5minute": 60,
             "15minute": 180,
