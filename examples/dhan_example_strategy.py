@@ -14,12 +14,21 @@ Usage:
 """
 
 import os
+import sys
+
+from dotenv import load_dotenv
+from loguru import logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
 from quantrex_backtest import BacktestEngine
+
+# Load .env from the project root once at process start so subsequent
+# os.getenv() calls (and anything in the data provider) see the token.
+# Override=False ensures a real exported env var still wins over the file.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".env"), override=False)
 
 
 class DhanExampleStrategy(Strategy):
@@ -57,15 +66,14 @@ class DhanExampleStrategy(Strategy):
 
 def main():
     """Run the example strategy with Dhan data."""
-    # Check for access token
+    # Check for access token. .env was loaded at module import above.
     access_token = os.getenv("DHAN_ACCESS_TOKEN")
     if not access_token:
-        print("ERROR: DHAN_ACCESS_TOKEN not set.")
-        print("Please either:")
-        print("  1. Create a .env file with DHAN_ACCESS_TOKEN=your_token")
-        print("  2. Set environment variable: export DHAN_ACCESS_TOKEN=your_token")
-        print("\nSee .env.example for template.")
-        return
+        logger.error(
+            "DHAN_ACCESS_TOKEN not found. Set it via a .env file in the project root "
+            "or export it in your shell. See .env.example for the template."
+        )
+        sys.exit(1)
 
     print("=" * 60)
     print("Dhan Data Provider Example Strategy")

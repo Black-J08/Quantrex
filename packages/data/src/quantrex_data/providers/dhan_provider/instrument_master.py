@@ -23,24 +23,24 @@ class InstrumentMaster:
     COMPACT_URL = "https://images.dhan.co/api-data/api-scrip-master.csv"
     DETAILED_URL = "https://images.dhan.co/api-data/api-scrip-master-detailed.csv"
 
-    # Expected columns in compact CSV (based on Dhan documentation)
+    # Canonical column names used in Dhan's compact scrip-master CSV.
+    # Reference: https://images.dhan.co/api-data/api-scrip-master.csv
     COMPACT_COLUMNS = [
-        "EXCH_ID", "SEGMENT", "SECURITY_ID", "INSTRUMENT", "SEM_EXPIRY_CODE",
-        "UNDERLYING_SECURITY_ID", "UNDERLYING_SYMBOL", "SYMBOL_NAME",
-        "SEM_TRADING_SYMBOL", "DISPLAY_NAME", "INSTRUMENT_TYPE", "SERIES",
-        "LOT_SIZE", "SM_EXPIRY_DATE", "STRIKE_PRICE", "OPTION_TYPE",
-        "TICK_SIZE", "EXPIRY_FLAG", "BRACKET_FLAG", "COVER_FLAG",
-        "ASM_GSM_FLAG", "ASM_GSM_CATEGORY", "BUY_SELL_INDICATOR",
-        "BUY_CO_MIN_MARGIN_PER", "SELL_CO_MIN_MARGIN_PER",
-        "BUY_CO_SL_RANGE_MAX_PERC", "SELL_CO_SL_RANGE_MAX_PERC",
-        "BUY_CO_SL_RANGE_MIN_PERC", "SELL_CO_SL_RANGE_MIN_PERC",
-        "BUY_BO_MIN_MARGIN_PER", "SELL_BO_MIN_MARGIN_PER",
-        "BUY_BO_SL_RANGE_MAX_PERC", "SELL_BO_SL_RANGE_MAX_PERC",
-        "BUY_BO_SL_RANGE_MIN_PERC", "SELL_BO_SL_RANGE_MIN_PERC",
-        "BUY_BO_PROFIT_RANGE_MAX_PERC", "SELL_BO_PROFIT_RANGE_MAX_PERC",
-        "BUY_BO_PROFIT_RANGE_MIN_PERC", "SELL_BO_PROFIT_RANGE_MIN_PERC",
-        "MTF_LEVERAGE"
+        "SEM_EXM_EXCH_ID", "SEM_SEGMENT", "SEM_SMST_SECURITY_ID", "SEM_INSTRUMENT_NAME",
+        "SEM_EXPIRY_CODE", "SEM_TRADING_SYMBOL", "SEM_LOT_UNITS", "SEM_CUSTOM_SYMBOL",
+        "SEM_EXPIRY_DATE", "SEM_STRIKE_PRICE", "SEM_OPTION_TYPE", "SEM_TICK_SIZE",
+        "SEM_EXPIRY_FLAG", "SEM_EXCH_INSTRUMENT_TYPE", "SEM_SERIES", "SM_SYMBOL_NAME",
     ]
+
+    # Header aliases accepted by the parser, in priority order. The first
+    # alias present in the CSV header is used. This makes the parser tolerant
+    # of upstream schema renames (e.g. EXCH_ID -> SEM_EXM_EXCH_ID).
+    _COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
+        "exch_id": ("SEM_EXM_EXCH_ID", "EXCH_ID"),
+        "segment": ("SEM_SEGMENT", "SEGMENT"),
+        "security_id": ("SEM_SMST_SECURITY_ID", "SECURITY_ID"),
+        "trading_symbol": ("SEM_TRADING_SYMBOL",),
+    }
 
     def __init__(self, config: DhanProviderConfig) -> None:
         """Initialize instrument master manager.
@@ -86,24 +86,53 @@ class InstrumentMaster:
     def _parse_csv(self, csv_content: str) -> dict[tuple[str, str], str]:
         """Parse CSV content and build lookup dictionary.
 
+        Resolves the four required columns via ``_COLUMN_ALIASES`` so the parser
+        keeps working if Dhan renames headers upstream. Raises
+        ``DhanInstrumentMasterError`` if any required column is missing, since
+        a silent empty lookup would otherwise surface as a misleading
+        ``DhanSymbolNotFoundError`` for every symbol.
+
         Args:
             csv_content: Raw CSV content.
 
         Returns:
             Dictionary mapping (exchange_segment, trading_symbol) to security_id.
+
+        Raises:
+            DhanInstrumentMasterError: If required columns are missing from the
+                header or no usable rows are found.
         """
-        lookup: dict[tuple[str, str], str] = {}
-
-        # Parse CSV
         reader = csv.DictReader(csv_content.splitlines())
+        fieldnames = reader.fieldnames or []
 
+        resolved: dict[str, str] = {}
+        missing: list[str] = []
+        for key, aliases in self._COLUMN_ALIASES.items():
+            for alias in aliases:
+                if alias in fieldnames:
+                    resolved[key] = alias
+                    break
+            else:
+                missing.append(f"{key} (tried: {', '.join(aliases)})")
+
+        if missing:
+            header_preview = ", ".join(fieldnames[:8]) + (
+                "..." if len(fieldnames) > 8 else ""
+            )
+            raise DhanInstrumentMasterError(
+                "Instrument master CSV is missing required columns: "
+                f"{'; '.join(missing)}. Header was: [{header_preview}]. "
+                "The Dhan scrip-master schema may have changed; please update "
+                "_COLUMN_ALIASES in instrument_master.py."
+            )
+
+        lookup: dict[tuple[str, str], str] = {}
         for row in reader:
             try:
-                # Map Dhan's exchange segment codes to our format
-                exch_id = row.get("EXCH_ID", "").strip()
-                segment = row.get("SEGMENT", "").strip()
-                security_id = row.get("SECURITY_ID", "").strip()
-                trading_symbol = row.get("SEM_TRADING_SYMBOL", "").strip()
+                exch_id = row.get(resolved["exch_id"], "").strip()
+                segment = row.get(resolved["segment"], "").strip()
+                security_id = row.get(resolved["security_id"], "").strip()
+                trading_symbol = row.get(resolved["trading_symbol"], "").strip()
 
                 if not all([exch_id, segment, security_id, trading_symbol]):
                     continue
@@ -119,6 +148,13 @@ class InstrumentMaster:
             except Exception:
                 # Skip malformed rows
                 continue
+
+        if not lookup:
+            raise DhanInstrumentMasterError(
+                "Parsed instrument master CSV produced 0 usable rows. "
+                "The Dhan scrip-master schema may have changed; please verify "
+                "the file format and update _COLUMN_ALIASES in instrument_master.py."
+            )
 
         return lookup
 
