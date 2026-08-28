@@ -1,6 +1,6 @@
 """Quantrex Data Package"""
 
-from .providers import CSVDataProvider
-from .adapters import CSVDataAdapter
+from .providers import CSVDataProvider, DhanDataProvider
+from .adapters import CSVDataAdapter, DhanDataAdapter
 
-__all__ = ["CSVDataProvider", "CSVDataAdapter"]
+__all__ = ["CSVDataProvider", "CSVDataAdapter", "DhanDataProvider", "DhanDataAdapter"]

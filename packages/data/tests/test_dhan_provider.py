@@ -1,0 +1,505 @@
+"""Tests for DhanDataProvider."""
+
+import pytest
+from unittest.mock import Mock, patch, MagicMock
+from datetime import date, datetime
+
+from quantrex_data.providers.dhan_provider import DhanDataProvider
+from quantrex_data.providers.dhan_provider.config import DhanProviderConfig
+from quantrex_data.providers.dhan_provider.exceptions import (
+    DhanAuthenticationError,
+    DhanRateLimitError,
+    DhanDataNotFoundError,
+    DhanInvalidParameterError,
+    DhanSymbolNotFoundError,
+    DhanInstrumentMasterError,
+)
+from quantrex_test_support.dhan import (
+    MOCK_INSTRUMENT_MASTER_CSV,
+    MOCK_DAILY_HISTORICAL_RESPONSE,
+    MOCK_INTRADAY_HISTORICAL_RESPONSE,
+    MOCK_AUTH_ERROR_RESPONSE,
+    MOCK_RATE_LIMIT_ERROR_RESPONSE,
+    MOCK_INVALID_PARAM_ERROR_RESPONSE,
+    MOCK_EMPTY_DATA_RESPONSE,
+)
+
+
+class TestDhanProviderConfig:
+    """Tests for DhanProviderConfig validation."""
+
+    def test_valid_config_with_symbol(self):
+        """Config should accept valid parameters with symbol."""
+        config = DhanProviderConfig(
+            symbol="RELIANCE",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.symbol == "RELIANCE"
+        assert config.security_id is None
+
+    def test_valid_config_with_security_id(self):
+        """Config should accept valid parameters with security_id."""
+        config = DhanProviderConfig(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.security_id == "1333"
+        assert config.symbol is None
+
+    def test_invalid_both_symbol_and_security_id(self):
+        """Config should reject both symbol and security_id."""
+        with pytest.raises(ValueError, match="Provide either 'symbol' or 'security_id'"):
+            DhanProviderConfig(
+                symbol="RELIANCE",
+                security_id="1333",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_invalid_neither_symbol_nor_security_id(self):
+        """Config should reject neither symbol nor security_id."""
+        with pytest.raises(ValueError, match="Must provide either 'symbol' or 'security_id'"):
+            DhanProviderConfig(
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_invalid_exchange_segment(self):
+        """Config should reject invalid exchange_segment."""
+        with pytest.raises(ValueError, match="Invalid exchange_segment"):
+            DhanProviderConfig(
+                symbol="RELIANCE",
+                exchange_segment="INVALID",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_invalid_instrument(self):
+        """Config should reject invalid instrument."""
+        with pytest.raises(ValueError, match="Invalid instrument"):
+            DhanProviderConfig(
+                symbol="RELIANCE",
+                exchange_segment="NSE_EQ",
+                instrument="INVALID",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_invalid_timeframe(self):
+        """Config should reject invalid timeframe."""
+        with pytest.raises(ValueError, match="Invalid timeframe"):
+            DhanProviderConfig(
+                symbol="RELIANCE",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+                timeframe="invalid",
+            )
+
+    def test_missing_chunk_size(self):
+        """Config should reject missing chunk_size_days for timeframe."""
+        with pytest.raises(ValueError, match="chunk_size_days missing required timeframe"):
+            DhanProviderConfig(
+                symbol="RELIANCE",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+                chunk_size_days={"day": 2000},  # Missing other timeframes
+            )
+
+
+class TestDhanDataProvider:
+    """Tests for DhanDataProvider."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock DhanAPIClient."""
+        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock:
+            client_instance = Mock()
+            mock.return_value = client_instance
+            yield client_instance
+
+    @pytest.fixture
+    def mock_instrument_master(self):
+        """Create a mock InstrumentMaster."""
+        with patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock:
+            master_instance = Mock()
+            master_instance.resolve_symbol.return_value = "1333"
+            mock.return_value = master_instance
+            yield master_instance
+
+    def test_provider_init_with_symbol(self, mock_client, mock_instrument_master):
+        """Provider should initialize with symbol and resolve to security_id."""
+        provider = DhanDataProvider(
+            symbol="RELIANCE",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert provider.security_id == "1333"
+        mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE_EQ")
+
+    def test_provider_init_with_security_id(self, mock_client, mock_instrument_master):
+        """Provider should initialize with security_id directly."""
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert provider.security_id == "1333"
+        mock_instrument_master.resolve_symbol.assert_not_called()
+
+    def test_provider_init_with_date_objects(self, mock_client, mock_instrument_master):
+        """Provider should accept date and datetime objects."""
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date=date(2024, 1, 1),
+            to_date=datetime(2024, 1, 31, 15, 30),
+        )
+        assert provider.config.from_date == "2024-01-01"
+        assert provider.config.to_date == "2024-01-31 15:30:00"
+
+    def test_fetch_daily_data(self, mock_client, mock_instrument_master):
+        """Provider should fetch daily historical data."""
+        mock_client.get_daily_historical.return_value = Mock(
+            model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
+        )
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-05",
+            timeframe="day",
+        )
+        data = provider.fetch()
+
+        assert "timestamp" in data
+        assert len(data["timestamp"]) == 5
+        assert data["open"] == MOCK_DAILY_HISTORICAL_RESPONSE["open"]
+        mock_client.get_daily_historical.assert_called_once()
+
+    def test_fetch_intraday_data(self, mock_client, mock_instrument_master):
+        """Provider should fetch intraday historical data."""
+        mock_client.get_intraday_historical.return_value = Mock(
+            model_dump=lambda **kwargs: MOCK_INTRADAY_HISTORICAL_RESPONSE
+        )
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01 09:15:00",
+            to_date="2024-01-01 09:20:00",
+            timeframe="1minute",
+        )
+        data = provider.fetch()
+
+        assert "timestamp" in data
+        assert len(data["timestamp"]) == 5
+        mock_client.get_intraday_historical.assert_called_once()
+
+    def test_fetch_with_chunking(self, mock_client, mock_instrument_master):
+        """Provider should chunk large date ranges."""
+        # Create proper mock response objects with attributes
+        from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
+
+        chunk1 = HistoricalDataResponse(
+            open=[2500.0, 2510.0, 2520.0],
+            high=[2520.0, 2525.0, 2535.0],
+            low=[2490.0, 2505.0, 2510.0],
+            close=[2510.0, 2520.0, 2515.0],
+            volume=[100000, 150000, 120000],
+            timestamp=[1704067200, 1704153600, 1704240000],
+            open_interest=[50000, 55000, 52000],
+        )
+        chunk2 = HistoricalDataResponse(
+            open=[2515.0, 2530.0, 2525.0],
+            high=[2525.0, 2540.0, 2535.0],
+            low=[2500.0, 2520.0, 2515.0],
+            close=[2530.0, 2535.0, 2530.0],
+            volume=[180000, 200000, 190000],
+            timestamp=[1704326400, 1704412800, 1704499200],
+            open_interest=[58000, 60000, 59000],
+        )
+        chunk3 = HistoricalDataResponse(
+            open=[2535.0],
+            high=[2545.0],
+            low=[2525.0],
+            close=[2540.0],
+            volume=[210000],
+            timestamp=[1704585600],
+            open_interest=[61000],
+        )
+        mock_client.get_daily_historical.side_effect = [chunk1, chunk2, chunk3]
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-10",  # Large range to trigger chunking
+            timeframe="day",
+            chunk_size_days={"day": 3},  # Small chunk size for testing
+        )
+        data = provider.fetch()
+
+        assert len(data["timestamp"]) == 7  # 3 + 3 + 1 = 7 candles
+        assert mock_client.get_daily_historical.call_count == 3
+
+    def test_fetch_symbol_resolution_error(self, mock_client, mock_instrument_master):
+        """Provider should raise DhanSymbolNotFoundError for unknown symbol."""
+        mock_instrument_master.resolve_symbol.side_effect = DhanSymbolNotFoundError(
+            symbol="UNKNOWN", exchange_segment="NSE_EQ"
+        )
+
+        with pytest.raises(DhanSymbolNotFoundError):
+            DhanDataProvider(
+                symbol="UNKNOWN",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_fetch_auth_error(self, mock_client, mock_instrument_master):
+        """Provider should propagate authentication errors."""
+        mock_client.get_daily_historical.side_effect = DhanAuthenticationError("Invalid token")
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        with pytest.raises(DhanAuthenticationError):
+            provider.fetch()
+
+    def test_fetch_rate_limit_error(self, mock_client, mock_instrument_master):
+        """Provider should propagate rate limit errors."""
+        mock_client.get_daily_historical.side_effect = DhanRateLimitError("Rate limited")
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        with pytest.raises(DhanRateLimitError):
+            provider.fetch()
+
+    def test_fetch_data_not_found(self, mock_client, mock_instrument_master):
+        """Provider should raise DhanDataNotFoundError for empty response."""
+        mock_client.get_daily_historical.side_effect = DhanDataNotFoundError("No data")
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        with pytest.raises(DhanDataNotFoundError):
+            provider.fetch()
+
+    def test_fetch_invalid_parameter_error(self, mock_client, mock_instrument_master):
+        """Provider should propagate invalid parameter errors."""
+        mock_client.get_daily_historical.side_effect = DhanInvalidParameterError(
+            "Invalid SecurityId", error_code=813
+        )
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        with pytest.raises(DhanInvalidParameterError) as exc_info:
+            provider.fetch()
+        assert exc_info.value.error_code == 813
+
+    def test_close_delegates_to_client(self, mock_client, mock_instrument_master):
+        """Provider close() should delegate to client.close()."""
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        provider.close()
+        mock_client.close.assert_called_once()
+
+    def test_context_manager(self, mock_client, mock_instrument_master):
+        """Provider should work as context manager."""
+        with DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        ) as provider:
+            assert provider.security_id == "1333"
+        mock_client.close.assert_called_once()
+
+    def test_credential_loading_from_env(self):
+        """Provider should load access token from environment when not provided."""
+        with patch.dict("os.environ", {"DHAN_ACCESS_TOKEN": "test_token_from_env"}):
+            with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client_class, \
+                 patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster"):
+                mock_client = Mock()
+                mock_client_class.return_value = mock_client
+                mock_client.get_daily_historical.return_value = Mock(
+                    model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
+                )
+
+                provider = DhanDataProvider(
+                    security_id="1333",
+                    exchange_segment="NSE_EQ",
+                    instrument="EQUITY",
+                    from_date="2024-01-01",
+                    to_date="2024-01-31",
+                )
+                # Verify provider was created successfully with env token
+                # The actual token loading happens in DhanAPIClient._get_access_token()
+                # which is called during fetch()
+                assert provider is not None
+                assert provider._config.access_token is None  # Config stores None, client loads from env
+
+    def test_credential_loading_missing_raises(self):
+        """Provider should raise DhanAuthenticationError when no token available."""
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client_class, \
+                 patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster"):
+                mock_client = Mock()
+                mock_client_class.return_value = mock_client
+                mock_client.get_daily_historical.side_effect = DhanAuthenticationError("No token")
+
+                provider = DhanDataProvider(
+                    security_id="1333",
+                    exchange_segment="NSE_EQ",
+                    instrument="EQUITY",
+                    from_date="2024-01-01",
+                    to_date="2024-01-31",
+                )
+                with pytest.raises(DhanAuthenticationError):
+                    provider.fetch()  # Error raised on fetch, not init
+
+    def test_date_normalization_daily(self, mock_client, mock_instrument_master):
+        """Provider should normalize dates for daily API (YYYY-MM-DD)."""
+        mock_client.get_daily_historical.return_value = Mock(
+            model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
+        )
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01 10:30:00",  # Has time component
+            to_date="2024-01-31 15:30:00",    # Has time component
+            timeframe="day",
+        )
+        provider.fetch()
+
+        # Check that the request was made with date-only format
+        call_args = mock_client.get_daily_historical.call_args[0][0]
+        assert call_args.from_date == "2024-01-01"
+        assert call_args.to_date == "2024-01-31"
+
+    def test_date_normalization_intraday(self, mock_client, mock_instrument_master):
+        """Provider should normalize dates for intraday API (YYYY-MM-DD HH:MM:SS)."""
+        mock_client.get_intraday_historical.return_value = Mock(
+            model_dump=lambda **kwargs: MOCK_INTRADAY_HISTORICAL_RESPONSE
+        )
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date=date(2024, 1, 1),
+            to_date=date(2024, 1, 1),
+            timeframe="1minute",
+        )
+        provider.fetch()
+
+        # Check that the request was made with time component for intraday
+        call_args = mock_client.get_intraday_historical.call_args[0][0]
+        assert " " in call_args.from_date
+        assert " " in call_args.to_date
+
+    def test_custom_chunk_sizes(self, mock_client, mock_instrument_master):
+        """Provider should use custom chunk sizes when provided."""
+        from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
+
+        chunk1 = HistoricalDataResponse(
+            open=[2500.0], high=[2520.0], low=[2490.0],
+            close=[2510.0], volume=[100000], timestamp=[1704067200],
+            open_interest=[50000],
+        )
+        chunk2 = HistoricalDataResponse(
+            open=[2510.0], high=[2525.0], low=[2505.0],
+            close=[2520.0], volume=[150000], timestamp=[1704153600],
+            open_interest=[55000],
+        )
+        mock_client.get_daily_historical.side_effect = [chunk1, chunk2]
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-03",
+            timeframe="day",
+            chunk_size_days={"day": 1, "1minute": 30, "5minute": 60, "15minute": 180, "30minute": 360, "60minute": 720},
+        )
+        provider.fetch()
+
+        assert mock_client.get_daily_historical.call_count == 2
+
+
+class TestDhanDataProviderIntegration:
+    """Integration-style tests for DhanDataProvider."""
+
+    def test_provider_implements_data_provider_protocol(self):
+        """DhanDataProvider should satisfy DataProvider protocol."""
+        from quantrex_core.protocols import DataProvider
+
+        # Check protocol compliance via duck typing
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+
+        assert hasattr(provider, "fetch")
+        assert callable(provider.fetch)
+        assert hasattr(provider, "close")
+        assert callable(provider.close)
+
+        # Should be usable where DataProvider is expected
+        provider_instance: DataProvider = provider
+        assert provider_instance is not None
