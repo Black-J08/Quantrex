@@ -120,6 +120,103 @@ class TestDhanProviderConfig:
                 chunk_size_days={"day": 2000},  # Missing other timeframes
             )
 
+    def test_client_id_explicit(self):
+        """Config should accept an explicit client_id."""
+        config = DhanProviderConfig(
+            security_id="1333",
+            client_id="1112625384",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.client_id == "1112625384"
+
+    def test_client_id_from_env(self, monkeypatch):
+        """Config should fall back to DHAN_CLIENT_ID env var."""
+        monkeypatch.setenv("DHAN_CLIENT_ID", "9999999999")
+        config = DhanProviderConfig(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.client_id == "9999999999"
+
+    def test_client_id_extracted_from_jwt(self, monkeypatch):
+        """Config should extract client_id from the access-token JWT.
+
+        Reproduces the user's .env scenario: only DHAN_ACCESS_TOKEN is set;
+        the framework should pull the dhanClientId claim out of the JWT
+        rather than require a second env var.
+        """
+        # JWT with payload {"dhanClientId": "1112625384"} (base64url, padded).
+        import base64
+        import json
+
+        payload = base64.urlsafe_b64encode(
+            json.dumps({"dhanClientId": "1112625384"}).encode()
+        ).decode().rstrip("=")
+        token = f"header.{payload}.signature"
+        monkeypatch.delenv("DHAN_CLIENT_ID", raising=False)
+
+        config = DhanProviderConfig(
+            access_token=token,
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.client_id == "1112625384"
+
+    def test_client_id_explicit_wins_over_env(self, monkeypatch):
+        """Explicit client_id should override env var."""
+        monkeypatch.setenv("DHAN_CLIENT_ID", "9999999999")
+        config = DhanProviderConfig(
+            security_id="1333",
+            client_id="1112625384",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.client_id == "1112625384"
+
+    def test_default_base_url_uses_v2_prefix(self):
+        """The default base_url must include /v2.
+
+        Dhan's CloudFront permanently redirects requests to the legacy base
+        (``https://api.dhan.co``) back to ``https://api.dhan.co/v2/`` with a
+        301/HTML body. The framework must default to the v2 base so live
+        requests work out of the box.
+        """
+        config = DhanProviderConfig(
+            security_id="1333",
+            client_id="1112625384",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.base_url == "https://api.dhan.co/v2"
+
+    def test_provider_default_base_url_uses_v2_prefix(self):
+        """DhanDataProvider should also default to /v2 (for sandbox overrides)."""
+        provider = DhanDataProvider(
+            security_id="1333",
+            client_id="1112625384",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert provider.config.base_url == "https://api.dhan.co/v2"
+        # The httpx client's base URL should also reflect the /v2 suffix
+        # (httpx normalizes URLs with a trailing slash).
+        assert str(provider._client._client.base_url).rstrip("/") == "https://api.dhan.co/v2"
+
 
 class TestDhanDataProvider:
     """Tests for DhanDataProvider."""

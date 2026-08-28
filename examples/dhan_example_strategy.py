@@ -99,8 +99,10 @@ def main():
     )
 
     # Create strategy and engine
+    # Note: datetime_format MUST match the format the adapter emits; otherwise
+    # Candle.from_row will fail with "unconverted data" / ValueError.
     strategy = DhanExampleStrategy()
-    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE", datetime_format="%Y-%m-%d %H:%M:%S")
 
     try:
         print("\nStarting backtest...")

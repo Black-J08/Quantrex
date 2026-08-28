@@ -260,3 +260,72 @@ class TestDhanIntegration:
             # Should have merged 10 candles from 3 chunks (4+4+2)
             assert len(data) == 10
             assert client_instance.get_daily_historical.call_count == 3
+
+
+class TestDhanExampleStrategyDatetimeFormat:
+    """Regression: BacktestEngine must parse the datetime format the adapter emits.
+
+    ``dhan_example_strategy.py`` configures ``DhanDataAdapter`` with
+    ``datetime_format="%Y-%m-%d %H:%M:%S"`` (Dhan's ISO-like default). If the
+    ``BacktestEngine`` is left at its default (``"%Y%m%d %H:%M"``), the engine
+    raises ``ValueError`` on the first candle - this guards the example.
+    """
+
+    @pytest.fixture
+    def mock_provider(self):
+        """Local copy of the mock-provider fixture for this class."""
+        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
+             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
+            client_instance = Mock()
+            mock_client.return_value = client_instance
+            client_instance.get_daily_historical.return_value = Mock(
+                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
+            )
+            master_instance = Mock()
+            mock_master.return_value = master_instance
+            master_instance.resolve_symbol.return_value = "1333"
+            provider = DhanDataProvider(
+                symbol="RELIANCE",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-05",
+                timeframe="day",
+            )
+            yield provider
+
+    def test_engine_must_match_adapter_datetime_format(self, mock_provider):
+        """Pass-through with matching formats: engine consumes adapter output successfully."""
+        # Sanity check: the default adapter output uses the ISO-like format.
+        adapter = DhanDataAdapter(mock_provider)  # default "%Y-%m-%d %H:%M:%S"
+        first_row = adapter.read()[0]
+        assert first_row["datetime"].count("-") == 2  # ISO-like: 2024-01-01 00:00:00
+        assert first_row["datetime"].count(":") == 2  # HH:MM:SS
+
+    def test_engine_with_mismatched_format_fails(self, mock_provider):
+        """Default BacktestEngine ("%Y%m%d %H:%M") cannot parse the adapter's output."""
+        adapter = DhanDataAdapter(mock_provider)
+        strategy = TestStrategy()
+        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")  # engine default
+
+        from quantrex_backtest.exceptions.backtest_error import ProviderError
+
+        with pytest.raises(ProviderError, match="Failed to process candle"):
+            engine.run()
+
+    def test_engine_with_matching_format_succeeds(self, mock_provider):
+        """When both adapter and engine use "%Y-%m-%d %H:%M:%S", the backtest runs cleanly."""
+        adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
+        strategy = TestStrategy()
+        engine = BacktestEngine(
+            adapter, strategy, symbol="RELIANCE", datetime_format="%Y-%m-%d %H:%M:%S"
+        )
+
+        engine.run()
+
+        assert strategy.started
+        assert strategy.stopped
+        assert len(strategy.candles) == 5
+        assert strategy.candles[0].timestamp.year == 2024
+        assert strategy.candles[0].timestamp.month == 1
+        assert strategy.candles[0].timestamp.day == 1

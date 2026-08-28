@@ -44,6 +44,7 @@ class DhanDataProvider:
         self,
         *,
         access_token: str | None = None,
+        client_id: str | None = None,
         symbol: str | None = None,
         security_id: str | None = None,
         exchange_segment: str,
@@ -53,7 +54,7 @@ class DhanDataProvider:
         to_date: date | datetime | str,
         timeframe: str = "day",
         include_oi: bool = False,
-        base_url: str = "https://api.dhan.co",
+        base_url: str = "https://api.dhan.co/v2",
         timeout: float = 30.0,
         max_retries: int = 3,
         chunk_size_days: dict[str, int] | None = None,
@@ -62,6 +63,10 @@ class DhanDataProvider:
 
         Args:
             access_token: JWT access token. If None, loads from DHAN_ACCESS_TOKEN env var.
+            client_id: Dhan client ID. If None, resolved from DHAN_CLIENT_ID env var or
+                extracted from the access-token JWT. Required by the Dhan v2 gateway on
+                every request (sent as the ``client-id`` header and ``dhanClientId`` body
+                field). Without it, the gateway returns 301/400.
             symbol: User-friendly trading symbol (e.g., "RELIANCE"). Mutually exclusive with security_id.
             security_id: Dhan's numeric security ID (e.g., "1333"). Mutually exclusive with symbol.
             exchange_segment: Exchange segment (NSE_EQ, NSE_FNO, NSE_CURRENCY, BSE_EQ, BSE_FNO, BSE_CURRENCY, MCX_COMM).
@@ -71,7 +76,11 @@ class DhanDataProvider:
             to_date: End date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS). Non-inclusive for daily.
             timeframe: Data timeframe (day, 1minute, 5minute, 15minute, 30minute, 60minute).
             include_oi: Include open interest data (F&O only).
-            base_url: API base URL (supports sandbox: https://sandbox.dhan.co).
+            base_url: API base URL. The Dhan v2 endpoints are served under the
+            ``/v2/`` prefix. Requests to ``https://api.dhan.co/charts/...``
+            are permanently redirected (HTTP 301) to ``https://api.dhan.co/v2/``,
+            so the default includes the ``/v2`` suffix. For the sandbox
+            environment use ``https://sandbox.dhan.co/v2``.
             timeout: Request timeout in seconds.
             max_retries: Maximum retry attempts.
             chunk_size_days: Custom chunk sizes per timeframe (days per request).
@@ -93,6 +102,7 @@ class DhanDataProvider:
 
         self._config = DhanProviderConfig(
             access_token=access_token,
+            client_id=client_id,
             symbol=symbol,
             security_id=security_id,
             exchange_segment=exchange_segment,

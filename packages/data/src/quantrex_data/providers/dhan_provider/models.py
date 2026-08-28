@@ -15,6 +15,12 @@ class HistoricalDataRequest(BaseModel):
     oi: bool = Field(False, description="Include open interest data for F&O")
     from_date: str = Field(..., alias="fromDate", description="Start date (YYYY-MM-DD)")
     to_date: str = Field(..., alias="toDate", description="End date (YYYY-MM-DD, non-inclusive)")
+    # Dhan v2 requires dhanClientId in the body on every request. The official
+    # dhan-oss/DhanHQ-py SDK injects it on every POST. We default to an empty
+    # string and let the caller (DhanAPIClient) overwrite via a fallback so
+    # that models stay self-describing for tests, but live requests always
+    # carry the value.
+    dhan_client_id: str = Field("", alias="dhanClientId", description="Dhan client ID (set by DhanAPIClient)")
 
     @field_validator("exchange_segment")
     @classmethod
@@ -43,6 +49,7 @@ class IntradayDataRequest(BaseModel):
     oi: bool = Field(False, description="Include open interest data for F&O")
     from_date: str = Field(..., alias="fromDate", description="Start date (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)")
     to_date: str = Field(..., alias="toDate", description="End date (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)")
+    dhan_client_id: str = Field("", alias="dhanClientId", description="Dhan client ID (set by DhanAPIClient)")
 
     @field_validator("exchange_segment")
     @classmethod
