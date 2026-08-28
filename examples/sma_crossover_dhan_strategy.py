@@ -105,7 +105,7 @@ def main() -> None:
         symbol="RELIANCE",
         exchange_segment="NSE_EQ",
         instrument="EQUITY",
-        from_date="2023-12-01",
+        from_date="2023-02-01",
         to_date="2024-02-01",
         timeframe="day",
     )
