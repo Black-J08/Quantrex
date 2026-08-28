@@ -17,25 +17,32 @@ BSE,E,500325,EQUITY,0,RELIANCE,1.0,RELIANCE,,0,XX,0.01,NA,ES,EQ,RELIANCE Industr
 MCX,M,12345,FUTCOM,0,COPPER24JANFUT,1000,COPPER24JANFUT,2024-01-19,0,XX,0.05,M,FUTCOM,,Copper Futures
 """
 
-# Sample daily historical data response
+# Sample daily historical data response.
+# ``timestamp`` is epoch seconds in IST (Dhan's documented behaviour,
+# matching ``dhanhq.convert_to_date_time``). The first candle is
+# 2024-01-01 00:00:00 IST (= 2023-12-31 18:30:00 UTC), and each
+# subsequent value is one IST day later.
 MOCK_DAILY_HISTORICAL_RESPONSE = {
     "open": [2500.0, 2510.0, 2520.0, 2515.0, 2530.0],
     "high": [2520.0, 2525.0, 2535.0, 2525.0, 2540.0],
     "low": [2490.0, 2505.0, 2510.0, 2500.0, 2520.0],
     "close": [2510.0, 2520.0, 2515.0, 2530.0, 2535.0],
     "volume": [100000, 150000, 120000, 180000, 200000],
-    "timestamp": [1704067200, 1704153600, 1704240000, 1704326400, 1704412800],  # 2024-01-01 to 2024-01-05
+    "timestamp": [1704047400, 1704133800, 1704220200, 1704306600, 1704393000],
     "open_interest": [50000, 55000, 52000, 58000, 60000],
 }
 
-# Sample intraday historical data response (1-minute)
+# Sample intraday historical data response (1-minute).
+# ``timestamp`` is epoch seconds in IST. The first candle is
+# 2024-01-01 09:15:00 IST (= 2024-01-01 03:45:00 UTC); each subsequent
+# value is one minute later in IST.
 MOCK_INTRADAY_HISTORICAL_RESPONSE = {
     "open": [2500.0, 2501.0, 2502.0, 2501.5, 2503.0],
     "high": [2502.0, 2503.0, 2504.0, 2503.5, 2505.0],
     "low": [2499.0, 2500.0, 2501.0, 2500.5, 2502.0],
     "close": [2501.0, 2502.0, 2501.5, 2503.0, 2504.0],
     "volume": [1000, 1500, 1200, 1800, 2000],
-    "timestamp": [1704093300, 1704093360, 1704093420, 1704093480, 1704093540],  # 2024-01-01 09:15 to 09:19 IST
+    "timestamp": [1704080700, 1704080760, 1704080820, 1704080880, 1704080940],
     "open_interest": [50000, 50100, 50200, 50150, 50300],
 }
 

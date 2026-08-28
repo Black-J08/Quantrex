@@ -112,7 +112,10 @@ def main() -> None:
 
     # datetime_format MUST match what we pass to BacktestEngine below,
     # otherwise Candle.from_row fails to parse the adapter's output.
-    adapter = DhanDataAdapter(provider, datetime_format=DATETIME_FORMAT, timezone="UTC")
+    # Dhan returns timestamps in IST; the adapter's default output timezone
+    # is also IST so Candle.timestamp and the exported closed_trades.csv
+    # show the exchange's local clock (e.g. 09:30 for the market open).
+    adapter = DhanDataAdapter(provider, datetime_format=DATETIME_FORMAT)
 
     strategy = SmaCrossoverStrategy(fast_period=FAST_PERIOD, slow_period=SLOW_PERIOD)
     engine = BacktestEngine(adapter, strategy, symbol="RELIANCE", datetime_format=DATETIME_FORMAT)

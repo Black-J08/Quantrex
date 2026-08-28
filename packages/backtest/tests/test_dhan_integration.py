@@ -127,12 +127,12 @@ class TestDhanIntegration:
         assert data[0]["datetime"] == "2024/01/01"
 
     def test_adapter_with_custom_timezone(self, mock_provider):
-        """Test adapter with custom timezone (IST)."""
+        """Test adapter with custom timezone (IST is the default)."""
         adapter = DhanDataAdapter(mock_provider, timezone="Asia/Kolkata")
         data = adapter.read()
 
-        # 1704067200 UTC = 2024-01-01 05:30:00 IST
-        assert data[0]["datetime"] == "2024-01-01 05:30:00"
+        # Mock epoch 1704047400 == 2024-01-01 00:00:00 IST.
+        assert data[0]["datetime"] == "2024-01-01 00:00:00"
 
     def test_provider_with_date_objects(self):
         """Test provider initialization with date/datetime objects."""
@@ -217,7 +217,7 @@ class TestDhanIntegration:
                 low=[2490.0, 2505.0, 2510.0, 2500.0],
                 close=[2510.0, 2520.0, 2515.0, 2530.0],
                 volume=[100000, 150000, 120000, 180000],
-                timestamp=[1704067200, 1704153600, 1704240000, 1704326400],
+                timestamp=[1704047400, 1704133800, 1704220200, 1704306600],  # 2024-01-01..04 IST midnight
                 open_interest=[50000, 55000, 52000, 58000],
             )
             chunk2 = HistoricalDataResponse(
@@ -226,7 +226,7 @@ class TestDhanIntegration:
                 low=[2520.0, 2515.0, 2525.0, 2520.0],
                 close=[2535.0, 2530.0, 2540.0, 2535.0],
                 volume=[200000, 190000, 210000, 220000],
-                timestamp=[1704412800, 1704499200, 1704585600, 1704672000],
+                timestamp=[1704393000, 1704479400, 1704565800, 1704652200],  # 2024-01-05..08 IST midnight
                 open_interest=[60000, 59000, 61000, 62000],
             )
             chunk3 = HistoricalDataResponse(
@@ -235,7 +235,7 @@ class TestDhanIntegration:
                 low=[2530.0, 2535.0],
                 close=[2545.0, 2550.0],
                 volume=[230000, 240000],
-                timestamp=[1704758400, 1704844800],
+                timestamp=[1704738600, 1704825000],  # 2024-01-09..10 IST midnight
                 open_interest=[63000, 64000],
             )
             client_instance.get_daily_historical.side_effect = [chunk1, chunk2, chunk3]
@@ -329,3 +329,107 @@ class TestDhanExampleStrategyDatetimeFormat:
         assert strategy.candles[0].timestamp.year == 2024
         assert strategy.candles[0].timestamp.month == 1
         assert strategy.candles[0].timestamp.day == 1
+
+
+class TestDhanClosedTradesTimestampRegression:
+    """Regression: ``closed_trades.csv`` must record market time, not 18:30.
+
+    Original defect (user-reported): every entry/exit timestamp in the
+    exported ``closed_trades.csv`` showed ``T18:30:00``, i.e. the IST
+    equivalent of 13:00 UTC and well after the 15:30 IST market close.
+    Root cause: ``DhanDataAdapter`` interpreted Dhan's epoch-seconds as
+    UTC even though Dhan's server (and the official ``dhanhq-py`` SDK)
+    emits them in IST. Daily candles were therefore rendered at
+    18:30 UTC and the engine wrote that wall clock into every trade
+    record.
+
+    This test runs the full pipeline (provider -> adapter -> engine ->
+    CSV export) and asserts that every recorded timestamp matches the
+    IST market clock the user actually saw on the exchange.
+    """
+
+    @pytest.fixture
+    def mock_provider(self):
+        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
+             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
+            client_instance = Mock()
+            mock_client.return_value = client_instance
+            client_instance.get_daily_historical.return_value = Mock(
+                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
+            )
+            master_instance = Mock()
+            mock_master.return_value = master_instance
+            master_instance.resolve_symbol.return_value = "1333"
+            provider = DhanDataProvider(
+                symbol="RELIANCE",
+                exchange_segment="NSE_EQ",
+                instrument="EQUITY",
+                from_date="2024-01-01",
+                to_date="2024-01-05",
+                timeframe="day",
+            )
+            yield provider
+
+    def test_exported_trades_use_market_clock_not_18_30(self, mock_provider, tmp_path, monkeypatch):
+        """Closed-trade CSV must record IST midnight, not 18:30 UTC wall clock.
+
+        We monkey-patch the engine's output directory to ``tmp_path`` so
+        the test is hermetic. The mock daily response represents the
+        trading days 2024-01-01 .. 2024-01-05 (Dhan's IST-midnight
+        convention). With the bug, the CSV would show ``T18:30:00`` on
+        every trade; with the fix it shows ``T00:00:00``.
+        """
+        monkeypatch.chdir(tmp_path)
+
+        class BuyAndSellStrategy(Strategy):
+            """Open long on candle 0, close on candle 1 → exactly one closed trade."""
+
+            def __init__(self) -> None:
+                super().__init__()
+                self._seen = 0
+
+            def on_candle(self, candle: Candle) -> None:
+                self._seen += 1
+                if self._seen == 1:
+                    self.ctx.submit_order(symbol=candle.symbol, side=OrderSide.BUY, quantity=10.0)
+                elif self._seen == 2:
+                    pos = self.ctx.get_position(candle.symbol)
+                    if pos.quantity > 0:
+                        self.ctx.submit_order(symbol=candle.symbol, side=OrderSide.SELL, quantity=pos.quantity)
+
+        adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
+        engine = BacktestEngine(
+            adapter,
+            BuyAndSellStrategy(),
+            symbol="RELIANCE",
+            datetime_format="%Y-%m-%d %H:%M:%S",
+        )
+        engine.run()
+
+        # Locate the CSV the engine just wrote.
+        csv_paths = list(tmp_path.rglob("closed_trades.csv"))
+        assert csv_paths, "BacktestEngine did not write closed_trades.csv"
+        csv_text = csv_paths[0].read_text()
+        assert "RELIANCE,LONG,10.0" in csv_text
+
+        # The first row of the mock represents 2024-01-01 00:00:00 IST.
+        # The second row represents 2024-01-02 00:00:00 IST. With the
+        # IST-as-UTC bug, both would appear as 18:30 of the *previous*
+        # UTC day (2023-12-31 18:30 / 2024-01-01 18:30).
+        first_line = csv_text.splitlines()[1]
+        entry_ts = first_line.split(",")[3]
+        exit_ts = first_line.split(",")[5]
+
+        assert entry_ts == "2024-01-01T00:00:00", (
+            f"entry_timestamp={entry_ts!r}; expected 2024-01-01T00:00:00 IST. "
+            f"Got the post-market 18:30 wall clock that this regression guards against."
+        )
+        assert exit_ts == "2024-01-02T00:00:00", (
+            f"exit_timestamp={exit_ts!r}; expected 2024-01-02T00:00:00 IST."
+        )
+        # Explicit negative assertion: the buggy 18:30 suffix must be absent.
+        for line in csv_text.splitlines()[1:]:
+            for ts in (line.split(",")[3], line.split(",")[5]):
+                assert "T18:30:00" not in ts, (
+                    f"Found the 18:30 IST-as-UTC bug in CSV row: {line!r}"
+                )

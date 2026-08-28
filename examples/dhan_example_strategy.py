@@ -92,10 +92,12 @@ def main():
     )
 
     # Create adapter
+    # Dhan returns timestamps in IST; the adapter's default output timezone
+    # is also IST so Candle.timestamp and the exported closed_trades.csv
+    # show the exchange's local clock.
     adapter = DhanDataAdapter(
         provider,
         datetime_format="%Y-%m-%d %H:%M:%S",
-        timezone="UTC",
     )
 
     # Create strategy and engine

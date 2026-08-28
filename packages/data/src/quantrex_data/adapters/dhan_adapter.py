@@ -4,8 +4,9 @@ Normalizes raw Dhan API responses to standardized OHLCV format
 for the Backtest Engine.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from loguru import logger
 
@@ -13,12 +14,32 @@ from quantrex_core.protocols import DataAdapter, DataProvider
 
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 
+# Dhan returns ``timestamp`` as epoch seconds in Indian Standard Time
+# (UTC+05:30). The official ``dhanhq-py`` SDK confirms this in
+# ``dhanhq.convert_to_date_time`` which constructs the result via
+# ``datetime.fromtimestamp(epoch, IST)``. We pin the canonical source
+# timezone here so every layer of Quantrex agrees on the wall clock.
+DHAN_SOURCE_TIMEZONE = "Asia/Kolkata"
+# IST is the canonical market timezone for Indian exchanges. Defaulting
+# the adapter's output to IST means the naive ``datetime`` written into
+# ``Candle.timestamp`` and into the exported ``closed_trades.csv``
+# matches the timestamps the user saw on the exchange.
+DEFAULT_OUTPUT_TIMEZONE = "Asia/Kolkata"
+
 
 class DhanDataAdapter:
     """Data adapter for normalizing Dhan API data to engine format.
 
     Consumes a DhanDataProvider and converts its array-based response
     into standardized OHLCV dictionaries with proper datetime formatting.
+
+    Timestamps:
+        Dhan returns ``timestamp`` arrays as epoch seconds in IST
+        (UTC+05:30). This adapter treats them as such, then renders the
+        naive wall clock in the requested output timezone (IST by
+        default). The resulting ``Candle.timestamp`` and CSV-exported
+        timestamps therefore match the exchange's local clock for
+        Indian market data.
 
     Example:
         >>> provider = DhanDataProvider(
@@ -39,26 +60,44 @@ class DhanDataAdapter:
         self,
         provider: DataProvider,
         datetime_format: str = "%Y-%m-%d %H:%M:%S",
-        timezone: str = "UTC",
+        timezone: str = DEFAULT_OUTPUT_TIMEZONE,
     ) -> None:
         """Initialize Dhan data adapter.
 
         Args:
             provider: DhanDataProvider instance to consume data from.
             datetime_format: Format string for output datetime (default: "%Y-%m-%d %H:%M:%S").
-            timezone: Output timezone (default: "UTC"). Dhan returns IST timestamps.
+            timezone: Output timezone for the naive ``datetime`` string emitted in each
+                row (default: ``"Asia/Kolkata"``). Dhan's source timestamps are IST;
+                the output timezone controls only the wall-clock projection the rest of
+                Quantrex (Candle, backtest engine, exported CSVs) will see.
 
         Raises:
             TypeError: If provider is not a DhanDataProvider instance.
+            ValueError: If ``timezone`` is not a valid IANA zone identifier.
         """
         if not isinstance(provider, DhanDataProvider):
             raise TypeError(f"DhanDataAdapter requires DhanDataProvider, got {type(provider).__name__}")
 
+        # Fail loudly on bad timezones so we never silently fall back to a wrong
+        # projection (the previous implementation only logged a warning and
+        # produced UTC output, which was the original bug's proximate cause).
+        try:
+            self._source_tz = ZoneInfo(DHAN_SOURCE_TIMEZONE)
+            self._output_tz = ZoneInfo(timezone)
+        except Exception as e:
+            raise ValueError(f"Invalid timezone '{timezone}': {e}") from e
+
         self._provider = provider
         self._datetime_format = datetime_format
-        self._timezone = timezone
+        self._timezone_name = timezone
 
-        logger.debug("DhanDataAdapter initialized with datetime_format='{}', timezone='{}'", datetime_format, timezone)
+        logger.debug(
+            "DhanDataAdapter initialized with datetime_format='{}', source='{}', output='{}'",
+            datetime_format,
+            DHAN_SOURCE_TIMEZONE,
+            timezone,
+        )
 
     def read(self) -> list[dict]:
         """Read normalized OHLCV data from the Dhan provider.
@@ -100,22 +139,20 @@ class DhanDataAdapter:
         # Convert to list of dicts
         results = []
         for i in range(n):
-            # Convert epoch timestamp to datetime
-            # Dhan returns epoch seconds in IST
+            # Dhan returns epoch seconds in IST. Interpreting the epoch
+            # as if it were UTC (the previous behaviour) shifted every
+            # daily candle by 5h30m and pushed intraday candles outside
+            # market hours. Build the moment in IST first, then project
+            # to the requested output timezone.
             epoch = timestamps[i]
-            dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+            ist_dt = datetime.fromtimestamp(epoch, tz=self._source_tz)
+            out_dt = ist_dt.astimezone(self._output_tz)
 
-            # Convert to target timezone if needed
-            if self._timezone != "UTC":
-                try:
-                    import zoneinfo
-                    target_tz = zoneinfo.ZoneInfo(self._timezone)
-                    dt = dt.astimezone(target_tz)
-                except Exception:
-                    logger.warning("Invalid timezone '{}', using UTC", self._timezone)
-
-            # Format datetime
-            datetime_str = dt.strftime(self._datetime_format)
+            # Naive wall clock in the output timezone. Candle.from_row
+            # uses ``datetime.strptime`` which produces naive datetimes;
+            # downstream code treats ``timestamp`` as a wall-clock value,
+            # so the projection is the contract this layer enforces.
+            datetime_str = out_dt.strftime(self._datetime_format)
 
             row = {
                 "datetime": datetime_str,
