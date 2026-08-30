@@ -1,24 +1,15 @@
-[project]
-name = "quantrex"
-version = "0.1.0"
-description = "Quantrex - Event-driven algorithmic trading framework"
-readme = "README.md"
-requires-python = ">=3.13"
-dependencies = []
-
-[project.optional-dependencies]
-dev = ["pytest", "pytest-cov"]
+[tool.uv]
+default-groups = ["dev"]
 
 [tool.uv.workspace]
 members = ["packages/*"]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = []
-
-[build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+[tool.uv.sources]
+quantrex-core = { workspace = true }
+quantrex-data = { workspace = true }
+quantrex-backtest = { workspace = true }
+quantrex-live = { workspace = true }
+quantrex-test-support = { workspace = true }
 
 [dependency-groups]
 dev = [

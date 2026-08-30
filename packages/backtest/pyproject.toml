@@ -9,20 +9,6 @@ dependencies = [
     "quantrex-data",
 ]
 
-[project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "quantrex-test-support"]
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.pytest.ini_options]
-pythonpath = ["src"]
-
-[tool.uv.sources]
-quantrex-core = { workspace = true }
-quantrex-data = { workspace = true }
-quantrex-test-support = { workspace = true }
-
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["uv_build>=0.12.7,<0.13"]
+build-backend = "uv_build"
