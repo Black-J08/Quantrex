@@ -113,14 +113,27 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 
 ## Monorepo & Python Packaging (uv + pyproject.toml)
 
-**Use `uv` for all Python package management.** It is the single tool for dependency resolution, virtual environments, and building. Use `uv` exclusively for Python execution and testing. Run Python scripts with `uv run python <script.py>` and run pytest with `uv run pytest`. Do not use `python`, `python3`, `pip`, or manually activate virtual environments. Ensure dependencies are managed through the project's `pyproject.toml` and `uv.lock`. Use `uv sync --dev` when setting up or updating the environment.
+**Use `uv` for everything: dependency resolution, virtual environments, and building.** Never use `python`, `python3`, `pip`, or manually activate venvs. Run scripts with `uv run python <script.py>` and tests with `uv run --package <name> pytest packages/<name>/tests`. Set up or refresh the environment with `uv sync` (the root declares `default-groups = ["dev"]`, so dev tools install automatically). Dependencies live in `pyproject.toml`; versions are pinned in `uv.lock`.
+
+**Build backend:** every package uses `uv_build` (`build-backend = "uv_build"`). `uv_build` defaults `module_root` to `src/`, so no `[tool.setuptools.packages.find]` is needed. Do not introduce `setuptools`, `hatchling`, or any other backend.
+
+**Workspace:** the root `pyproject.toml` is a virtual workspace root (no `[project]` table). It declares `[tool.uv.workspace] members = ["packages/*"]`, `[tool.uv.sources]` with `{ workspace = true }` for every member (inherited by all members — do not redeclare sources per member), and `[dependency-groups] dev` (PEP 735) for pytest, pytest-cov, and any other dev tooling. Do not add `[project.optional-dependencies]` for dev tools; extras are reserved for opt-in feature flags.
+
+**Per member:** each member's `pyproject.toml` contains only `[project]` (with `requires-python`) and `[build-system]` (with `uv_build`). Cross-member dependencies are listed as bare names in `[project] dependencies` and resolved via the root's `[tool.uv.sources]`. Pin the interpreter at the workspace root with `.python-version`.
+
+**Not allowed (deprecated):** `uv sync --dev`, `[project.optional-dependencies] dev`, `[tool.uv.dev-dependencies]`, `[tool.setuptools.packages.find]`, per-member `[tool.uv.sources]`, any non-`uv_build` build backend, manual venv activation.
 
 
-### Monorepo Layout (example)
+### Monorepo Layout
 ```
 quantrex/
 ├── packages/
 │   ├── core/               # quantrex-core
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── pyproject.toml
+│   │   └── README.md
+│   ├── data/               # quantrex-data
 │   │   ├── src/
 │   │   ├── tests/
 │   │   ├── pyproject.toml
@@ -130,13 +143,19 @@ quantrex/
 │   │   ├── tests/
 │   │   ├── pyproject.toml
 │   │   └── README.md
-│   └── live/               # quantrex-live
+│   ├── live/               # quantrex-live
+│   │   ├── src/
+│   │   ├── tests/
+│   │   ├── pyproject.toml
+│   │   └── README.md
+│   └── test-support/       # quantrex-test-support
 │       ├── src/
 │       ├── tests/
 │       ├── pyproject.toml
 │       └── README.md
-├── pyproject.toml          # root workspace config
+├── pyproject.toml          # virtual workspace root
 ├── uv.lock                 # single lockfile for all
+├── .python-version         # workspace-wide Python pin
 ├── .gitignore
 ├── AGENTS.md
 └── README.md
