@@ -7,7 +7,10 @@ Returns raw rows as lists of strings.
 import csv
 from pathlib import Path
 from typing import Any
-from loguru import logger
+
+from quantrex_core.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class CSVDataProvider:
@@ -41,23 +44,23 @@ class CSVDataProvider:
         if not self._file_path.exists():
             raise FileNotFoundError(f"CSV file not found: {self._file_path}")
         
-        logger.debug("Reading CSV file: {}", self._file_path)
+        logger.debug("Reading CSV file: %s", self._file_path)
         
         with open(self._file_path, "r", newline="", encoding=self._encoding) as file:
             reader = csv.reader(file)
             rows = list(reader)
         
         if not rows:
-            logger.warning("CSV file is empty: {}", self._file_path)
+            logger.warning("CSV file is empty: %s", self._file_path)
             return [] if not self._has_header else ([], [])
         
         if self._has_header:
             self._header = rows[0]
             data_rows = rows[1:]
-            logger.debug("CSV header: {}, {} data rows", self._header, len(data_rows))
+            logger.debug("CSV header: %s, %d data rows", self._header, len(data_rows))
             return (self._header, data_rows)
         else:
-            logger.debug("CSV has no header, {} rows", len(rows))
+            logger.debug("CSV has no header, %d rows", len(rows))
             return rows
     
     def close(self) -> None:

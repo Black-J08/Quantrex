@@ -7,8 +7,7 @@ date normalization, and automatic chunking for large date ranges.
 from datetime import date, datetime
 from typing import Any
 
-from loguru import logger
-
+from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataProvider
 
 from .client import DhanAPIClient
@@ -16,6 +15,8 @@ from .config import DhanProviderConfig
 from .exceptions import DhanSymbolNotFoundError
 from .instrument_master import InstrumentMaster
 from .models import HistoricalDataRequest, HistoricalDataResponse, IntradayDataRequest, IntradayDataResponse
+
+logger = get_logger(__name__)
 
 
 class DhanDataProvider:
@@ -136,7 +137,7 @@ class DhanDataProvider:
             self._security_id = self._resolve_symbol(self._config.symbol)
 
         logger.debug(
-            "DhanDataProvider initialized: symbol={}, security_id={}, exchange_segment={}, instrument={}, timeframe={}",
+            "DhanDataProvider initialized: symbol=%s, security_id=%s, exchange_segment=%s, instrument=%s, timeframe=%s",
             self._config.symbol,
             self._security_id,
             self._config.exchange_segment,
@@ -205,9 +206,9 @@ class DhanDataProvider:
         Raises:
             DhanSymbolNotFoundError: If symbol not found.
         """
-        logger.debug("Resolving symbol '{}' for exchange_segment '{}'", symbol, self._config.exchange_segment)
+        logger.debug("Resolving symbol '%s' for exchange_segment '%s'", symbol, self._config.exchange_segment)
         security_id = self._instrument_master.resolve_symbol(symbol, self._config.exchange_segment)
-        logger.debug("Resolved '{}' -> security_id='{}'", symbol, security_id)
+        logger.debug("Resolved '%s' -> security_id='%s'", symbol, security_id)
         return security_id
 
     def _chunk_date_range(self, from_date: str, to_date: str, is_intraday: bool) -> list[tuple[str, str]]:
@@ -247,7 +248,7 @@ class DhanDataProvider:
             chunks.append((chunk_from, chunk_to))
             current_start = current_end + __import__("datetime").timedelta(days=1)
 
-        logger.debug("Split date range into {} chunks for timeframe '{}'", len(chunks), self._config.timeframe)
+        logger.debug("Split date range into %d chunks for timeframe '%s'", len(chunks), self._config.timeframe)
         return chunks
 
     def _merge_responses(self, responses: list[HistoricalDataResponse | IntradayDataResponse]) -> dict:
@@ -288,7 +289,7 @@ class DhanDataProvider:
             if has_oi and resp.open_interest is not None:
                 merged["open_interest"].extend(resp.open_interest)
 
-        logger.debug("Merged {} chunks into {} candles", len(responses), len(merged["timestamp"]))
+        logger.debug("Merged %d chunks into %d candles", len(responses), len(merged["timestamp"]))
         return merged
 
     def fetch(self) -> dict:
@@ -309,7 +310,7 @@ class DhanDataProvider:
             DhanAPIError: Other API errors.
         """
         logger.info(
-            "Fetching {} data for security_id='{}' from {} to {}",
+            "Fetching %s data for security_id='%s' from %s to %s",
             self._config.timeframe,
             self._security_id,
             self._config.from_date,
@@ -327,7 +328,7 @@ class DhanDataProvider:
 
         responses = []
         for i, (chunk_from, chunk_to) in enumerate(chunks):
-            logger.debug("Fetching chunk {}/{}: {} to {}", i + 1, len(chunks), chunk_from, chunk_to)
+            logger.debug("Fetching chunk %d/%d: %s to %s", i + 1, len(chunks), chunk_from, chunk_to)
 
             if is_intraday:
                 request = IntradayDataRequest(
@@ -357,7 +358,7 @@ class DhanDataProvider:
         # Merge all chunked responses
         merged = self._merge_responses(responses)
 
-        logger.success("Fetched {} candles for security_id='{}'", len(merged.get("timestamp", [])), self._security_id)
+        logger.info("Fetched %d candles for security_id='%s'", len(merged.get("timestamp", [])), self._security_id)
         return merged
 
     def close(self) -> None:

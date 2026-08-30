@@ -27,19 +27,27 @@ Every solution you propose or implement must be vetted through the search tools 
 4. **Citation:** Briefly note which standard or documentation source informed your design choice.
 
 ## Logging & Error Tracking Standards
-You must implement structured logging across all codebases using `loguru`-compliant severity levels and strict exception-tracking rules.
+
+Use the standard library [`logging`](https://docs.python.org/3/library/logging.html) module via the `quantrex_core.logging` facade: `get_logger(name)` for module-scoped loggers, `setup_logging(level, log_file)` at the process entry point. Importing `quantrex_core.logging` has no side effects.
 
 ### Severity Levels
-Always assume the `loguru` Python library for logging. Align all application logging strictly to these semantic levels:
-* **TRACE (5):** Granular, step-by-step execution details.
-* **DEBUG (10):** Diagnostic information for developers.
-* **INFO (20):** Standard operational events.
-* **SUCCESS (25):** Positive confirmation of completed operations.
-* **WARNING (30):** Non-critical issues or potential anomalies.
-* **CRITICAL (50):** System-breaking failures requiring immediate attention.
+Use the standard levels.
+
+| Level | When to use |
+|---|---|
+| **DEBUG (10)** | Diagnostic information for developers. |
+| **INFO (20)** | Standard operational events and positive confirmations of completed work. |
+| **WARNING (30)** | Non-critical issues or potential anomalies. |
+| **ERROR (40)** | Errors that prevent an operation from completing with exc_info=True always. |
+| **CRITICAL (50)** | System-breaking failures requiring immediate attention. |
+
+### Format
+* Use lazy `%`-formatting: `logger.info("foo %s", x)` — never f-strings at the call site.
+* Pass values as arguments, not pre-formatted strings, so the formatting cost is only paid when the record is actually emitted.
 
 ### Exception Handling Rules
-* **Never swallow exceptions silently.** * When catching exceptions, **always** use `.exception()` (or the local equivalent that forces `exc_info=True`). This guarantees that the entire stack trace, error context, and line numbers are captured in the log output for rapid debugging.
+* **Never swallow exceptions silently.**
+* When catching exceptions, **always** use `logger.exception(..., exc_info=True)` (or `logger.error(..., exc_info=True)`). This guarantees the full stack trace, error context, and line numbers are captured.
 
 ## Think Before Coding
 **Don't assume. Don't hide confusion. Surface tradeoffs.**

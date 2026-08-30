@@ -17,13 +17,15 @@ import os
 import sys
 
 from dotenv import load_dotenv
-from loguru import logger
+from quantrex_core.logging import get_logger, setup_logging
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
 from quantrex_backtest import BacktestEngine
+
+logger = get_logger(__name__)
 
 # Load .env from the project root once at process start so subsequent
 # os.getenv() calls (and anything in the data provider) see the token.
@@ -40,11 +42,15 @@ class DhanExampleStrategy(Strategy):
         self.orders_placed = 0
 
     def on_start(self) -> None:
-        print("Strategy started - waiting for candles...")
+        logger.info("Strategy started - waiting for candles...")
 
     def on_candle(self, candle: Candle) -> None:
         self.candles_received += 1
-        print(f"[{candle.timestamp}] {candle.symbol} O:{candle.open:.2f} H:{candle.high:.2f} L:{candle.low:.2f} C:{candle.close:.2f} V:{candle.volume:.0f}")
+        logger.info(
+            "[%s] %s O:%.2f H:%.2f L:%.2f C:%.2f V:%.0f",
+            candle.timestamp, candle.symbol,
+            candle.open, candle.high, candle.low, candle.close, candle.volume,
+        )
 
         # Simple strategy: buy 10 shares on first bullish candle
         if self.candles_received == 1 and candle.close > candle.open:
@@ -54,18 +60,22 @@ class DhanExampleStrategy(Strategy):
                 quantity=10.0,
             )
             self.orders_placed += 1
-            print(f"  -> Placed BUY order: {order.id} ({order.status})")
+            logger.info("  -> Placed BUY order: %s (%s)", order.id, order.status)
 
         # Report position
         position = self.ctx.get_position(candle.symbol)
-        print(f"  -> Position: {position.quantity} shares")
+        logger.info("  -> Position: %s shares", position.quantity)
 
     def on_stop(self) -> None:
-        print(f"Strategy stopped. Candles processed: {self.candles_received}, Orders placed: {self.orders_placed}")
+        logger.info(
+            "Strategy stopped. Candles processed: %d, Orders placed: %d",
+            self.candles_received, self.orders_placed,
+        )
 
 
 def main():
     """Run the example strategy with Dhan data."""
+    setup_logging(level="INFO")
     # Check for access token. .env was loaded at module import above.
     access_token = os.getenv("DHAN_ACCESS_TOKEN")
     if not access_token:
@@ -75,9 +85,9 @@ def main():
         )
         sys.exit(1)
 
-    print("=" * 60)
-    print("Dhan Data Provider Example Strategy")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("Dhan Data Provider Example Strategy")
+    logger.info("=" * 60)
 
     # Create provider with symbol resolution
     # Using RELIANCE (NSE_EQ) as example - replace with your desired symbol
@@ -107,13 +117,11 @@ def main():
     engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
     try:
-        print("\nStarting backtest...")
+        logger.info("Starting backtest...")
         engine.run()
-        print("\nBacktest completed successfully!")
+        logger.info("Backtest completed successfully!")
     except Exception as e:
-        print(f"\nError during backtest: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Error during backtest: %s", e)
     finally:
         adapter.close()
 

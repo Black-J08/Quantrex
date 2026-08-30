@@ -5,10 +5,12 @@ for the Backtest Engine.
 """
 
 from typing import Literal
-from loguru import logger
 
+from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataProvider, DataAdapter
 from quantrex_data.providers.csv_provider import CSVDataProvider
+
+logger = get_logger(__name__)
 
 
 class CSVDataAdapter:
@@ -82,10 +84,10 @@ class CSVDataAdapter:
                 extracted = self._extract_row_values(row)
                 results.append(extracted)
             except (IndexError, KeyError, ValueError) as e:
-                logger.warning("Skipping malformed row at line {}: {}", line_num, e)
+                logger.warning("Skipping malformed row at line %d: %s", line_num, e)
                 continue
-        
-        logger.debug("CSVDataAdapter: normalized {} rows", len(results))
+
+        logger.debug("CSVDataAdapter: normalized %d rows", len(results))
         return results
     
     def close(self) -> None:

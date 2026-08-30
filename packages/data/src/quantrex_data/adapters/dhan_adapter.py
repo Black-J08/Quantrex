@@ -8,11 +8,12 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from loguru import logger
-
+from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataAdapter, DataProvider
 
 from quantrex_data.providers.dhan_provider import DhanDataProvider
+
+logger = get_logger(__name__)
 
 # Dhan returns ``timestamp`` as epoch seconds in Indian Standard Time
 # (UTC+05:30). The official ``dhanhq-py`` SDK confirms this in
@@ -98,7 +99,7 @@ class DhanDataAdapter:
         return self._datetime_format
 
         logger.debug(
-            "DhanDataAdapter initialized with datetime_format='{}', source='{}', output='{}'",
+            "DhanDataAdapter initialized with datetime_format='%s', source='%s', output='%s'",
             datetime_format,
             DHAN_SOURCE_TIMEZONE,
             timezone,
@@ -174,7 +175,7 @@ class DhanDataAdapter:
 
             results.append(row)
 
-        logger.debug("DhanDataAdapter: normalized {} rows", len(results))
+        logger.debug("DhanDataAdapter: normalized %d rows", len(results))
         return results
 
     def close(self) -> None:

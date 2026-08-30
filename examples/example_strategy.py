@@ -4,6 +4,7 @@ One script works for backtesting, paper trading, and live trading.
 This version uses the new DataProvider → DataAdapter pattern.
 """
 
+from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
@@ -11,6 +12,8 @@ from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_backtest import BacktestEngine
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
+
+logger = get_logger(__name__)
 
 
 class MyStrategy(Strategy):
@@ -25,14 +28,23 @@ class MyStrategy(Strategy):
                 side=OrderSide.BUY,
                 quantity=10.0
             )
-            print(f"[{candle.timestamp}] Submitted BUY 10 {candle.symbol} -> Order {order.id} ({order.status})")
-        
+            logger.info(
+                "[%s] Submitted BUY 10 %s -> Order %s (%s)",
+                candle.timestamp, candle.symbol, order.id, order.status,
+            )
+
         # Always report current position
         position = self.ctx.get_position(candle.symbol)
-        print(f"[{candle.timestamp}] Position for {candle.symbol}: {position.quantity}")
+        logger.info(
+            "[%s] Position for %s: %s",
+            candle.timestamp, candle.symbol, position.quantity,
+        )
 
 
 if __name__ == "__main__":
+    from quantrex_core.logging import setup_logging
+
+    setup_logging(level="INFO")
     # 1. Generate synthetic OHLC data using test-support helpers
     rows = make_ohlc_series(num_rows=10, start_price=737.20, seed=42)
     csv_content = csv_rows_to_string(rows)

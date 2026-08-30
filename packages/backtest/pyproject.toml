@@ -7,7 +7,6 @@ requires-python = ">=3.13"
 dependencies = [
     "quantrex-core",
     "quantrex-data",
-    "loguru",
 ]
 
 [project.optional-dependencies]

@@ -16,14 +16,16 @@ import sys
 from collections import deque
 
 from dotenv import load_dotenv
-from loguru import logger
 
+from quantrex_core.logging import get_logger, setup_logging
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
 from quantrex_backtest import BacktestEngine
+
+logger = get_logger(__name__)
 
 # Load .env from the project root once at module import so that os.getenv()
 # calls below (and inside the data provider) can see DHAN_ACCESS_TOKEN.
@@ -75,7 +77,10 @@ class SmaCrossoverStrategy(Strategy):
                 side=OrderSide.BUY,
                 quantity=TRADE_QTY,
             )
-            print(f"[{candle.timestamp}] GOLDEN CROSS  -> BUY  {TRADE_QTY} {candle.symbol} (order {order.id}, {order.status.value})")
+            logger.info(
+                "[%s] GOLDEN CROSS  -> BUY  %s %s (order %s, %s)",
+                candle.timestamp, TRADE_QTY, candle.symbol, order.id, order.status.value,
+            )
 
         # Death cross: fast crosses below slow -> flatten long.
         elif prev_fast >= prev_slow and fast < slow and position.quantity > 0:
@@ -84,10 +89,14 @@ class SmaCrossoverStrategy(Strategy):
                 side=OrderSide.SELL,
                 quantity=position.quantity,
             )
-            print(f"[{candle.timestamp}] DEATH CROSS   -> SELL {position.quantity} {candle.symbol} (order {order.id}, {order.status.value})")
+            logger.info(
+                "[%s] DEATH CROSS   -> SELL %s %s (order %s, %s)",
+                candle.timestamp, position.quantity, candle.symbol, order.id, order.status.value,
+            )
 
 
 def main() -> None:
+    setup_logging(level="INFO")
     access_token = os.getenv("DHAN_ACCESS_TOKEN")
     if not access_token:
         logger.error(
@@ -96,9 +105,9 @@ def main() -> None:
         )
         sys.exit(1)
 
-    print("=" * 60)
-    print("SMA Crossover Strategy (Dhan data)")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("SMA Crossover Strategy (Dhan data)")
+    logger.info("=" * 60)
 
     # Pick a window long enough that slow SMA + crossover signal can form.
     provider = DhanDataProvider(
@@ -121,9 +130,9 @@ def main() -> None:
     engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
 
     try:
-        print("\nStarting backtest...")
+        logger.info("Starting backtest...")
         engine.run()
-        print("\nBacktest completed successfully!")
+        logger.info("Backtest completed successfully!")
     except Exception:
         logger.exception("Error during backtest")
     finally:
