@@ -552,3 +552,82 @@ class TestRoundTripParity:
         assert trades[0].exit_price == 101.0
         # PnL = (101 - 100) * 10 * -1 = -10.
         assert trades[0].pnl == pytest.approx(-10.0)
+
+
+# Position invariant: position_side derived from quantity sign ----------
+
+class TestPositionSideInvariant:
+    """Regression tests for the ``position_side`` ↔ ``quantity`` invariant.
+
+    Locked in by the discovery observation of 2026-09-02:
+    ``Position.zero()`` previously hardcoded ``PositionSide.LONG`` for any
+    flat symbol, and the ``Position`` dataclass stored both ``quantity``
+    (signed) and ``position_side`` independently, allowing them to
+    disagree.
+
+    After the fix:
+    * ``position_side`` is derived from the sign of ``quantity`` in
+      :meth:`Position.__post_init__` and overwrites whatever the caller
+      passed.
+    * The zero-quantity sentinel (``Position.zero(symbol)`` and the
+      ``PositionManager.get_position`` fast-path) now reports
+      :attr:`PositionSide.FLAT`, not :attr:`PositionSide.LONG`.
+    * The constructor cannot produce a ``Position`` whose
+      ``position_side`` disagrees with the sign of its ``quantity``.
+    """
+
+    def test_position_zero_reports_flat_not_long(self):
+        """``Position.zero(symbol).position_side`` is ``FLAT`` (regression).
+
+        Reproduces the original defect: before the fix, ``Position.zero``
+        hardcoded ``position_side=PositionSide.LONG`` for any flat
+        symbol, which misrepresented "no exposure" as a long position.
+        """
+        z = Position.zero("COPPER")
+        assert z.quantity == 0.0
+        assert z.position_side is PositionSide.FLAT
+
+    def test_constructor_corrects_mismatched_position_side_to_long(self):
+        """Passing ``SHORT`` with ``quantity > 0`` is corrected to ``LONG``."""
+        p = Position(T0, 100.0, "AAPL", 5.0, PositionSide.SHORT)
+        assert p.quantity == 5.0
+        assert p.position_side is PositionSide.LONG
+
+    def test_constructor_corrects_mismatched_position_side_to_short(self):
+        """Passing ``LONG`` with ``quantity < 0`` is corrected to ``SHORT``."""
+        p = Position(T0, 100.0, "AAPL", -5.0, PositionSide.LONG)
+        assert p.quantity == -5.0
+        assert p.position_side is PositionSide.SHORT
+
+    def test_constructor_with_zero_quantity_reports_flat(self):
+        """Passing ``quantity=0`` produces ``FLAT`` regardless of the side arg."""
+        p = Position(T0, 100.0, "AAPL", 0.0, PositionSide.LONG)
+        assert p.quantity == 0.0
+        assert p.position_side is PositionSide.FLAT
+
+    def test_get_position_fast_path_returns_flat(self):
+        """``PositionManager.get_position`` for an unopened symbol returns FLAT."""
+        pm = PositionManager()
+        flat = pm.get_position("NEVER_OPENED")
+        assert flat.quantity == 0.0
+        assert flat.position_side is PositionSide.FLAT
+
+    def test_get_position_after_full_close_returns_flat(self):
+        """Fast-path after a full close must also report ``FLAT``."""
+        pm = PositionManager()
+        _market(pm, "AAPL", OrderSide.BUY, 10.0, T0, 100.0)
+        _market(pm, "AAPL", OrderSide.SELL, 10.0, T1, 110.0)
+        flat = pm.get_position("AAPL")
+        assert flat.quantity == 0.0
+        assert flat.position_side is PositionSide.FLAT
+
+    def test_equality_and_hash_agree_on_derived_side(self):
+        """Two ``Position``s with same quantity are equal regardless of the
+        (ignored) ``position_side`` argument, because the field is
+        derived from ``quantity`` in ``__post_init__``."""
+        p1 = Position(T0, 100.0, "AAPL", 5.0, PositionSide.LONG)
+        p2 = Position(T0, 100.0, "AAPL", 5.0, PositionSide.SHORT)
+        assert p1 == p2
+        assert hash(p1) == hash(p2)
+        assert p1.position_side is PositionSide.LONG
+        assert p2.position_side is PositionSide.LONG

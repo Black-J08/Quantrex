@@ -63,9 +63,11 @@ class PositionManager:
     ) -> Position:
         """Build a ``Position`` from a signed net quantity.
 
-        ``position_side`` is derived from the sign of ``quantity``:
-        positive → LONG, negative → SHORT. ``side`` is no longer needed
-        because the net quantity fully determines the position's side.
+        ``position_side`` is derived from the sign of ``quantity`` in
+        :meth:`Position.__post_init__` and overwrites whatever is passed
+        here, so the explicit value is redundant. The manager never
+        passes ``quantity=0`` at a call site, so the FLAT branch is not
+        exercised; the explicit LONG/SHORT here documents intent.
         """
         position_side = PositionSide.LONG if quantity >= 0 else PositionSide.SHORT
         return Position(
