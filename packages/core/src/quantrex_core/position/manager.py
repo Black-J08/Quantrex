@@ -160,91 +160,163 @@ class PositionManager:
         delta = quantity if side == OrderSide.BUY else -quantity
         current = self._positions.get(symbol)
 
-        # Case 1: no prior position → open fresh.
         if current is None:
-            self._positions[symbol] = self._make_position(
-                symbol=symbol,
-                quantity=delta,
-                entry_timestamp=timestamp,
-                entry_price=price,
-            )
+            # Case 1: open fresh.
+            self._apply_open(symbol, delta, timestamp, price)
             return order
 
         new_qty = current.quantity + delta
 
-        # Case 4: full close → delete position, emit one TradeRecord.
         if new_qty == 0:
-            self._closed_trades.append(
-                self._build_trade(
-                    symbol=symbol,
-                    side=current.position_side,
-                    quantity=abs(current.quantity),
-                    entry_timestamp=current.entry_timestamp,
-                    entry_price=current.entry_price,
-                    exit_timestamp=timestamp,
-                    exit_price=price,
-                )
-            )
-            del self._positions[symbol]
+            # Case 4: full close.
+            self._apply_full_close(symbol, current, timestamp, price)
             return order
 
-        # Case 5: flip (opposite sign) → full close of old side + fresh
-        # open of new side. Emit one TradeRecord for the full closed
-        # quantity of the prior side; the new side opens with the flip
-        # order's price/time as its entry basis.
         if not _same_sign(current.quantity, new_qty):
-            self._closed_trades.append(
-                self._build_trade(
-                    symbol=symbol,
-                    side=current.position_side,
-                    quantity=abs(current.quantity),
-                    entry_timestamp=current.entry_timestamp,
-                    entry_price=current.entry_price,
-                    exit_timestamp=timestamp,
-                    exit_price=price,
-                )
-            )
-            self._positions[symbol] = self._make_position(
-                symbol=symbol,
-                quantity=new_qty,
-                entry_timestamp=timestamp,
-                entry_price=price,
-            )
+            # Case 5: flip.
+            self._apply_flip(symbol, current, new_qty, timestamp, price)
             return order
 
         # Cases 2 and 3 share a sign (same-side update). Distinguish by
         # whether |qty| grew (scale-in) or shrank (scale-out).
         if abs(new_qty) > abs(current.quantity):
-            # Case 2: scale-in. Preserve existing entry basis.
-            self._positions[symbol] = self._make_position(
-                symbol=symbol,
-                quantity=new_qty,
-                entry_timestamp=current.entry_timestamp,
-                entry_price=current.entry_price,
-            )
+            # Case 2: scale-in.
+            self._apply_scale_in(symbol, current, new_qty)
         else:
-            # Case 3: scale-out / partial close. Emit one TradeRecord
-            # for the closed portion; preserve entry basis for the
-            # remainder.
-            closed_qty = abs(current.quantity) - abs(new_qty)
-            self._closed_trades.append(
-                self._build_trade(
-                    symbol=symbol,
-                    side=current.position_side,
-                    quantity=closed_qty,
-                    entry_timestamp=current.entry_timestamp,
-                    entry_price=current.entry_price,
-                    exit_timestamp=timestamp,
-                    exit_price=price,
-                )
-            )
-            self._positions[symbol] = self._make_position(
+            # Case 3: scale-out / partial close.
+            self._apply_scale_out(symbol, current, new_qty, timestamp, price)
+        return order
+
+    def _apply_open(
+        self,
+        symbol: str,
+        delta: float,
+        timestamp: datetime,
+        price: float,
+    ) -> None:
+        """Case 1: no prior position → open a fresh ``Position``.
+
+        Entry basis (timestamp and price) comes from the order itself.
+        No ``TradeRecord`` is emitted.
+        """
+        self._positions[symbol] = self._make_position(
+            symbol=symbol,
+            quantity=delta,
+            entry_timestamp=timestamp,
+            entry_price=price,
+        )
+
+    def _apply_full_close(
+        self,
+        symbol: str,
+        current: Position,
+        timestamp: datetime,
+        price: float,
+    ) -> None:
+        """Case 4: order drives net quantity to zero.
+
+        Emits one ``TradeRecord`` for the full prior-side quantity and
+        removes the symbol from the position map. No zero-quantity
+        phantom position is kept.
+        """
+        self._closed_trades.append(
+            self._build_trade(
                 symbol=symbol,
-                quantity=new_qty,
+                side=current.position_side,
+                quantity=abs(current.quantity),
                 entry_timestamp=current.entry_timestamp,
                 entry_price=current.entry_price,
+                exit_timestamp=timestamp,
+                exit_price=price,
             )
-        return order
+        )
+        del self._positions[symbol]
+
+    def _apply_flip(
+        self,
+        symbol: str,
+        current: Position,
+        new_qty: float,
+        timestamp: datetime,
+        price: float,
+    ) -> None:
+        """Case 5: order delta crosses zero (e.g. Long 10 → Sell 15).
+
+        Emits one ``TradeRecord`` for the FULL prior-side quantity using
+        the order's price/time as exit, then opens a fresh ``Position``
+        for the residual opposite-side quantity whose entry basis
+        (timestamp and price) is the flip order itself. The new side's
+        open is NOT itself a ``TradeRecord``.
+        """
+        self._closed_trades.append(
+            self._build_trade(
+                symbol=symbol,
+                side=current.position_side,
+                quantity=abs(current.quantity),
+                entry_timestamp=current.entry_timestamp,
+                entry_price=current.entry_price,
+                exit_timestamp=timestamp,
+                exit_price=price,
+            )
+        )
+        self._positions[symbol] = self._make_position(
+            symbol=symbol,
+            quantity=new_qty,
+            entry_timestamp=timestamp,
+            entry_price=price,
+        )
+
+    def _apply_scale_in(
+        self,
+        symbol: str,
+        current: Position,
+        new_qty: float,
+    ) -> None:
+        """Case 2: same-side update whose ``|qty|`` grew.
+
+        The open is purely additive: the existing entry basis
+        (timestamp and price) is preserved and no ``TradeRecord`` is
+        emitted.
+        """
+        self._positions[symbol] = self._make_position(
+            symbol=symbol,
+            quantity=new_qty,
+            entry_timestamp=current.entry_timestamp,
+            entry_price=current.entry_price,
+        )
+
+    def _apply_scale_out(
+        self,
+        symbol: str,
+        current: Position,
+        new_qty: float,
+        timestamp: datetime,
+        price: float,
+    ) -> None:
+        """Case 3: same-side update whose ``|qty|`` shrank (partial close).
+
+        Emits one ``TradeRecord`` for the closed portion using the
+        order's price/time as exit, then writes a residual ``Position``
+        that keeps the original entry basis for the remainder.
+        """
+        closed_qty = abs(current.quantity) - abs(new_qty)
+        self._closed_trades.append(
+            self._build_trade(
+                symbol=symbol,
+                side=current.position_side,
+                quantity=closed_qty,
+                entry_timestamp=current.entry_timestamp,
+                entry_price=current.entry_price,
+                exit_timestamp=timestamp,
+                exit_price=price,
+            )
+        )
+        self._positions[symbol] = self._make_position(
+            symbol=symbol,
+            quantity=new_qty,
+            entry_timestamp=current.entry_timestamp,
+            entry_price=current.entry_price,
+        )
 
     def get_position(self, symbol: str) -> Position:
         """Return current net position for symbol. Returns ``Position.zero(symbol)`` if none."""
