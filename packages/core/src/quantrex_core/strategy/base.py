@@ -6,8 +6,8 @@ all execution environments (backtest, live, paper trading, etc.).
 
 from abc import ABC, abstractmethod
 
-from ..protocols import StrategyContext
 from ..models.candle import Candle
+from .context import StrategyContext
 
 
 class Strategy(ABC):

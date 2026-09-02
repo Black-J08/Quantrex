@@ -5,8 +5,9 @@ from .models.candle import Candle
 from .models.enums import OrderSide, OrderType, OrderStatus
 from .models.order import Order
 from .models.position import Position
-from .protocols import DataProvider, DataAdapter, StrategyContext
+from .protocols import DataProvider, DataAdapter
 from .strategy.base import Strategy
+from .strategy.context import StrategyContext
 
 __all__ = [
     "Candle",

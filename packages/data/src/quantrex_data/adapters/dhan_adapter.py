@@ -93,17 +93,18 @@ class DhanDataAdapter:
         self._datetime_format = datetime_format
         self._timezone_name = timezone
     
-    @property
-    def datetime_format(self) -> str:
-        """Format string used for datetime parsing (single source of truth)."""
-        return self._datetime_format
-
         logger.debug(
             "DhanDataAdapter initialized with datetime_format='%s', source='%s', output='%s'",
             datetime_format,
             DHAN_SOURCE_TIMEZONE,
             timezone,
         )
+        
+    @property
+    def datetime_format(self) -> str:
+        """Format string used for datetime parsing (single source of truth)."""
+        return self._datetime_format
+
 
     def read(self) -> list[dict]:
         """Read normalized OHLCV data from the Dhan provider.

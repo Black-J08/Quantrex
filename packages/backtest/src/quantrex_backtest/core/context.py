@@ -4,10 +4,10 @@ from quantrex_core.models.enums import OrderType
 from quantrex_core.models.order import Order, OrderSide
 from quantrex_core.models.position import Position
 from quantrex_core.position.manager import PositionManager
-from quantrex_core.protocols import StrategyContext
+from quantrex_core.strategy.context import StrategyContext
 
 
-class BacktestStrategyContext:
+class BacktestStrategyContext(StrategyContext):
     """Backtest-specific StrategyContext. Delegates to PositionManager."""
 
     def __init__(self, position_manager: PositionManager, current_time: datetime) -> None:
