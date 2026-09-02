@@ -1,6 +1,7 @@
 """Backtest engine core orchestration."""
 
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 import csv
@@ -132,6 +133,19 @@ class BacktestEngine:
                 # Update context time and candle for order timestamps and pricing
                 self._context.update_time(candle.timestamp)
                 self._context.update_candle(candle)
+                # Emit a per-bar audit line so execution.log records the
+                # backtest/candle timestamp and OHLCV without researchers
+                # having to add logging in their strategy.
+                logger.info(
+                    "[%s %s] O=%s H=%s L=%s C=%s V=%s",
+                    candle.symbol,
+                    candle.timestamp.isoformat(),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                )
                 self._strategy.on_candle(candle)
             except Exception as e:
                 logger.exception("Failed to process candle at index %d", idx)
@@ -200,24 +214,79 @@ class BacktestEngine:
             / f"{backtest_start_str}_{self._symbol}_{data_start}_{data_end}_short"
         )
 
+    # Sentinel attribute on handlers we attach ourselves so subsequent
+    # ``_ensure_run_log_file`` calls can detect (and rebind to the new
+    # run directory) handlers we previously attached, while still treating
+    # researcher-installed FileHandlers as a no-op signal.
+    _QUANTREX_RUN_HANDLER = "_quantrex_run_log_handler"
+
     def _ensure_run_log_file(self, run_dir: Path) -> None:
         """Attach a per-run ``execution.log`` FileHandler to the root logger.
 
-        Idempotent: if the root logger already has any
-        :class:`logging.FileHandler`-derived handler (e.g. the researcher
-        called :func:`quantrex_core.logging.setup_logging` with
-        ``log_file=...``), this method is a no-op so the researcher's
-        configuration is preserved.
+        Behaviour:
+        * If a previous engine run already attached *our* handler, rebind
+          it to the current ``run_dir`` so per-bar log lines land in the
+          right ``execution.log`` (the staging-to-final promotion path
+          relies on this).
+        * If a researcher-installed ``FileHandler`` is present and we
+          haven't attached one ourselves, leave the root logger untouched
+          so the researcher's logging configuration wins.
         """
         root = logging.getLogger()
-        if any(isinstance(h, logging.FileHandler) for h in root.handlers):
+
+        # Case 1: we attached a handler in an earlier engine.run() — rebind
+        # it to the current run directory and stop. Otherwise, per-candle
+        # INFO records would silently keep landing in the stale directory
+        # from the first run (this is the root cause of the regression).
+        for h in root.handlers:
+            if getattr(h, self._QUANTREX_RUN_HANDLER, False):
+                rebind_path = run_dir / _RUN_LOG_FILENAME
+                if Path(h.baseFilename) != rebind_path:
+                    h.close()
+                    root.removeHandler(h)
+                    new_handler = logging.FileHandler(
+                        rebind_path, mode="a", encoding="utf-8"
+                    )
+                    new_handler.setLevel(logging.INFO)
+                    new_handler.setFormatter(
+                        logging.Formatter(
+                            "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+                        )
+                    )
+                    setattr(new_handler, self._QUANTREX_RUN_HANDLER, True)
+                    root.addHandler(new_handler)
+                return
+
+        # Case 2: a researcher-installed FileHandler exists — respect it.
+        # We ignore FileHandlers pointing at "/dev/null" (or any other
+        # throwaway path) because those are test-infrastructure sentinels
+        # (pytest's logging capture writes here), not the researcher's
+        # actual log destination. Without this guard, every test run would
+        # silently skip attaching execution.log because pytest attaches
+        # a /dev/null FileHandler before the engine runs.
+        if any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", None) != os.devnull
+            for h in root.handlers
+        ):
             return
 
+        # Case 3: first run in this process and no researcher handler.
         log_path = run_dir / _RUN_LOG_FILENAME
+        # Python's logging filters records against the LOGGER's level
+        # first (default WARNING). If the root logger stays at WARNING,
+        # our ``logger.info(...)`` calls never reach this file handler
+        # and ``execution.log`` is created but stays empty. Lower the
+        # root level (and the handler) to INFO so per-bar audit lines
+        # actually land in the file.
+        if root.level == logging.NOTSET or root.level > logging.INFO:
+            root.setLevel(logging.INFO)
         handler = logging.FileHandler(log_path, mode="a", encoding="utf-8")
+        handler.setLevel(logging.INFO)
         handler.setFormatter(
             logging.Formatter("%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
         )
+        setattr(handler, self._QUANTREX_RUN_HANDLER, True)
         root.addHandler(handler)
 
     def _export_trades_csv(self, output_dir: Path) -> None:

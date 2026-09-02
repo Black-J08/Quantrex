@@ -602,3 +602,44 @@ class TestBacktestEngine:
             assert float(trade[6]) == 101.00  # exit_price (candle 3 open)
             # P&L for SHORT = (entry - exit) * qty = (100.00 - 101.00) * 10.0 = -10.0
             assert abs(float(trade[7]) - (-10.0)) < 0.01
+
+    def test_engine_logs_ohlc_per_candle_to_execution_log(self):
+        """Regression: each candle must be logged with its backtest timestamp
+        and full OHLCV to execution.log, without researcher code changes.
+        """
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read.return_value = [
+            {"datetime": "20230620 19:00", "open": "100.5", "high": "101.25", "low": "99.75", "close": "100.75", "volume": "42"},
+            {"datetime": "20230620 19:01", "open": "100.75", "high": "102.0", "low": "100.5", "close": "101.5", "volume": "17"},
+        ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        strategy = TestStrategy()
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+
+        engine.run()
+
+        # Locate the most recent execution.log written by this run.
+        run_dirs = list(Path("output/backtest/TestStrategy").glob("*"))
+        assert run_dirs, "no run directory was created"
+        latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
+        log_path = latest_dir / "execution.log"
+        assert log_path.exists(), f"execution.log not found at {log_path}"
+
+        contents = log_path.read_text(encoding="utf-8")
+
+        # Candle 1: 2023-06-20 19:00 — verify every OHLCV field appears
+        # in a single line tagged with the symbol and candle timestamp.
+        assert "[COPPER 2023-06-20T19:00:00]" in contents
+        assert "O=100.5" in contents
+        assert "H=101.25" in contents
+        assert "L=99.75" in contents
+        assert "C=100.75" in contents
+        assert "V=42" in contents
+
+        # Candle 2: 2023-06-20 19:01 — distinct values to ensure the line
+        # is emitted per-bar, not a one-shot header.
+        assert "[COPPER 2023-06-20T19:01:00]" in contents
+        assert "O=100.75" in contents
+        assert "H=102.0" in contents
+        assert "C=101.5" in contents
+        assert "V=17" in contents
