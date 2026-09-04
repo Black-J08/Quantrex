@@ -547,7 +547,15 @@ class TestDhanDataProvider:
         assert " " in call_args.to_date
 
     def test_custom_chunk_sizes(self, mock_client, mock_instrument_master):
-        """Provider should use custom chunk sizes when provided."""
+        """Provider should use custom chunk sizes when provided.
+
+        With ``chunk_size_days["day"]=1`` and a 2-day range
+        (``2024-01-01`` to ``2024-01-03``), the chunker must NOT emit
+        a same-day request (Dhan rejects ``fromDate == toDate`` with
+        ``errorCode DH-907``). The single-day residue after the first
+        stride is absorbed into the first chunk, producing a single
+        request covering the full range.
+        """
         from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
 
         chunk1 = HistoricalDataResponse(
@@ -555,12 +563,7 @@ class TestDhanDataProvider:
             close=[2510.0], volume=[100000], timestamp=[1704067200],
             open_interest=[50000],
         )
-        chunk2 = HistoricalDataResponse(
-            open=[2510.0], high=[2525.0], low=[2505.0],
-            close=[2520.0], volume=[150000], timestamp=[1704153600],
-            open_interest=[55000],
-        )
-        mock_client.get_daily_historical.side_effect = [chunk1, chunk2]
+        mock_client.get_daily_historical.side_effect = [chunk1]
 
         provider = DhanDataProvider(
             security_id="1333",
@@ -573,7 +576,12 @@ class TestDhanDataProvider:
         )
         provider.fetch()
 
-        assert mock_client.get_daily_historical.call_count == 2
+        # One request covers the whole range; the single-day residue
+        # was absorbed instead of being emitted as a same-day chunk.
+        assert mock_client.get_daily_historical.call_count == 1
+        request = mock_client.get_daily_historical.call_args[0][0]
+        assert request.from_date == "2024-01-01"
+        assert request.to_date == "2024-01-03"
 
 
 class TestDhanDataProviderIntegration:
@@ -729,3 +737,150 @@ class TestDhanDailyChunkingRegression:
             f"is not splitting at the 90-day boundary, so the request will "
             f"hit Dhan's per-request limit and fail with errorCode 812/813/814."
         )
+
+
+class TestDhanDailyChunkingResidueRegression:
+    """Regression: chunker must absorb single-day tail residue into the previous chunk.
+
+    Original defect: ``DhanDataProvider._chunk_date_range`` walked the
+    range in 89-day strides and incremented ``current_start`` by 1 day
+    after each chunk. When the user's range wasn't an exact multiple of
+    89 days, the tail left a 1-day chunk whose ``fromDate == toDate``.
+    Dhan v2's ``/charts/historical`` endpoint rejects such requests
+    with HTTP 400 / ``errorCode: DH-907`` ("System is unable to fetch
+    data due to incorrect parameters or no data present"). Verified
+    directly against Dhan v2: ``fromDate == toDate`` returns ``DH-907``
+    while ``toDate = fromDate + 1 day`` succeeds.
+
+    Reproducer (user-reported): ``examples/rsi_example_strategy.py``
+    with ``from_date="2026-01-01"``, ``to_date="2026-06-30"`` produced
+    the chunks ``(2026-01-01, 2026-03-31)``, ``(2026-04-01, 2026-06-29)``,
+    and the failing ``(2026-06-30, 2026-06-30)``. The fix absorbs the
+    single-day residue into the previous chunk so the last chunk is
+    ``(2026-04-01, 2026-06-30)``.
+
+    These tests pin:
+      1. No chunk has ``to_date == from_date`` (the regression symptom).
+      2. The residue tail is absorbed into the previous chunk instead
+         of being dropped or emitted as a same-day request.
+      3. The merged dataset covers the full requested window.
+    """
+
+    @pytest.fixture
+    def mock_client(self):
+        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock:
+            client_instance = Mock()
+            mock.return_value = client_instance
+            yield client_instance
+
+    @pytest.fixture
+    def mock_instrument_master(self):
+        with patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock:
+            master_instance = Mock()
+            master_instance.resolve_symbol.return_value = "1333"
+            mock.return_value = master_instance
+            yield master_instance
+
+    def test_rsi_range_does_not_emit_same_day_chunk(
+        self, mock_client, mock_instrument_master
+    ):
+        """The user-reported 180-day range must not produce a same-day chunk.
+
+        ``examples/rsi_example_strategy.py`` uses
+        ``from_date="2026-01-01"``, ``to_date="2026-06-30"``. Before the
+        fix, the chunker produced a final ``(2026-06-30, 2026-06-30)``
+        chunk that Dhan rejected with ``errorCode DH-907``.
+        """
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2026-01-01",
+            to_date="2026-06-30",
+            timeframe="day",
+        )
+        chunks = provider._chunk_date_range("2026-01-01", "2026-06-30", is_intraday=False)
+
+        assert len(chunks) == 2, (
+            f"Expected 2 chunks (residue absorbed into the previous), "
+            f"got {len(chunks)}: {chunks}. A trailing single-day chunk "
+            f"will be rejected by Dhan with errorCode DH-907."
+        )
+        assert chunks[-1] == ("2026-04-01", "2026-06-30"), (
+            f"Expected the residue to be absorbed into the second chunk "
+            f"so its end-date equals the user's requested end-date, got "
+            f"{chunks[-1]}."
+        )
+        for chunk_from, chunk_to in chunks:
+            assert chunk_from != chunk_to, (
+                f"Chunk {chunk_from} -> {chunk_to} has a zero-day span; "
+                f"Dhan rejects such requests with errorCode DH-907."
+            )
+
+    def test_no_chunk_ever_has_zero_day_span_for_any_range(
+        self, mock_client, mock_instrument_master
+    ):
+        """For a variety of range lengths, no chunk may have ``from == to``.
+
+        Sweeps ranges of 1..200 days starting from a fixed date and
+        asserts the chunker never emits a same-day request.
+        """
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-02",
+            timeframe="day",
+        )
+        for span_days in (1, 2, 30, 88, 89, 90, 91, 120, 178, 179, 180, 181, 365):
+            from_d = "2024-01-01"
+            to_d = (
+                datetime.strptime(from_d, "%Y-%m-%d")
+                + __import__("datetime").timedelta(days=span_days)
+            ).strftime("%Y-%m-%d")
+            chunks = provider._chunk_date_range(from_d, to_d, is_intraday=False)
+            for chunk_from, chunk_to in chunks:
+                assert chunk_from != chunk_to, (
+                    f"Range {from_d} -> {to_d} ({span_days} days) produced "
+                    f"a same-day chunk {chunk_from} -> {chunk_to}; Dhan "
+                    f"rejects such requests with errorCode DH-907."
+                )
+
+    def test_merged_window_covers_full_requested_range(
+        self, mock_client, mock_instrument_master
+    ):
+        """After chunking, the union of chunk windows covers [from, to] end-to-end.
+
+        Guards against a buggy "absorb the residue" implementation that
+        drops the last day of the user's window.
+        """
+        from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
+
+        chunk_response = HistoricalDataResponse(
+            open=[2500.0], high=[2520.0], low=[2490.0], close=[2510.0],
+            volume=[100000], timestamp=[1704047400], open_interest=[50000],
+        )
+        mock_client.get_daily_historical.side_effect = [chunk_response] * 4
+
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2026-01-01",
+            to_date="2026-06-30",
+            timeframe="day",
+        )
+        chunks = provider._chunk_date_range("2026-01-01", "2026-06-30", is_intraday=False)
+
+        # The first chunk starts at the user's from_date and the last
+        # chunk's to_date is the user's to_date; the windows are
+        # contiguous (next.from = prev.to + 1 day).
+        assert chunks[0][0] == "2026-01-01"
+        assert chunks[-1][1] == "2026-06-30"
+        for prev, nxt in zip(chunks, chunks[1:]):
+            prev_end = datetime.strptime(prev[1], "%Y-%m-%d")
+            nxt_start = datetime.strptime(nxt[0], "%Y-%m-%d")
+            assert nxt_start == prev_end + __import__("datetime").timedelta(days=1), (
+                f"Chunk windows are not contiguous: {prev[1]} -> {nxt[0]}"
+            )

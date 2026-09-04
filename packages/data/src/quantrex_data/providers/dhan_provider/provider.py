@@ -220,7 +220,17 @@ class DhanDataProvider:
             is_intraday: Whether this is for intraday API.
 
         Returns:
-            List of (chunk_from, chunk_to) date tuples.
+            List of (chunk_from, chunk_to) date tuples. Every chunk has
+            a strictly positive span (``chunk_to > chunk_from``) because
+            Dhan's daily and intraday APIs reject same-day windows with
+            HTTP 400 / ``errorCode: DH-907``. Verified against Dhan v2:
+            a same-day ``fromDate == toDate`` request returns ``DH-907``
+            while ``toDate = fromDate + 1 day`` succeeds and returns the
+            inclusive candle for ``fromDate``. When the user's range
+            would otherwise leave a single-day residue at the tail, this
+            chunker absorbs that residue into the previous chunk so no
+            candle in the requested window is dropped and no chunk is
+            rejected.
         """
         # Parse dates
         if is_intraday and " " in from_date:
@@ -231,21 +241,45 @@ class DhanDataProvider:
             end = datetime.strptime(to_date.split(" ")[0], "%Y-%m-%d")
 
         chunk_days = self._config.chunk_size_days.get(self._config.timeframe, 30)
-        chunks = []
+        fmt = "%Y-%m-%d %H:%M:%S" if is_intraday and " " in from_date else "%Y-%m-%d"
 
+        if start == end:
+            # Same-day range: a single 1-day chunk. The caller is
+            # responsible for treating such requests as meaningful
+            # (Dhan rejects them with ``DH-907``).
+            return [(start.strftime(fmt), end.strftime(fmt))]
+
+        # Build the sequence of chunk starts and ends by walking the
+        # range in ``chunk_days`` strides. Each chunk's ``to_date`` is
+        # inclusive; the next chunk's ``from_date`` is
+        # ``previous.to_date + 1 day``. When the remainder of the range
+        # after a stride would be a single day (i.e. the next stride
+        # would start exactly on ``end``), we extend the current
+        # chunk's ``to_date`` to ``end`` instead of emitting a same-day
+        # request that Dhan would reject. Verified against Dhan v2:
+        # ``fromDate == toDate`` returns HTTP 400 / ``errorCode DH-907``.
+        chunks: list[tuple[str, str]] = []
         current_start = start
-        # Use <= to handle same-day ranges (at least one chunk)
         while current_start <= end:
-            current_end = min(current_start + __import__("datetime").timedelta(days=chunk_days), end)
+            stride_end = current_start + __import__("datetime").timedelta(days=chunk_days)
+            next_start = stride_end + __import__("datetime").timedelta(days=1)
 
-            if is_intraday and " " in from_date:
-                chunk_from = current_start.strftime("%Y-%m-%d %H:%M:%S")
-                chunk_to = current_end.strftime("%Y-%m-%d %H:%M:%S")
+            if stride_end >= end:
+                # This stride covers or overshoots the end; a single
+                # chunk finishes the range.
+                current_end = end
+            elif next_start >= end:
+                # After this stride, only a same-day residue would
+                # remain (or no range at all). Absorb it into this
+                # chunk so we never emit a ``from == to`` request.
+                current_end = end
             else:
-                chunk_from = current_start.strftime("%Y-%m-%d")
-                chunk_to = current_end.strftime("%Y-%m-%d")
+                current_end = stride_end
 
-            chunks.append((chunk_from, chunk_to))
+            chunks.append((current_start.strftime(fmt), current_end.strftime(fmt)))
+
+            if current_end >= end:
+                break
             current_start = current_end + __import__("datetime").timedelta(days=1)
 
         logger.debug("Split date range into %d chunks for timeframe '%s'", len(chunks), self._config.timeframe)

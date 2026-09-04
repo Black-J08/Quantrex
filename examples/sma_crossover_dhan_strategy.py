@@ -158,7 +158,7 @@ def main() -> None:
 
     # Pick a window long enough that slow SMA + crossover signal can form.
     provider = DhanDataProvider(
-        symbol="RELIANCE",
+        symbol="TCS",
         exchange_segment="NSE_EQ",
         instrument="EQUITY",
         from_date="2023-02-01",
