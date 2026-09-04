@@ -111,6 +111,80 @@ def test_strategy_can_override_lifecycle():
     strategy = CustomLifecycleStrategy()
     strategy.on_start()
     strategy.on_stop()
-    
+
     assert strategy.start_data == "initialized"
     assert strategy.stop_data == "cleaned_up"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests for the precomputed indicator API
+# (Strategy.compute_indicators). A bug fix without a regression test is not
+# a fix — see project AGENTS.md "Standing Rule: Regression Tests for Every
+# Bug Fix".
+# ---------------------------------------------------------------------------
+
+
+def test_default_compute_indicators_returns_one_dict_per_row():
+    """The default ``compute_indicators`` returns one mapping per input row.
+
+    Regression: the engine calls ``strategy.compute_indicators(raw_data)``
+    exactly once before the per-bar loop and threads the i-th element into
+    the i-th ``Candle``. The default body must be length-aligned with the
+    input so the engine's ``len(per_bar) == len(raw_data)`` check passes
+    for every existing strategy that does not override the hook.
+    """
+    strategy = ConcreteStrategy()
+    rows = [
+        {"datetime": "20230101 09:30", "open": 1, "high": 2, "low": 0, "close": 1, "volume": 1},
+        {"datetime": "20230101 09:31", "open": 2, "high": 3, "low": 1, "close": 2, "volume": 2},
+        {"datetime": "20230101 09:32", "open": 3, "high": 4, "low": 2, "close": 3, "volume": 3},
+    ]
+
+    out = strategy.compute_indicators(rows)
+
+    assert len(out) == 3
+
+
+def test_default_compute_indicators_each_dict_is_empty():
+    """The default per-bar mapping is an empty dict (no-op behavior).
+
+    Regression: the default must not pre-populate indicator values
+    (researchers who want pass-through write their own override).
+    """
+    strategy = ConcreteStrategy()
+    rows = [
+        {"datetime": "t1", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1},
+        {"datetime": "t2", "open": 2, "high": 2, "low": 2, "close": 2, "volume": 2},
+    ]
+
+    out = strategy.compute_indicators(rows)
+
+    assert all(d == {} for d in out)
+
+
+def test_strategy_can_override_compute_indicators():
+    """A subclass can override ``compute_indicators`` to return per-bar values.
+
+    Regression: the hook must be overridable on the shared base class so
+    the same ``Strategy`` subclass works across backtest / live / paper
+    without modification. Verified by passing through a simple hand-rolled
+    "indicator" (``close - open``) to keep the test library-free — the
+    framework is indicator-implementation agnostic, so the test does not
+    import pandas / polars / ta-lib.
+    """
+    class SpreadStrategy(ConcreteStrategy):
+        def compute_indicators(self, candles):
+            return [
+                {"spread": float(c["close"]) - float(c["open"])}
+                for c in candles
+            ]
+
+    rows = [
+        {"datetime": "20230101 09:30", "open": 1.0, "high": 2.0, "low": 0.5, "close": 1.5, "volume": 1},
+        {"datetime": "20230101 09:31", "open": 2.0, "high": 2.5, "low": 1.5, "close": 2.25, "volume": 2},
+    ]
+
+    out = SpreadStrategy().compute_indicators(rows)
+
+    assert out[0]["spread"] == 0.5
+    assert out[1]["spread"] == 0.25

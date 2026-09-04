@@ -118,12 +118,42 @@ class BacktestEngine:
 
         logger.info("Processing %d candles", len(raw_data))
 
+        # Call the strategy's compute_indicators hook exactly once with the
+        # full sorted row sequence, BEFORE any Candle is constructed. The
+        # returned list must be aligned by index; the i-th element is
+        # threaded into the i-th Candle via Candle.from_row(..., indicators=...).
+        # The framework is indicator-implementation agnostic: the strategy
+        # is free to use pandas / polars / numpy / ta-lib / hand-rolled
+        # math inside the override.
+        try:
+            per_bar = self._strategy.compute_indicators(raw_data)
+        except Exception as e:
+            logger.exception("Strategy.compute_indicators raised")
+            raise ProviderError(
+                f"Strategy.compute_indicators failed: {e}"
+            ) from e
+
+        if len(per_bar) != len(raw_data):
+            logger.exception(
+                "compute_indicators returned %d entries for %d candles",
+                len(per_bar), len(raw_data),
+            )
+            raise ProviderError(
+                f"compute_indicators returned {len(per_bar)} entries "
+                f"for {len(raw_data)} candles; length must match"
+            )
+
         data_start: str | None = None
         data_end: str | None = None
 
         for idx, row in enumerate(raw_data):
             try:
-                candle = Candle.from_row(row, self._symbol, self._datetime_format)
+                candle = Candle.from_row(
+                    row,
+                    self._symbol,
+                    self._datetime_format,
+                    indicators=per_bar[idx],
+                )
 
                 # Capture first and last candle timestamps for output path
                 if data_start is None:
