@@ -3,6 +3,10 @@
 Buys when a fast SMA crosses above a slow SMA (golden cross) and closes
 the position when it crosses back below (death cross).
 
+Indicators are precomputed in :meth:`SmaCrossoverStrategy.compute_indicators`
+over the full sorted candle history, so :meth:`on_candle` is pure logic
+with no per-bar rolling-window bookkeeping.
+
 Requires the DHAN_ACCESS_TOKEN environment variable or a .env file at
 the project root.
 
@@ -13,7 +17,8 @@ Usage:
 
 import os
 import sys
-from collections import deque
+from collections.abc import Sequence
+from typing import Mapping
 
 from dotenv import load_dotenv
 
@@ -40,31 +45,73 @@ TRADE_QTY = 10.0
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def _sma(values: list[float], period: int) -> list[float | None]:
+    """Return a simple moving average of ``values`` with ``period``-bar window.
+
+    Returns ``None`` for warmup bars where fewer than ``period`` values are
+    available. Pure Python — the framework is indicator-implementation
+    agnostic, so this strategy does not depend on pandas / polars / ta-lib.
+    A researcher can swap this body for ``pandas.Series.rolling(period).mean()``
+    or any vectorized library inside the same override without touching
+    the rest of the strategy.
+    """
+    out: list[float | None] = []
+    running_sum = 0.0
+    for i, v in enumerate(values):
+        running_sum += v
+        if i >= period:
+            running_sum -= values[i - period]
+        if i + 1 >= period:
+            out.append(running_sum / period)
+        else:
+            out.append(None)
+    return out
+
+
 class SmaCrossoverStrategy(Strategy):
-    """Long-only SMA crossover: buy on golden cross, exit on death cross."""
+    """Long-only SMA crossover: buy on golden cross, exit on death cross.
+
+    Indicators are precomputed in :meth:`compute_indicators` over the full
+    sorted candle history, so :meth:`on_candle` is pure logic with no
+    per-bar O(period) bookkeeping. The same ``Strategy`` subclass works
+    unchanged across backtest, live, and paper trading because the hook
+    lives on the shared base class.
+    """
 
     def __init__(self, fast_period: int = FAST_PERIOD, slow_period: int = SLOW_PERIOD) -> None:
         super().__init__()
         self._fast_period = fast_period
         self._slow_period = slow_period
-        self._closes: deque[float] = deque(maxlen=slow_period)
         # Previous (fast, slow) pair so we can detect a crossover this bar.
         self._prev_sma: tuple[float | None, float | None] = (None, None)
 
-    def _sma(self, period: int) -> float | None:
-        if len(self._closes) < period:
-            return None
-        return sum(list(self._closes)[-period:]) / period
+    def compute_indicators(
+        self,
+        candles: Sequence[Mapping[str, object]],
+    ) -> Sequence[Mapping[str, float | None]]:
+        """Vectorize the fast and slow SMAs in one pass over the full history.
+
+        The engine calls this hook exactly once, with the full timestamp-
+        sorted raw row sequence, before any ``Candle`` is constructed and
+        before the per-bar loop. Returning a list aligned by index lets
+        the engine attach the i-th mapping to the i-th ``Candle.indicators``
+        without any per-bar recomputation in :meth:`on_candle`.
+        """
+        closes = [float(row["close"]) for row in candles]
+        fast_sma = _sma(closes, self._fast_period)
+        slow_sma = _sma(closes, self._slow_period)
+        return [
+            {"sma_fast": f, "sma_slow": s}
+            for f, s in zip(fast_sma, slow_sma)
+        ]
 
     def on_candle(self, candle: Candle) -> None:
-        self._closes.append(candle.close)
-
-        fast = self._sma(self._fast_period)
-        slow = self._sma(self._slow_period)
+        fast = candle.indicators.get("sma_fast")
+        slow = candle.indicators.get("sma_slow")
         prev_fast, prev_slow = self._prev_sma
         self._prev_sma = (fast, slow)
 
-        # Need two consecutive candles with both SMAs defined to detect a cross.
+        # Warmup bars (any SMA is None) cannot produce a crossover signal.
         if None in (fast, slow, prev_fast, prev_slow):
             return
 
@@ -106,7 +153,7 @@ def main() -> None:
         sys.exit(1)
 
     logger.info("=" * 60)
-    logger.info("SMA Crossover Strategy (Dhan data)")
+    logger.info("SMA Crossover Strategy (Dhan data, precomputed indicators)")
     logger.info("=" * 60)
 
     # Pick a window long enough that slow SMA + crossover signal can form.
