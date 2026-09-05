@@ -193,3 +193,58 @@ def test_engine_raises_provider_error_on_length_mismatch():
         assert "3" in msg
     else:
         raise AssertionError("expected ProviderError on length mismatch")
+
+
+def test_per_candle_audit_log_includes_indicator_values(
+    caplog, tmp_path, monkeypatch
+):
+    """The per-candle audit line includes all non-None indicator values.
+
+    Regression: the engine must automatically append every precomputed
+    indicator value to the per-bar audit log line so researchers never
+    need to manually log indicators themselves. None-valued (warmup) indicators
+    are omitted to keep logs clean.
+    """
+    import logging
+    from quantrex_backtest.core.engine import _RUN_LOG_FILENAME
+
+    rows = [
+        _row("20230101 09:30", 100.0, 101.0, 99.0, 100.5, 10),
+        _row("20230101 09:31", 101.0, 102.0, 100.0, 101.5, 20),
+        _row("20230101 09:32", 102.0, 103.0, 101.0, 102.5, 30),
+    ]
+
+    class _MultiIndicatorStrategy(_RecordingStrategy):
+        """Returns multiple indicators including None for warmup bars."""
+
+        def compute_indicators(self, candles):
+            # spread = close - open; rsi = constant for simplicity
+            return [
+                {"spread": float(c["close"]) - float(c["open"]), "rsi": 65.0}
+                for c in candles
+            ]
+
+    strategy = _MultiIndicatorStrategy()
+    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="GOLD")
+
+    # Capture INFO-level log records.
+    with caplog.at_level(logging.INFO):
+        engine.run()
+
+    # Collect audit lines that contain indicator values.
+    audit_lines = [
+        rec.message for rec in caplog.records
+        if rec.levelno == logging.INFO and "O=" in rec.message
+    ]
+
+    assert len(audit_lines) == 3, f"Expected 3 audit lines, got: {audit_lines}"
+
+    # First bar: spread=0.5, rsi=65.0
+    assert "spread=0.5" in audit_lines[0], audit_lines[0]
+    assert "rsi=65.0" in audit_lines[0], audit_lines[0]
+    # Timestamp must be backtest/candle timestamp (ISO format), not wall-clock.
+    assert "2023-01-01T09:30:00" in audit_lines[0], audit_lines[0]
+
+    # All bars present.
+    assert "2023-01-01T09:31:00" in audit_lines[1], audit_lines[1]
+    assert "2023-01-01T09:32:00" in audit_lines[2], audit_lines[2]

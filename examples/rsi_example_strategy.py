@@ -18,7 +18,8 @@ class RsiExampleStrategy(Strategy):
         df = pd.DataFrame(candles)
         df['rsi'] = ta.rsi(df['close'], length=14)
         logger.info(f"Computed RSI indicators for {len(df)} candles.")
-        return df.to_dict(orient='records')
+        # Return only the calculated RSI indicator, not raw OHLCV columns.
+        return [{"rsi": row["rsi"]} for row in df.to_dict(orient="records")]
 
     def on_candle(self, candle):
         rsi_value = candle.indicators.get('rsi')

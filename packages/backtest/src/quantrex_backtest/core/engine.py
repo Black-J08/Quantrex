@@ -164,10 +164,15 @@ class BacktestEngine:
                 self._context.update_time(candle.timestamp)
                 self._context.update_candle(candle)
                 # Emit a per-bar audit line so execution.log records the
-                # backtest/candle timestamp and OHLCV without researchers
-                # having to add logging in their strategy.
+                # backtest/candle timestamp, OHLCV, and all precomputed
+                # indicator values without researchers having to add logging
+                # in their strategy.
+                indicator_parts = [
+                    f"{k}={v}" for k, v in sorted(candle.indicators.items()) if v is not None
+                ]
+                indicator_str = " " + " ".join(indicator_parts) if indicator_parts else ""
                 logger.info(
-                    "[%s %s] O=%s H=%s L=%s C=%s V=%s",
+                    "[%s %s] O=%s H=%s L=%s C=%s V=%s%s",
                     candle.symbol,
                     candle.timestamp.isoformat(),
                     candle.open,
@@ -175,6 +180,7 @@ class BacktestEngine:
                     candle.low,
                     candle.close,
                     candle.volume,
+                    indicator_str,
                 )
                 self._strategy.on_candle(candle)
             except Exception as e:
