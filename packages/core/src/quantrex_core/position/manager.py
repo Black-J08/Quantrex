@@ -106,7 +106,7 @@ class PositionManager:
             pnl=pnl,
         )
 
-    def submit_order(
+    def _record_order(
         self,
         symbol: str,
         side: OrderSide,
@@ -115,24 +115,10 @@ class PositionManager:
         timestamp: datetime,
         price: float,
     ) -> Order:
-        """Process an order immediately: validate, record for audit, update position, return ``Order``.
-
-        Validation:
-            * ``quantity`` must be > 0.
-            * ``price`` must be finite (rejects ``NaN`` and ``±inf``).
-
-        On rejection the returned ``Order`` has ``status=REJECTED`` AND is
-        stored in the audit trail (``_orders``). No position state is
-        mutated by a rejected order.
-
-        On acceptance the audit trail records the order, the position map
-        is updated according to the 5-case state machine documented in
-        the module docstring, and any close events emit ``TradeRecord``s.
-        """
+        """Validate and record an order in the audit trail (no position mutation)."""
         self._order_counter += 1
         order_id = str(self._order_counter)
 
-        # --- Validation -------------------------------------------------
         if quantity <= 0 or not math.isfinite(price):
             rejected = Order(
                 id=order_id,
@@ -146,8 +132,7 @@ class PositionManager:
             self._orders[order_id] = rejected
             return rejected
 
-        # --- Accepted order: record in audit trail ----------------------
-        order = Order(
+        accepted = Order(
             id=order_id,
             symbol=symbol,
             side=side,
@@ -156,28 +141,48 @@ class PositionManager:
             status=OrderStatus.ACCEPTED,
             timestamp=timestamp,
         )
-        self._orders[order_id] = order
+        self._orders[order_id] = accepted
+        return accepted
 
-        # --- Update net position (signed) -------------------------------
-        delta = quantity if side == OrderSide.BUY else -quantity
+    def apply(
+        self,
+        symbol: str,
+        delta: float,
+        timestamp: datetime,
+        price: float,
+    ) -> None:
+        """Apply a signed position delta at the given price and time.
+
+        This is the core 5-case position state machine. Called by
+        :meth:`submit_order` for immediately-filled orders and by
+        :class:`quantrex_backtest.core.engine.BacktestEngine` for T+1
+        drained orders.
+
+        Cases:
+            1. No prior position → open fresh.
+            2. Same-side update where |qty| grew → scale-in (no TradeRecord).
+            3. Same-side update where |qty| shrank → scale-out / partial close.
+            4. Delta drives net quantity to zero → full close.
+            5. Delta crosses zero (e.g. Long 10 → Sell 15) → flip.
+        """
         current = self._positions.get(symbol)
 
         if current is None:
             # Case 1: open fresh.
             self._apply_open(symbol, delta, timestamp, price)
-            return order
+            return
 
         new_qty = current.quantity + delta
 
         if new_qty == 0:
             # Case 4: full close.
             self._apply_full_close(symbol, current, timestamp, price)
-            return order
+            return
 
         if not _same_sign(current.quantity, new_qty):
             # Case 5: flip.
             self._apply_flip(symbol, current, new_qty, timestamp, price)
-            return order
+            return
 
         # Cases 2 and 3 share a sign (same-side update). Distinguish by
         # whether |qty| grew (scale-in) or shrank (scale-out).
@@ -187,7 +192,6 @@ class PositionManager:
         else:
             # Case 3: scale-out / partial close.
             self._apply_scale_out(symbol, current, new_qty, timestamp, price)
-        return order
 
     def _apply_open(
         self,

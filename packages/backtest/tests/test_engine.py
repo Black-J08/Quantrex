@@ -424,9 +424,11 @@ class TestBacktestEngine:
             assert trade[0] == "COPPER"
             assert trade[1] == "LONG"
             assert float(trade[2]) == 10.0
-            assert float(trade[4]) == 100.00  # entry_price (candle 1 open)
-            assert float(trade[6]) == 101.00  # exit_price (candle 3 open)
-            # P&L = (101.00 - 100.00) * 10.0 * 1.0 = 10.0
+            # T+1: BUY on candle 0 → filled at candle 1 open (100.50)
+            assert float(trade[4]) == 100.50
+            # T+1: SELL on candle 2 → filled at candle 3 open (101.50)
+            assert float(trade[6]) == 101.50
+            # P&L = (101.50 - 100.50) * 10.0 * 1.0 = 10.0
             assert abs(float(trade[7]) - 10.0) < 0.01
 
     def test_engine_exports_partial_close_trades_csv(self):
@@ -476,9 +478,11 @@ class TestBacktestEngine:
             assert trade1[0] == "COPPER"
             assert trade1[1] == "LONG"
             assert float(trade1[2]) == 10.0
-            assert float(trade1[4]) == 100.00  # entry_price
-            assert float(trade1[6]) == 100.50  # exit_price (candle 2 open)
-            # P&L = (100.50 - 100.00) * 10.0 * 1.0 = 5.0
+            # T+1: BUY 20 on candle 0 → filled at candle 1 open = 100.50
+            assert float(trade1[4]) == 100.50
+            # T+1: SELL 10 on candle 1 → filled at candle 2 open = 101.00
+            assert float(trade1[6]) == 101.00
+            # P&L = (101.00 - 100.50) * 10.0 * 1.0 = 5.0
             assert abs(float(trade1[7]) - 5.0) < 0.01
             
             # Second trade: full close of remaining 10
@@ -486,9 +490,10 @@ class TestBacktestEngine:
             assert trade2[0] == "COPPER"
             assert trade2[1] == "LONG"
             assert float(trade2[2]) == 10.0
-            assert float(trade2[4]) == 100.00  # entry_price (same as original)
-            assert float(trade2[6]) == 101.00  # exit_price (candle 3 open)
-            # P&L = (101.00 - 100.00) * 10.0 * 1.0 = 10.0
+            assert float(trade2[4]) == 100.50  # entry_price (same as original)
+            # T+1: SELL 10 on candle 2 → filled at candle 3 open = 101.50
+            assert float(trade2[6]) == 101.50
+            # P&L = (101.50 - 100.50) * 10.0 * 1.0 = 10.0
             assert abs(float(trade2[7]) - 10.0) < 0.01
 
     def test_engine_exports_empty_trades_csv(self):
@@ -598,9 +603,11 @@ class TestBacktestEngine:
             assert trade[0] == "COPPER"
             assert trade[1] == "SHORT"
             assert float(trade[2]) == 10.0
-            assert float(trade[4]) == 100.00  # entry_price (candle 1 open)
-            assert float(trade[6]) == 101.00  # exit_price (candle 3 open)
-            # P&L for SHORT = (entry - exit) * qty = (100.00 - 101.00) * 10.0 = -10.0
+            # T+1: SELL SHORT on candle 0 → filled at candle 1 open = 100.50
+            assert float(trade[4]) == 100.50
+            # T+1: BUY to cover on candle 2 → filled at candle 3 open = 101.50
+            assert float(trade[6]) == 101.50
+            # P&L for SHORT = (entry - exit) * qty = (100.50 - 101.50) * 10.0 = -10.0
             assert abs(float(trade[7]) - (-10.0)) < 0.01
 
     def test_engine_logs_ohlc_per_candle_to_execution_log(self):

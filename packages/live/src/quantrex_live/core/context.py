@@ -1,27 +1,49 @@
-from datetime import datetime
-from quantrex_core.models.enums import OrderType, OrderSide
-from quantrex_core.models.order import Order
-from quantrex_core.models.position import Position
-from quantrex_core.position.manager import PositionManager
-from quantrex_core.strategy.context import StrategyContext
+"""Live trading strategy context (placeholder).
+
+Minimal context for live trading — routes orders directly to the broker
+(via PositionManager) without an OMS queue, since T+1 execution semantics
+apply only to the backtest engine.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from quantrex_core import StrategyContext
+from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
+
+if TYPE_CHECKING:
+    from quantrex_core.position.manager import PositionManager
 
 
 class LiveStrategyContext(StrategyContext):
-    """Live-specific StrategyContext. Delegates to PositionManager (and future broker)."""
+    """Live trading context — no OMS, orders go directly to broker/PM.
+
+    For live trading, orders are submitted to the broker in real-time.
+    The PositionManager records them for position tracking.  An OMS for
+    live trading (e.g. to handle exchange-side latency) is TODO.
+    """
 
     def __init__(self, position_manager: PositionManager) -> None:
-        self._pm = position_manager
+        self._pm: PositionManager = position_manager
 
-    def submit_order(self, symbol: str, side: OrderSide, quantity: float,
-                     order_type: OrderType = OrderType.MARKET) -> Order:
-        # TODO(live): route to broker once integrated; broker fills will
-        # supply the actual fill price. ``0.0`` is a placeholder so the
-        # ``PositionManager.submit_order`` call type-checks today; the
-        # live engine still raises ``NotImplementedError`` before any
-        # order flows through.
+    def submit_order(
+        self,
+        symbol: str,
+        side: OrderSide,
+        quantity: float,
+        order_type: OrderType = OrderType.MARKET,
+        price: float | None = None,
+    ):
+        if quantity <= 0:
+            return Order(status=OrderStatus.REJECTED, id="0")
         return self._pm.submit_order(
-            symbol, side, quantity, order_type, datetime.now(), 0.0
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            price=price,
         )
 
-    def get_position(self, symbol: str) -> Position:
+    def get_position(self, symbol: str):
         return self._pm.get_position(symbol)

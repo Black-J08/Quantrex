@@ -181,7 +181,7 @@ def test_engine_logs_orders_with_candle_timestamp(
     The timestamp in the log line must be the candle's bar timestamp,
     not the wall-clock time of the backtest run.
     """
-    caplog.set_level(logging.INFO, logger=_CONTEXT_LOGGER)
+    caplog.set_level(logging.INFO, logger=_ENGINE_LOGGER)
 
     adapter = _mock_adapter([
         {
@@ -214,60 +214,48 @@ def test_engine_logs_orders_with_candle_timestamp(
     engine = BacktestEngine(adapter, strategy, symbol="COPPER")
     engine.run()
 
-    # Filter for order audit lines on the context logger.
+    # Filter for order audit lines on the engine logger.
     order_records = [
         r for r in caplog.records
-        if r.name == _CONTEXT_LOGGER
+        if r.name == _ENGINE_LOGGER
         and " ORDER " in r.getMessage()
     ]
 
-    # Three orders submitted (BUY, SELL, SELL qty=0) → three log lines.
-    assert len(order_records) == 3, (
-        f"expected 3 order audit records, got {len(order_records)}: "
+    # Two orders are ACCEPTED and drained (BUY, SELL); one is REJECTED at
+    # submission and never enters the OMS, so only 2 ORDER lines are emitted.
+    assert len(order_records) == 2, (
+        f"expected 2 order audit records, got {len(order_records)}: "
         f"{[r.getMessage() for r in order_records]!r}"
     )
 
-    # --- Order 1: ACCEPTED BUY submitted during candle 1 processing ---
-    # The order timestamp is the candle that was active when on_candle ran,
-    # not the *next* candle. This mirrors how the per-bar OHLCV line is
-    # emitted: engine updates _current_time to candle.timestamp BEFORE
-    # calling strategy.on_candle(), so the order inherits that timestamp.
+    # --- Order 1: ACCEPTED BUY, drained at candle 2 open (T+1) ---
+    # ORDER timestamp = fill time (09:31), not signal time (09:30).
     msg1 = order_records[0].getMessage()
-    assert "[COPPER 2024-03-01T09:30:00]" in msg1, (
-        f"order 1 must use candle timestamp 2024-03-01T09:30:00, got: {msg1}"
+    assert "[COPPER 2024-03-01T09:31:00]" in msg1, (
+        f"order 1 must use fill timestamp 2024-03-01T09:31:00, got: {msg1}"
     )
-    assert "id=1" in msg1
     assert "status=ACCEPTED" in msg1
     assert "side=BUY" in msg1
     assert "qty=1.0" in msg1
     assert "type=MARKET" in msg1
-    assert "price=150.0" in msg1  # fill price = candle 1 open
+    assert "price=150.5" in msg1  # fill price = candle 2 open
 
-    # --- Order 2: ACCEPTED SELL submitted during candle 2 processing ---
+    # --- Order 2: ACCEPTED SELL, drained at candle 3 open (T+1) ---
     msg2 = order_records[1].getMessage()
-    assert "[COPPER 2024-03-01T09:31:00]" in msg2, (
-        f"order 2 must use candle timestamp 2024-03-01T09:31:00, got: {msg2}"
+    assert "[COPPER 2024-03-01T09:32:00]" in msg2, (
+        f"order 2 must use fill timestamp 2024-03-01T09:32:00, got: {msg2}"
     )
-    assert "id=2" in msg2
     assert "status=ACCEPTED" in msg2
     assert "side=SELL" in msg2
     assert "qty=1.0" in msg2
     assert "type=MARKET" in msg2
-    assert "price=150.5" in msg2  # fill price = candle 2 open
+    assert "price=151.0" in msg2  # fill price = candle 3 open
 
-    # --- Order 3: REJECTED (qty=0) submitted during candle 3 processing ---
-    msg3 = order_records[2].getMessage()
-    assert "[COPPER 2024-03-01T09:32:00]" in msg3, (
-        f"order 3 must use candle timestamp 2024-03-01T09:32:00, got: {msg3}"
-    )
-    assert "id=3" in msg3
-    assert "status=REJECTED" in msg3
-    assert "side=SELL" in msg3
-    assert "qty=0.0" in msg3
-    assert "type=MARKET" in msg3
-
-    # Strategy received the same order objects the logger recorded.
-    assert strategy.orders[0].id == "1"
-    assert strategy.orders[0].status.value == "ACCEPTED"
-    assert strategy.orders[2].id == "3"
+    # T+1: strategy.orders holds PENDING orders at submission time.
+    # Real ids are assigned at drain time (next candle open).
+    assert strategy.orders[0].id == ""       # empty at submission
+    assert strategy.orders[0].status.value == "PENDING"
+    assert strategy.orders[1].id == ""
+    assert strategy.orders[1].status.value == "PENDING"
+    assert strategy.orders[2].id == "0"     # REJECTED order gets id="0"
     assert strategy.orders[2].status.value == "REJECTED"

@@ -12,6 +12,7 @@ import pytest
 
 from quantrex_core import StrategyContext
 from quantrex_core.models.enums import OrderSide, OrderType
+from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_backtest.core.context import BacktestStrategyContext
 from quantrex_live.core.context import LiveStrategyContext
@@ -55,7 +56,8 @@ def test_subclass_missing_get_position_cannot_be_instantiated():
 def test_backtest_strategy_context_is_a_strategy_context():
     """``BacktestStrategyContext`` is a real subclass of ``StrategyContext``."""
     pm = PositionManager()
-    ctx = BacktestStrategyContext(pm, current_time=datetime.min)
+    oms = OrderManagementSystem()
+    ctx = BacktestStrategyContext(pm, oms, current_time=datetime.min)
     assert isinstance(ctx, StrategyContext)
 
 

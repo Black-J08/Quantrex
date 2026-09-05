@@ -41,7 +41,11 @@ T3 = datetime(2026, 1, 1, 9, 33)
 def _market(pm: PositionManager, symbol: str, side: OrderSide, qty: float,
             ts: datetime, price: float):
     """Submit a MARKET order through the manager and return the Order."""
-    return pm.submit_order(symbol, side, qty, OrderType.MARKET, ts, price)
+    order = pm._record_order(symbol, side, qty, OrderType.MARKET, ts, price)
+    if order.status == OrderStatus.ACCEPTED:
+        delta = qty if side == OrderSide.BUY else -qty
+        pm.apply(symbol, delta, ts, price)
+    return order
 
 
 # Case 1: Open -----------------------------------------------------------

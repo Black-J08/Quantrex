@@ -25,5 +25,6 @@ class OrderType(Enum):
 
 
 class OrderStatus(Enum):
+    PENDING = "PENDING"
     ACCEPTED = "ACCEPTED"
     REJECTED = "REJECTED"

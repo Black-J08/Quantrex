@@ -413,19 +413,26 @@ class TestDhanClosedTradesTimestampRegression:
         assert "RELIANCE,LONG,10.0" in csv_text
 
         # The first row of the mock represents 2024-01-01 00:00:00 IST.
-        # The second row represents 2024-01-02 00:00:00 IST. With the
-        # IST-as-UTC bug, both would appear as 18:30 of the *previous*
+        # The second row represents 2024-01-02 00:00:00 IST.
+        #
+        # T+1 execution timing:
+        #   - BUY submitted during candle 0 (2024-01-01) → filled at candle 1 open (2024-01-02, price 2510)
+        #   - SELL submitted during candle 1 (2024-01-02) → filled at candle 2 open (2024-01-03, price 2520)
+        #   - entry_timestamp = 2024-01-02T00:00:00 (candle 1), exit_timestamp = 2024-01-03T00:00:00 (candle 2)
+        #
+        # With the IST-as-UTC bug, both would appear as 18:30 of the *previous*
         # UTC day (2023-12-31 18:30 / 2024-01-01 18:30).
         first_line = csv_text.splitlines()[1]
         entry_ts = first_line.split(",")[3]
         exit_ts = first_line.split(",")[5]
 
-        assert entry_ts == "2024-01-01T00:00:00", (
-            f"entry_timestamp={entry_ts!r}; expected 2024-01-01T00:00:00 IST. "
-            f"Got the post-market 18:30 wall clock that this regression guards against."
+        assert entry_ts == "2024-01-02T00:00:00", (
+            f"entry_timestamp={entry_ts!r}; expected 2024-01-02T00:00:00 IST "
+            f"(T+1 fill: BUY on 2024-01-01 filled at candle 1 open)."
         )
-        assert exit_ts == "2024-01-02T00:00:00", (
-            f"exit_timestamp={exit_ts!r}; expected 2024-01-02T00:00:00 IST."
+        assert exit_ts == "2024-01-03T00:00:00", (
+            f"exit_timestamp={exit_ts!r}; expected 2024-01-03T00:00:00 IST "
+            f"(T+1 fill: SELL on 2024-01-02 filled at candle 2 open)."
         )
         # Explicit negative assertion: the buggy 18:30 suffix must be absent.
         for line in csv_text.splitlines()[1:]:

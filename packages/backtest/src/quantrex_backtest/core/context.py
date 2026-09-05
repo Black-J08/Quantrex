@@ -1,9 +1,10 @@
 from datetime import datetime
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
-from quantrex_core.models.enums import OrderType
+from quantrex_core.models.enums import OrderStatus, OrderType
 from quantrex_core.models.order import Order, OrderSide
 from quantrex_core.models.position import Position
+from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
 
@@ -12,10 +13,20 @@ logger = get_logger(__name__)
 
 
 class BacktestStrategyContext(StrategyContext):
-    """Backtest-specific StrategyContext. Delegates to PositionManager."""
+    """Backtest-specific StrategyContext.
 
-    def __init__(self, position_manager: PositionManager, current_time: datetime) -> None:
+    Queues orders through the OMS for T+1 execution and delegates position
+    updates to PositionManager.
+    """
+
+    def __init__(
+        self,
+        position_manager: PositionManager,
+        oms: OrderManagementSystem,
+        current_time: datetime,
+    ) -> None:
         self._pm = position_manager
+        self._oms = oms
         self._current_time = current_time
         self._current_candle: Candle | None = None
 
@@ -23,26 +34,43 @@ class BacktestStrategyContext(StrategyContext):
                      order_type: OrderType = OrderType.MARKET) -> Order:
         if self._current_candle is None:
             raise RuntimeError("Cannot submit order: no current candle available. Call update_time() first.")
-        # Use candle's open price as fill price for MARKET orders
-        price = self._current_candle.open
-        order = self._pm.submit_order(symbol, side, quantity, order_type, self._current_time, price)
-        # Audit line mirrors the per-bar OHLCV format in engine.run() so a
-        # researcher grep'ing execution.log for a candle timestamp sees both
-        # the bar and any orders at that bar together. Logs ACCEPTED and
-        # REJECTED orders alike — the audit trail is the symmetric record
-        # of what was submitted vs. accepted, so dropping rejections would
-        # silently under-report.
-        logger.info(
-            "[%s %s] ORDER id=%s status=%s side=%s qty=%s type=%s price=%s",
-            symbol,
-            self._current_time.isoformat(),
-            order.id,
-            order.status.value,
-            side.value,
-            quantity,
-            order_type.value,
-            price,
+        # Reject non-positive quantity — return a REJECTED Order rather than
+        # raising, so the audit trail records it with the same shape as an
+        # ACCEPTED order (same timestamp, symbol, side, qty, type).
+        if quantity <= 0:
+            rejected = Order(
+                id="0",
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                order_type=order_type,
+                status=OrderStatus.REJECTED,
+                timestamp=self._current_time,
+            )
+            logger.info(
+                "[%s %s] ORDER id=%s status=REJECTED side=%s qty=%s type=%s price=%s",
+                symbol,
+                self._current_time.isoformat(),
+                rejected.id,
+                side.value,
+                quantity,
+                order_type.value,
+                self._current_candle.open,
+            )
+            return rejected
+        # Build the order in PENDING state and queue it for T+1 drain.
+        # The OMS holds it until the engine drains at the next candle's open.
+        order = Order(
+            id="",  # Placeholder; engine assigns real id at drain time
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            order_type=order_type,
+            status=OrderStatus.PENDING,
+            timestamp=self._current_time,
         )
+        # Store fill context: the order will be filled at the NEXT candle's open.
+        self._oms.submit(order, fill_price=self._current_candle.open, fill_timestamp=self._current_time)
         return order
 
     def get_position(self, symbol: str) -> Position:

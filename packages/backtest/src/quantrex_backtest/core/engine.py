@@ -8,8 +8,10 @@ import csv
 
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
+from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
+from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from .context import BacktestStrategyContext
 from ..exceptions.backtest_error import ProviderError
@@ -69,9 +71,10 @@ class BacktestEngine:
         # Single source of truth: read datetime format directly from adapter
         self._datetime_format = adapter.datetime_format
 
-        # Create PositionManager and StrategyContext
+        # Create PositionManager, OMS, and StrategyContext
         self._position_manager = PositionManager()
-        self._context = BacktestStrategyContext(self._position_manager, datetime.min)
+        self._oms = OrderManagementSystem()
+        self._context = BacktestStrategyContext(self._position_manager, self._oms, datetime.min)
         
         # Inject context into Strategy
         self._strategy.set_context(self._context)
@@ -145,6 +148,7 @@ class BacktestEngine:
 
         data_start: str | None = None
         data_end: str | None = None
+        total_candles = len(raw_data)
 
         for idx, row in enumerate(raw_data):
             try:
@@ -159,6 +163,11 @@ class BacktestEngine:
                 if data_start is None:
                     data_start = candle.timestamp.strftime("%Y%m%d_%H%M%S")
                 data_end = candle.timestamp.strftime("%Y%m%d_%H%M%S")
+
+                # Drain any pending orders at this candle's open price (T+1 execution).
+                # This runs BEFORE update_time / update_candle so the timestamp and
+                # price used for fill match the current candle exactly.
+                self._drain_pending(candle.open, candle.timestamp)
 
                 # Update context time and candle for order timestamps and pricing
                 self._context.update_time(candle.timestamp)
@@ -186,6 +195,14 @@ class BacktestEngine:
             except Exception as e:
                 logger.exception("Failed to process candle at index %d", idx)
                 raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
+
+        # Flush any remaining pending orders at the final candle's close price.
+        # This handles the case where the strategy submits an order on the
+        # last candle; without this the order would be silently dropped.
+        last_candle = Candle.from_row(
+            raw_data[-1], self._symbol, self._datetime_format, indicators=per_bar[-1]
+        )
+        self._drain_pending(last_candle.close, last_candle.timestamp, is_final=True)
 
         self._strategy.on_stop()
         logger.info("Backtest completed: %d candles processed", len(raw_data))
@@ -352,3 +369,62 @@ class BacktestEngine:
                 ])
 
         logger.info("Exported %d closed trades to %s", len(trades), output_file)
+
+    def _drain_pending(
+        self, execution_price: float, execution_timestamp: datetime, is_final: bool = False
+    ) -> None:
+        """Drain all pending orders from the OMS.
+
+        Called at the start of each candle loop iteration (before
+        ``update_time`` / ``update_candle``) so the execution timestamp
+        and price match the current candle. On the final candle the
+        ``is_final`` flag triggers a WARNING if any orders were still
+        pending (strategy submitted on the last bar).
+        """
+        if self._oms.pending_count == 0:
+            return
+
+        if is_final:
+            logger.warning(
+                "%d order(s) still pending at final candle — "
+                "filling at close price %s as a last resort",
+                self._oms.pending_count,
+                execution_price,
+            )
+
+        entries = self._oms.drain(execution_price, execution_timestamp)
+        for entry in entries:
+            order = entry.order
+            # Emit ORDER line at fill time (not signal time) so the timestamp
+            # matches the candle the order executes on.
+            logger.info(
+                "[%s %s] ORDER id=%s status=ACCEPTED side=%s qty=%s type=%s price=%s",
+                order.symbol,
+                entry.fill_timestamp.isoformat(),
+                order.id,
+                order.side.value,
+                order.quantity,
+                order.order_type.value,
+                entry.fill_price,
+            )
+            self._position_manager._record_order(
+                symbol=order.symbol,
+                side=order.side,
+                quantity=order.quantity,
+                order_type=order.order_type,
+                timestamp=order.timestamp,
+                price=execution_price,
+            )
+            delta = order.quantity if order.side == OrderSide.BUY else -order.quantity
+            self._position_manager.apply(
+                order.symbol, delta, execution_timestamp, execution_price
+            )
+            logger.info(
+                "[%s %s] FILL id=%s side=%s qty=%s price=%s",
+                order.symbol,
+                execution_timestamp.isoformat(),
+                order.id,
+                order.side.value,
+                order.quantity,
+                execution_price,
+            )
