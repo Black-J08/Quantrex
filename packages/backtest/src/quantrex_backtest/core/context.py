@@ -1,10 +1,14 @@
 from datetime import datetime
+from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderType
 from quantrex_core.models.order import Order, OrderSide
 from quantrex_core.models.position import Position
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
+
+
+logger = get_logger(__name__)
 
 
 class BacktestStrategyContext(StrategyContext):
@@ -21,7 +25,25 @@ class BacktestStrategyContext(StrategyContext):
             raise RuntimeError("Cannot submit order: no current candle available. Call update_time() first.")
         # Use candle's open price as fill price for MARKET orders
         price = self._current_candle.open
-        return self._pm.submit_order(symbol, side, quantity, order_type, self._current_time, price)
+        order = self._pm.submit_order(symbol, side, quantity, order_type, self._current_time, price)
+        # Audit line mirrors the per-bar OHLCV format in engine.run() so a
+        # researcher grep'ing execution.log for a candle timestamp sees both
+        # the bar and any orders at that bar together. Logs ACCEPTED and
+        # REJECTED orders alike — the audit trail is the symmetric record
+        # of what was submitted vs. accepted, so dropping rejections would
+        # silently under-report.
+        logger.info(
+            "[%s %s] ORDER id=%s status=%s side=%s qty=%s type=%s price=%s",
+            symbol,
+            self._current_time.isoformat(),
+            order.id,
+            order.status.value,
+            side.value,
+            quantity,
+            order_type.value,
+            price,
+        )
+        return order
 
     def get_position(self, symbol: str) -> Position:
         return self._pm.get_position(symbol)

@@ -24,7 +24,6 @@ class RsiExampleStrategy(Strategy):
     def on_candle(self, candle):
         rsi_value = candle.indicators.get('rsi')
         if rsi_value is not None:
-            logger.info(f"RSI value for {candle.symbol} at {candle.timestamp}: {rsi_value}")
             if (rsi_value > 70) and (self.ctx.get_position(candle.symbol).quantity == 0):
                 self.ctx.submit_order(
                     candle.symbol, OrderSide.BUY, 1)  # Buy signal
