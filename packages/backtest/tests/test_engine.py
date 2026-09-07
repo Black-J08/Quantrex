@@ -415,10 +415,14 @@ class TestBacktestEngine:
             with open(csv_file, "r") as f:
                 reader = csv.reader(f)
                 rows = list(reader)
-            
+
             # Header + 1 trade row
             assert len(rows) == 2
-            assert rows[0] == ["symbol", "side", "quantity", "entry_timestamp", "entry_price", "exit_timestamp", "exit_price", "pnl"]
+            assert rows[0] == [
+                "symbol", "side", "quantity",
+                "entry_timestamp", "entry_price",
+                "exit_timestamp", "exit_price", "pnl",
+            ]
             
             trade = rows[1]
             assert trade[0] == "COPPER"
@@ -468,11 +472,15 @@ class TestBacktestEngine:
             with open(csv_file, "r") as f:
                 reader = csv.reader(f)
                 rows = list(reader)
-            
+
             # Header + 2 trade rows (partial close + full close)
             assert len(rows) == 3
-            assert rows[0] == ["symbol", "side", "quantity", "entry_timestamp", "entry_price", "exit_timestamp", "exit_price", "pnl"]
-            
+            assert rows[0] == [
+                "symbol", "side", "quantity",
+                "entry_timestamp", "entry_price",
+                "exit_timestamp", "exit_price", "pnl",
+            ]
+
             # First trade: partial close of 10
             trade1 = rows[1]
             assert trade1[0] == "COPPER"
@@ -484,7 +492,7 @@ class TestBacktestEngine:
             assert float(trade1[6]) == 101.00
             # P&L = (101.00 - 100.50) * 10.0 * 1.0 = 5.0
             assert abs(float(trade1[7]) - 5.0) < 0.01
-            
+
             # Second trade: full close of remaining 10
             trade2 = rows[2]
             assert trade2[0] == "COPPER"
@@ -532,7 +540,11 @@ class TestBacktestEngine:
                 rows = list(reader)
             
             assert len(rows) == 1
-            assert rows[0] == ["symbol", "side", "quantity", "entry_timestamp", "entry_price", "exit_timestamp", "exit_price", "pnl"]
+            assert rows[0] == [
+                "symbol", "side", "quantity",
+                "entry_timestamp", "entry_price",
+                "exit_timestamp", "exit_price", "pnl",
+            ]
 
     def test_engine_short_position_trade_recording(self):
         """Engine should correctly record trades for short positions."""
@@ -650,3 +662,123 @@ class TestBacktestEngine:
         assert "H=102.0" in contents
         assert "C=101.5" in contents
         assert "V=17" in contents
+
+
+class FifoLotStrategy(Strategy):
+    """Test strategy that reproduces the FIFO lot-accounting regression scenario.
+
+    Sequence (T+1 fills at next candle's open):
+
+    * Candle 0 → BUY 2 (signal). Fill at candle 1 open.
+    * Candle 2 → BUY 2 (signal). Fill at candle 3 open.
+    * Candle 4 → SELL 3 (signal). Fill at candle 5 open.
+
+    With candle opens [100.00, 100.00, 110.00, 110.00, 125.00, 125.00]:
+      * Lot A: BUY 2 @ 100.00
+      * Lot B: BUY 2 @ 110.00
+      * Sell 3 @ 125.00 → FIFO consumes 2 of lot A + 1 of lot B.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.candles: list = []
+
+    def on_candle(self, candle: Candle) -> None:
+        n = len(self.candles)
+        if n == 0:
+            self.ctx.submit_order(candle.symbol, OrderSide.BUY, 2.0)
+        elif n == 2:
+            self.ctx.submit_order(candle.symbol, OrderSide.BUY, 2.0)
+        elif n == 4:
+            self.ctx.submit_order(candle.symbol, OrderSide.SELL, 3.0)
+        self.candles.append(candle)
+
+
+class TestFifoLotAccounting:
+    """End-to-end FIFO lot accounting through the backtest engine.
+
+    Regression coverage for the per-partial-close trade-reporting defect
+    where the position-level single-entry basis was reused for every
+    partial close, producing wrong P&L attribution and losing the actual
+    lot → close mapping. The CSV is the researcher's contract — the
+    columns and their semantics must remain stable and must reflect
+    each consumed lot, not a position-level aggregate.
+    """
+
+    def test_engine_exports_fifo_multi_lot_close_columns(self):
+        """User-reported scenario end-to-end: Buy 2@100 + Buy 2@110 → Sell 3@125.
+
+        The CSV must contain TWO rows with DIFFERENT ``entry_price``
+        (one per consumed lot) and correctly attributed P&L.
+        Before the FIFO fix, this produced a single row claiming
+        ``entry_price=100, quantity=3, pnl=75`` (wrong attribution of
+        the lot-B unit).
+        """
+        # Candle opens: 100.00, 100.00, 110.00, 110.00, 125.00, 125.00.
+        # All candles are 6 deep so each row has matching HLCV.
+        rows = [
+            ["20230620", "19:00", "100.00", "101.00", "99.50", "100.50", "100", "50"],
+            ["20230620", "19:01", "100.00", "101.00", "99.50", "100.50", "100", "50"],
+            ["20230620", "19:02", "110.00", "111.00", "109.50", "110.50", "100", "50"],
+            ["20230620", "19:03", "110.00", "111.00", "109.50", "110.50", "100", "50"],
+            ["20230620", "19:04", "125.00", "126.00", "124.50", "125.50", "100", "50"],
+            ["20230620", "19:05", "125.00", "126.00", "124.50", "125.50", "100", "50"],
+        ]
+        csv_content = csv_rows_to_string(rows)
+
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            strategy = FifoLotStrategy()
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+
+            engine.run()
+
+            output_dirs = list(Path("output/backtest/FifoLotStrategy").glob("*"))
+            assert output_dirs, "no run directory was created"
+            latest_dir = max(output_dirs, key=lambda d: d.stat().st_mtime)
+            csv_file = latest_dir / "closed_trades.csv"
+            assert csv_file.exists()
+
+            with open(csv_file, "r") as f:
+                reader = csv.reader(f)
+                rows_out = list(reader)
+
+            # Header + 2 FIFO trade rows (9-column CSV — partial_*
+            # columns removed per user instruction).
+            assert len(rows_out) == 3
+            assert rows_out[0] == [
+                "symbol", "side", "quantity",
+                "entry_timestamp", "entry_price",
+                "exit_timestamp", "exit_price", "pnl",
+            ]
+
+            # ---- Row 1: full consumption of lot A (₹100, qty=2). ----
+            tr_a = rows_out[1]
+            assert tr_a[0] == "COPPER"
+            assert tr_a[1] == "LONG"
+            assert float(tr_a[2]) == 2.0
+            assert tr_a[3].startswith("2023-06-20T19:01:00")  # entry_timestamp
+            assert float(tr_a[4]) == 100.00  # entry_price
+            assert tr_a[5].startswith("2023-06-20T19:05:00")  # exit_timestamp
+            assert float(tr_a[6]) == 125.00  # exit_price
+            assert abs(float(tr_a[7]) - 50.0) < 0.01  # pnl
+
+            # ---- Row 2: partial consumption of lot B (₹110, qty=1). ----
+            tr_b = rows_out[2]
+            assert tr_b[0] == "COPPER"
+            assert tr_b[1] == "LONG"
+            assert float(tr_b[2]) == 1.0
+            assert float(tr_b[4]) == 110.00  # entry_price (lot-B basis)
+            assert float(tr_b[6]) == 125.00  # exit_price (same close)
+            assert abs(float(tr_b[7]) - 15.0) < 0.01  # pnl
+
+            # Aggregate P&L = 50 + 15 = 65.
+            assert abs(float(tr_a[7]) + float(tr_b[7]) - 65.0) < 0.02
