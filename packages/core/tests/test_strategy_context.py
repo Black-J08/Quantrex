@@ -66,3 +66,30 @@ def test_live_strategy_context_is_a_strategy_context():
     pm = PositionManager()
     ctx = LiveStrategyContext(pm)
     assert isinstance(ctx, StrategyContext)
+
+
+def test_subclass_missing_history_cannot_be_instantiated():
+    """A subclass that omits the ``history`` property must refuse to instantiate.
+
+    Regression: ``history`` was added to ``StrategyContext`` as an
+    abstract read-only property so the engine can expose per-bar
+    lookback. A subclass that does not override it must fail to
+    construct, matching the existing abstract-method enforcement
+    behaviour for ``submit_order`` and ``get_position``.
+    """
+    from quantrex_core.models import Candle  # noqa: F401  (used by type hint)
+
+    class IncompleteContext(StrategyContext):
+        def submit_order(  # type: ignore[override]
+            self, symbol: str, side: OrderSide, quantity: float,
+            order_type: OrderType = OrderType.MARKET,
+        ):
+            raise NotImplementedError
+
+        def get_position(self, symbol: str):  # type: ignore[override]
+            raise NotImplementedError
+
+        # No ``history`` property — must fail to instantiate.
+
+    with pytest.raises(TypeError):
+        IncompleteContext()

@@ -99,6 +99,13 @@ class BacktestEngine:
         staging_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_run_log_file(staging_dir)
 
+        # Reset the context's per-bar history and current candle so a
+        # repeated ``run()`` on the same engine instance starts clean.
+        # The context is constructed in ``__init__`` and reused across
+        # runs; without this, ``ctx.history`` would accumulate candles
+        # from previous runs.
+        self._context.reset()
+
         logger.info("Starting backtest for symbol: %s", self._symbol)
 
         self._strategy.on_start()
@@ -172,6 +179,13 @@ class BacktestEngine:
                 # Update context time and candle for order timestamps and pricing
                 self._context.update_time(candle.timestamp)
                 self._context.update_candle(candle)
+                # Record the current bar in the context's history BEFORE
+                # ``on_candle`` so the strategy observes it as the last
+                # element of ``ctx.history`` (``ctx.history[-1] is candle``).
+                # This is what makes the ``ctx.history[-N:]`` lookback idiom
+                # work end-to-end with no per-bar bookkeeping in the
+                # strategy.
+                self._context.record_candle(candle)
                 # Emit a per-bar audit line so execution.log records the
                 # backtest/candle timestamp, OHLCV, and all precomputed
                 # indicator values without researchers having to add logging

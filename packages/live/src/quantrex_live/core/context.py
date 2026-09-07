@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from quantrex_core import StrategyContext
+from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
 
 if TYPE_CHECKING:
@@ -47,3 +48,27 @@ class LiveStrategyContext(StrategyContext):
 
     def get_position(self, symbol: str):
         return self._pm.get_position(symbol)
+
+    @property
+    def history(self) -> tuple[Candle, ...]:
+        """Live history buffer — placeholder until ``LiveEngine`` lands.
+
+        ``LiveEngine.run()`` currently raises ``NotImplementedError``, so
+        this context never receives a real candle stream. The contract
+        on :attr:`StrategyContext.history` must still be satisfied, so
+        we return an empty tuple. When the live engine is implemented,
+        this property should be wired to a bounded ring buffer pre-filled
+        from the broker's historical-candles endpoint (or replayed
+        warmup bars) before the first ``on_candle`` is dispatched.
+
+        Returning ``()`` here — rather than a fake non-empty buffer —
+        means any strategy that accidentally runs in a live context with
+        an unimplemented engine will see ``len(ctx.history) == 0`` and
+        take its warmup-guard branch instead of silently acting on
+        fabricated data.
+        """
+        # TODO(live): replace with a bounded buffer populated from the
+        # broker's historical-candles endpoint before the first
+        # ``on_candle`` call. See the design plan in
+        # ``/memories/session/candle-history-plan.md``.
+        return ()

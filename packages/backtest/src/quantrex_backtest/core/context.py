@@ -29,6 +29,12 @@ class BacktestStrategyContext(StrategyContext):
         self._oms = oms
         self._current_time = current_time
         self._current_candle: Candle | None = None
+        # Append-only candle history. The engine calls ``record_candle``
+        # once per bar inside the per-bar loop, immediately before
+        # ``strategy.on_candle``. Exposed read-only via the ``history``
+        # property so strategies can do per-bar, ad-hoc lookback
+        # (e.g. ``ctx.history[-20:]``) without owning a deque.
+        self._history: list[Candle] = []
 
     def submit_order(self, symbol: str, side: OrderSide, quantity: float,
                      order_type: OrderType = OrderType.MARKET) -> Order:
@@ -83,3 +89,38 @@ class BacktestStrategyContext(StrategyContext):
     def update_candle(self, candle: Candle) -> None:
         """Called by engine before each candle to provide current candle for pricing."""
         self._current_candle = candle
+
+    def record_candle(self, candle: Candle) -> None:
+        """Append ``candle`` to the per-bar history.
+
+        Called by the engine once per bar, after ``update_candle`` and
+        before ``strategy.on_candle``, so the strategy observes the
+        current bar as the last element of ``ctx.history`` (``[-1]``).
+        Append-only by design; clearing or mutating the history would
+        silently break per-bar lookback in strategies that already
+        captured a reference.
+        """
+        self._history.append(candle)
+
+    def reset(self) -> None:
+        """Clear the per-bar history and the current candle.
+
+        Called by the engine at the start of each ``run()`` so that
+        repeated invocations on the same engine instance do not see
+        candles from a previous run. Also exposed for tests that reuse
+        a context across multiple scenarios.
+        """
+        self._history.clear()
+        self._current_candle = None
+
+    @property
+    def history(self) -> tuple[Candle, ...]:
+        """Read-only view of all candles processed on this stream, oldest first.
+
+        The current candle is the last element. During warmup the tuple
+        is shorter than the strategy's requested lookback; callers should
+        guard with ``if len(ctx.history) < N: return`` rather than relying
+        on sentinels. Returned as a fresh ``tuple`` snapshot so callers
+        cannot mutate the context's internal state.
+        """
+        return tuple(self._history)
