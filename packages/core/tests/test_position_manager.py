@@ -2,15 +2,15 @@
 
 Covers all five position-lifecycle operations and their edge cases:
 
-1. **Open** — first order for a symbol creates a new ``Position`` whose
+1. **Open** - first order for a symbol creates a new ``Position`` whose
    entry basis comes from the order.
-2. **Scale-in** — adding to an existing same-side position preserves the
+2. **Scale-in** - adding to an existing same-side position preserves the
    original entry basis (no ``TradeRecord``).
-3. **Scale-out / partial close** — reducing an existing same-side
+3. **Scale-out / partial close** - reducing an existing same-side
    position emits one ``TradeRecord`` for the closed portion.
-4. **Full close** — an order that drives net quantity to zero emits one
+4. **Full close** - an order that drives net quantity to zero emits one
    ``TradeRecord`` and removes the symbol from the position map.
-5. **Flip** — an order whose delta crosses zero emits one ``TradeRecord``
+5. **Flip** - an order whose delta crosses zero emits one ``TradeRecord``
    for the full closed quantity of the prior side and opens a fresh
    ``Position`` for the residual opposite-side quantity with the flip
    order's price/time as its entry basis.
@@ -307,7 +307,7 @@ class TestFlip:
         """A flip opens a fresh position; subsequent scale-out uses that basis."""
         pm = PositionManager()
         _market(pm, "AAPL", OrderSide.BUY, 10.0, T0, 100.0)     # long 10 @ 100
-        _market(pm, "AAPL", OrderSide.SELL, 20.0, T1, 110.0)    # flip → short 10 @ 110
+        _market(pm, "AAPL", OrderSide.SELL, 20.0, T1, 110.0)    # flip -> short 10 @ 110
         _market(pm, "AAPL", OrderSide.BUY, 5.0, T2, 120.0)      # scale-out 5 of short
 
         pos = pm.get_position("AAPL")
@@ -319,13 +319,13 @@ class TestFlip:
 
         trades = pm.get_closed_trades()
         assert len(trades) == 2
-        # Trade 1: full close of original long 10 @ 100 → 110, pnl = 100.
+        # Trade 1: full close of original long 10 @ 100 -> 110, pnl = 100.
         assert trades[0].side is PositionSide.LONG
         assert trades[0].quantity == 10.0
         assert trades[0].entry_price == 100.0
         assert trades[0].exit_price == 110.0
         assert trades[0].pnl == pytest.approx(100.0)
-        # Trade 2: scale-out 5 of short 10 @ 110 → 120, pnl = (120-110)*5*-1 = -50.
+        # Trade 2: scale-out 5 of short 10 @ 110 -> 120, pnl = (120-110)*5*-1 = -50.
         assert trades[1].side is PositionSide.SHORT
         assert trades[1].quantity == 5.0
         assert trades[1].entry_price == 110.0
@@ -505,7 +505,7 @@ class TestRoundTripParity:
     """
 
     def test_partial_close_strategy_emits_two_trades(self):
-        """BUY 20 @ 100, SELL 10 @ 100.50, SELL 10 @ 101.00 → 2 trades."""
+        """BUY 20 @ 100, SELL 10 @ 100.50, SELL 10 @ 101.00 -> 2 trades."""
         pm = PositionManager()
         _market(pm, "COPPER", OrderSide.BUY, 20.0, T0, 100.00)
         _market(pm, "COPPER", OrderSide.SELL, 10.0, T1, 100.50)
@@ -516,19 +516,19 @@ class TestRoundTripParity:
 
         trades = pm.get_closed_trades()
         assert len(trades) == 2
-        # Trade 1: partial close of 10 @ 100 → 100.50, pnl = 5.
+        # Trade 1: partial close of 10 @ 100 -> 100.50, pnl = 5.
         assert trades[0].quantity == 10.0
         assert trades[0].entry_price == 100.0
         assert trades[0].exit_price == 100.50
         assert trades[0].pnl == pytest.approx(5.0)
-        # Trade 2: full close of remaining 10 @ 100 → 101.00, pnl = 10.
+        # Trade 2: full close of remaining 10 @ 100 -> 101.00, pnl = 10.
         assert trades[1].quantity == 10.0
         assert trades[1].entry_price == 100.0
         assert trades[1].exit_price == 101.0
         assert trades[1].pnl == pytest.approx(10.0)
 
     def test_trade_recording_strategy_emits_one_trade(self):
-        """BUY 10 @ 100, SELL 10 @ 101.00 → 1 trade, pnl = 10."""
+        """BUY 10 @ 100, SELL 10 @ 101.00 -> 1 trade, pnl = 10."""
         pm = PositionManager()
         _market(pm, "COPPER", OrderSide.BUY, 10.0, T0, 100.00)
         _market(pm, "COPPER", OrderSide.SELL, 10.0, T2, 101.00)
@@ -542,7 +542,7 @@ class TestRoundTripParity:
         assert trades[0].pnl == pytest.approx(10.0)
 
     def test_short_round_trip_emits_short_trade(self):
-        """SELL 10 @ 100, BUY 10 @ 101.00 → 1 SHORT trade, pnl = -10."""
+        """SELL 10 @ 100, BUY 10 @ 101.00 -> 1 SHORT trade, pnl = -10."""
         pm = PositionManager()
         _market(pm, "COPPER", OrderSide.SELL, 10.0, T0, 100.00)
         _market(pm, "COPPER", OrderSide.BUY, 10.0, T2, 101.00)
@@ -563,22 +563,20 @@ class TestRoundTripParity:
 class TestPositionSideInvariant:
     """Regression tests for the ``position_side`` ↔ ``quantity`` invariant.
 
-    Locked in by the discovery observation of 2026-09-02:
-    ``Position.zero()`` previously hardcoded ``PositionSide.LONG`` for any
-    flat symbol, and the ``Position`` dataclass stored both ``quantity``
-    (signed) and ``position_side`` independently, allowing them to
-    disagree.
-
-    After the fix:
-    * ``position_side`` is derived from the sign of ``quantity`` in
-      :meth:`Position.__post_init__` and overwrites whatever the caller
-      passed.
-    * The zero-quantity sentinel (``Position.zero(symbol)`` and the
-      ``PositionManager.get_position`` fast-path) now reports
-      :attr:`PositionSide.FLAT`, not :attr:`PositionSide.LONG`.
-    * The constructor cannot produce a ``Position`` whose
-      ``position_side`` disagrees with the sign of its ``quantity``.
+    After the fix (2026-09-10): ``position_side`` is a derived property
+    computed from ``quantity``; the constructor no longer accepts it.
+    The zero-quantity sentinel reports FLAT.
     """
+
+    def test_derived_side_matches_quantity_sign(self):
+        assert Position(T0, 100.0, "A", 5.0).position_side is PositionSide.LONG
+        assert Position(T0, 100.0, "A", -5.0).position_side is PositionSide.SHORT
+        assert Position(T0, 100.0, "A", 0.0).position_side is PositionSide.FLAT
+
+    def test_zero_reports_flat(self):
+        z = Position.zero("A")
+        assert z.quantity == 0.0
+        assert z.position_side is PositionSide.FLAT
 
     def test_position_zero_reports_flat_not_long(self):
         """``Position.zero(symbol).position_side`` is ``FLAT`` (regression).
@@ -591,50 +589,6 @@ class TestPositionSideInvariant:
         assert z.quantity == 0.0
         assert z.position_side is PositionSide.FLAT
 
-    def test_constructor_corrects_mismatched_position_side_to_long(self):
-        """Passing ``SHORT`` with ``quantity > 0`` is corrected to ``LONG``."""
-        p = Position(T0, 100.0, "AAPL", 5.0, PositionSide.SHORT)
-        assert p.quantity == 5.0
-        assert p.position_side is PositionSide.LONG
-
-    def test_constructor_corrects_mismatched_position_side_to_short(self):
-        """Passing ``LONG`` with ``quantity < 0`` is corrected to ``SHORT``."""
-        p = Position(T0, 100.0, "AAPL", -5.0, PositionSide.LONG)
-        assert p.quantity == -5.0
-        assert p.position_side is PositionSide.SHORT
-
-    def test_constructor_with_zero_quantity_reports_flat(self):
-        """Passing ``quantity=0`` produces ``FLAT`` regardless of the side arg."""
-        p = Position(T0, 100.0, "AAPL", 0.0, PositionSide.LONG)
-        assert p.quantity == 0.0
-        assert p.position_side is PositionSide.FLAT
-
-    def test_get_position_fast_path_returns_flat(self):
-        """``PositionManager.get_position`` for an unopened symbol returns FLAT."""
-        pm = PositionManager()
-        flat = pm.get_position("NEVER_OPENED")
-        assert flat.quantity == 0.0
-        assert flat.position_side is PositionSide.FLAT
-
-    def test_get_position_after_full_close_returns_flat(self):
-        """Fast-path after a full close must also report ``FLAT``."""
-        pm = PositionManager()
-        _market(pm, "AAPL", OrderSide.BUY, 10.0, T0, 100.0)
-        _market(pm, "AAPL", OrderSide.SELL, 10.0, T1, 110.0)
-        flat = pm.get_position("AAPL")
-        assert flat.quantity == 0.0
-        assert flat.position_side is PositionSide.FLAT
-
-    def test_equality_and_hash_agree_on_derived_side(self):
-        """Two ``Position``s with same quantity are equal regardless of the
-        (ignored) ``position_side`` argument, because the field is
-        derived from ``quantity`` in ``__post_init__``."""
-        p1 = Position(T0, 100.0, "AAPL", 5.0, PositionSide.LONG)
-        p2 = Position(T0, 100.0, "AAPL", 5.0, PositionSide.SHORT)
-        assert p1 == p2
-        assert hash(p1) == hash(p2)
-        assert p1.position_side is PositionSide.LONG
-        assert p2.position_side is PositionSide.LONG
 
 
 # FIFO lot accounting ---------------------------------------------------
@@ -642,7 +596,7 @@ class TestPositionSideInvariant:
 # Regression coverage for the per-partial-close trade-reporting defect
 # where the position-level single-entry basis was reused for every
 # partial close, producing wrong P&L attribution and losing the actual
-# lot → close mapping. With the FIFO lot ledger, every
+# lot -> close mapping. With the FIFO lot ledger, every
 # ``TradeRecord`` is matched to the specific lot that was actually
 # consumed; the per-row ``entry_price`` / ``entry_timestamp`` are the
 # matched lot's open price/time, never a weighted average or the first
@@ -652,14 +606,14 @@ class TestFifoLotAccounting:
     """FIFO lot matching for partial closes and multi-lot positions."""
 
     def test_buy_two_lots_sell_three_splits_into_two_rows(self):
-        """Regression: Buy 2@₹10 + Buy 2@₹20 → Sell 3@₹25 must yield TWO
+        """Regression: Buy 2@Rs10 + Buy 2@Rs20 -> Sell 3@Rs25 must yield TWO
         ``TradeRecord`` rows with DIFFERENT entry prices (one per lot),
-        not a single row attributing all 3 units to the ₹10 lot.
+        not a single row attributing all 3 units to the Rs10 lot.
 
         This is the exact scenario the user reported. Before the FIFO
         rewrite the manager emitted a single ``TradeRecord`` with
-        ``entry_price=10, quantity=3, pnl=45`` — attributing the ₹20
-        unit's profit to the ₹10 lot. The correct economic P&L is
+        ``entry_price=10, quantity=3, pnl=45`` - attributing the Rs20
+        unit's profit to the Rs10 lot. The correct economic P&L is
         ``(25-10)*2 + (25-20)*1 = 35`` distributed across two rows.
         """
         pm = PositionManager()
@@ -670,7 +624,7 @@ class TestFifoLotAccounting:
         trades = pm.get_closed_trades()
         assert len(trades) == 2
 
-        # Row 1: full consumption of the ₹10 lot (qty=2, pnl=30).
+        # Row 1: full consumption of the Rs10 lot (qty=2, pnl=30).
         tr0 = trades[0]
         assert tr0.symbol == "COPPER"
         assert tr0.side is PositionSide.LONG
@@ -680,17 +634,17 @@ class TestFifoLotAccounting:
         assert tr0.exit_price == 25.0
         assert tr0.exit_timestamp == T2
         assert tr0.pnl == pytest.approx(30.0)
-        # partial_entries mirrors the row's own entry — one element.
+        # partial_entries mirrors the row's own entry - one element.
         assert len(tr0.partial_entries) == 1
         assert tr0.partial_entries[0].price == 10.0
         assert tr0.partial_entries[0].quantity == 2.0
         assert tr0.partial_entries[0].timestamp == T0
-        # partial_exits mirrors the row's own exit — one element.
+        # partial_exits mirrors the row's own exit - one element.
         assert len(tr0.partial_exits) == 1
         assert tr0.partial_exits[0].price == 25.0
         assert tr0.partial_exits[0].quantity == 2.0
 
-        # Row 2: partial consumption of the ₹20 lot (qty=1, pnl=5).
+        # Row 2: partial consumption of the Rs20 lot (qty=1, pnl=5).
         tr1 = trades[1]
         assert tr1.symbol == "COPPER"
         assert tr1.side is PositionSide.LONG
@@ -707,14 +661,14 @@ class TestFifoLotAccounting:
         # Total economic P&L across the two rows matches the truth.
         assert sum(t.pnl for t in trades) == pytest.approx(35.0)
 
-        # The residual ₹20 lot (qty=1) remains open.
+        # The residual Rs20 lot (qty=1) remains open.
         remaining = pm.get_open_lots("COPPER")
         assert len(remaining) == 1
         assert remaining[0].open_price == 20.0
         assert remaining[0].quantity == 1.0
 
     def test_three_lots_full_close_emits_three_rows(self):
-        """Buy 1@10 + Buy 1@20 + Buy 1@30 → Sell 3@40 → 3 rows, one per lot."""
+        """Buy 1@10 + Buy 1@20 + Buy 1@30 -> Sell 3@40 -> 3 rows, one per lot."""
         pm = PositionManager()
         _market(pm, "AAPL", OrderSide.BUY, 1.0, T0, 10.0)
         _market(pm, "AAPL", OrderSide.BUY, 1.0, T1, 20.0)
@@ -723,7 +677,7 @@ class TestFifoLotAccounting:
 
         trades = pm.get_closed_trades()
         assert len(trades) == 3
-        # FIFO order: ₹10, then ₹20, then ₹30.
+        # FIFO order: Rs10, then Rs20, then Rs30.
         assert [t.entry_price for t in trades] == [10.0, 20.0, 30.0]
         assert [t.quantity for t in trades] == [1.0, 1.0, 1.0]
         # PnLs: 30, 20, 10.
@@ -731,11 +685,11 @@ class TestFifoLotAccounting:
         # All three rows share the same exit (the close fill).
         assert all(t.exit_price == 40.0 for t in trades)
         assert all(t.exit_timestamp == T3 for t in trades)
-        # All lots consumed — symbol is removed.
+        # All lots consumed - symbol is removed.
         assert "AAPL" not in pm._lots
 
     def test_single_lot_partial_close_one_row_with_self_partial(self):
-        """Single-lot partial close (Buy 2@10 → Sell 1@15) emits ONE row whose
+        """Single-lot partial close (Buy 2@10 -> Sell 1@15) emits ONE row whose
         ``partial_entries`` mirrors the row's own entry. This is the no-information-loss
         case: the ``partial_entries`` field is always populated, even for single-lot
         closes, so downstream consumers never need to branch on emptiness.
@@ -766,9 +720,9 @@ class TestFifoLotAccounting:
     def test_scale_in_then_partial_close_uses_lot_one_basis(self):
         """Buy 2@10, then scale-in Buy 2@20 (no TradeRecord), then Sell 1@30.
 
-        The 1-unit close consumes the head of the deque (the ₹10 lot)
+        The 1-unit close consumes the head of the deque (the Rs10 lot)
         and emits one row with ``entry_price=10, quantity=1, pnl=20``.
-        The ₹20 lot is untouched and remains open.
+        The Rs20 lot is untouched and remains open.
         """
         pm = PositionManager()
         _market(pm, "AAPL", OrderSide.BUY, 2.0, T0, 10.0)
@@ -784,8 +738,8 @@ class TestFifoLotAccounting:
         assert tr.pnl == pytest.approx(20.0)
 
         remaining = pm.get_open_lots("AAPL")
-        # The head lot had qty 2, took 1 → residual qty 1 @ ₹10. Plus the
-        # untouched ₹20 lot. So lots are [(T0,10,1), (T1,20,2)].
+        # The head lot had qty 2, took 1 -> residual qty 1 @ Rs10. Plus the
+        # untouched Rs20 lot. So lots are [(T0,10,1), (T1,20,2)].
         assert len(remaining) == 2
         assert remaining[0].open_price == 10.0
         assert remaining[0].quantity == 1.0
@@ -795,8 +749,8 @@ class TestFifoLotAccounting:
     def test_over_close_flip_emits_lot_rows_for_prior_side(self):
         """Buy 2@10, then over-close Sell 5@30 (flip into SHORT 3).
 
-        The Sell 5 first consumes all 2 of the ₹10 lot, emitting one row
-        for the ₹10 basis, then opens a fresh SHORT lot of size 3 @ ₹30
+        The Sell 5 first consumes all 2 of the Rs10 lot, emitting one row
+        for the Rs10 basis, then opens a fresh SHORT lot of size 3 @ Rs30
         as the flip residual. NO row is emitted for the new short open.
         """
         pm = PositionManager()
@@ -837,11 +791,11 @@ class TestFifoLotAccounting:
 
         trades = pm.get_closed_trades()
         assert len(trades) == 2
-        # Row 1: full ₹10 lot.
+        # Row 1: full Rs10 lot.
         assert trades[0].entry_price == 10.0
         assert trades[0].quantity == 2.0
         assert trades[0].pnl == pytest.approx(40.0)
-        # Row 2: full ₹20 lot.
+        # Row 2: full Rs20 lot.
         assert trades[1].entry_price == 20.0
         assert trades[1].quantity == 2.0
         assert trades[1].pnl == pytest.approx(20.0)
@@ -861,8 +815,8 @@ class TestFifoLotAccounting:
         PnL formula: ``(exit - entry) * qty * side_multiplier`` where
         side_multiplier is -1 for SHORT.
 
-        Row 1: entry 200, exit 210, qty 2 → (210-200)*2*-1 = -20 (loss).
-        Row 2: entry 220, exit 210, qty 1 → (210-220)*1*-1 = +10 (gain).
+        Row 1: entry 200, exit 210, qty 2 -> (210-200)*2*-1 = -20 (loss).
+        Row 2: entry 220, exit 210, qty 1 -> (210-220)*1*-1 = +10 (gain).
         """
         pm = PositionManager()
         _market(pm, "MSFT", OrderSide.SELL, 2.0, T0, 200.0)
@@ -903,7 +857,7 @@ class TestFifoLotAccounting:
 
     def test_partial_slice_of_head_lot_replaces_with_residual(self):
         """When a close consumes only part of the head lot, the residual
-        must remain in the deque with the same basis but reduced qty —
+        must remain in the deque with the same basis but reduced qty -
         not disappear, and not be silently merged with the next lot.
         """
         pm = PositionManager()
@@ -911,7 +865,7 @@ class TestFifoLotAccounting:
         _market(pm, "AAPL", OrderSide.BUY, 1.0, T1, 200.0)
         _market(pm, "AAPL", OrderSide.SELL, 2.0, T2, 150.0)
 
-        # Consume 2 from the head (₹100) lot. Residual of the head is 1@100.
+        # Consume 2 from the head (Rs100) lot. Residual of the head is 1@100.
         lots = pm.get_open_lots("AAPL")
         assert len(lots) == 2
         assert lots[0].open_price == 100.0

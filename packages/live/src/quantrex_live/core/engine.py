@@ -10,10 +10,6 @@ from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.position.manager import PositionManager
-from quantrex_core.protocols import DataAdapter
-
-if TYPE_CHECKING:
-    from quantrex_data.adapters.base import BaseDataAdapter
 
 from .context import LiveStrategyContext
 
@@ -31,7 +27,7 @@ class LiveEngine:
     def __init__(
         self,
         strategy: Strategy,
-        adapter: DataAdapter,
+        adapter: object,
         symbol: str = "",
         max_history_size: int = 10000,
     ) -> None:

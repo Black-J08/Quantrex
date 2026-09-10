@@ -194,11 +194,10 @@ class PositionManager:
         sign = 1.0 if side == PositionSide.LONG else -1.0
         net_qty = sign * sum(lot.quantity for lot in lots)
         return Position(
-            entry_timestamp=self._oldest_open_timestamp(symbol),
+            entry_timestamp=self._oldest_open_timestamp(symbol) or datetime.min,
             entry_price=self._oldest_open_price(symbol),
             symbol=symbol,
             quantity=net_qty,
-            position_side=side,
         )
 
     def _consume_lots_fifo(

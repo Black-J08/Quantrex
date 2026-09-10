@@ -87,49 +87,12 @@ class Strategy(ABC):
         candles: Sequence[Mapping[str, object]],
         timeframe: str | None = None,
     ) -> Sequence[Mapping[str, float | int | None]]:
-        """Precompute technical indicators over the full ordered candle history.
+        """Precompute technical indicators over the ordered candle history.
 
-        The engine calls this hook **once per required timeframe** with the
-        timestamp-sorted sequence of normalized raw rows for that timeframe
-        (the same ``list[dict]`` shape produced by ``DataAdapter.read_timeframe()``),
-        before any ``Candle`` instances are constructed and before
-        the per-bar ``on_candle`` loop begins.
-
-        This is the right place to vectorize: convert the rows to
-        whatever array/frame format the researcher prefers (pandas,
-        polars, numpy, ta-lib, hand-rolled — the framework is
-        implementation-agnostic) and compute every indicator in one
-        pass. The returned sequence must be **aligned by index** with
-        ``candles``; the i-th element is attached to the i-th bar
-        via ``Candle.indicators``.
-
-        Default behavior returns one empty mapping per row, so existing
-        strategies that do not use indicators are source-compatible
-        and do not need to override this hook.
-
-        Args:
-            candles: Full ordered raw row sequence for the given timeframe.
-                Each element is a string-keyed mapping with at least
-                ``"datetime"``, ``"open"``, ``"high"``, ``"low"``,
-                ``"close"``, ``"volume"`` (the standardized adapter shape).
-            timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
-                ``None`` indicates the base timeframe.
-
-        Returns:
-            A sequence of mappings, one per bar, aligned by index.
-            Each mapping maps indicator name to ``float | int | None``.
-            ``None`` is the recommended sentinel for warmup bars where
-            an indicator is not yet defined.
-
-        Raises:
-            Any exception raised here is wrapped by the engine as a
-            data-provider failure (``ProviderError`` in backtest). Log
-            via ``logger.exception(..., exc_info=True)`` to capture the
-            full stack trace before re-raising.
+        Default: no-op (returns empty mapping per bar). Subclasses may
+        override to compute RSI, SMA, etc. using pandas/numpy/ta-lib.
+        The framework does not provide built-in indicator calculations.
         """
-        # No-op default: one empty per-bar mapping keeps ``on_candle``
-        # callers working unchanged while giving subclasses a single
-        # override point for vectorized indicator computation.
         return [{} for _ in candles]
 
     def on_start(self) -> None:

@@ -9,7 +9,6 @@ import csv
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
-from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
@@ -46,7 +45,7 @@ class BacktestEngine:
 
     def __init__(
         self,
-        adapter: DataAdapter,
+        adapter: object,
         strategy: Strategy,
         symbol: str = "",
     ) -> None:
