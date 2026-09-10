@@ -115,6 +115,68 @@ class TestCSVDataAdapter:
         assert result[0]["oi"] == "100"
         assert result[1]["oi"] == "200"
 
+    def test_adapter_get_origin_time(self):
+        """Adapter should delegate get_origin_time to provider."""
+        # Test with header
+        rows = [
+            ["timestamp", "open", "high", "low", "close", "volume"],
+            ["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"],
+            ["20230621 10:06", "740.00", "740.00", "740.00", "740.00", "2"],
+        ]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=True)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": "timestamp",
+                "open": "open",
+                "high": "high",
+                "low": "low",
+                "close": "close",
+                "volume": "volume",
+            })
+            origin_time = adapter.get_origin_time()
+        
+        from datetime import time
+        assert origin_time == time(9, 15)
+        
+        # Test that adapter still works correctly after get_origin_time call
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=True)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": "timestamp",
+                "open": "open",
+                "high": "high",
+                "low": "low",
+                "close": "close",
+                "volume": "volume",
+                "oi": "oi",
+            })
+            # Add oi column to test data
+            rows_with_oi = [
+                ["timestamp", "open", "high", "low", "close", "volume", "oi"],
+                ["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1", "100"],
+                ["20230621 10:06", "740.00", "740.00", "740.00", "740.00", "2", "200"],
+            ]
+            csv_content_with_oi = csv_rows_to_string(rows_with_oi)
+            
+            with create_temp_csv(csv_content_with_oi) as temp_path_oi:
+                provider_oi = CSVDataProvider(temp_path_oi, has_header=True)
+                adapter_oi = CSVDataAdapter(provider_oi, column_mapping={
+                    "datetime": "timestamp",
+                    "open": "open",
+                    "high": "high",
+                    "low": "low",
+                    "close": "close",
+                    "volume": "volume",
+                    "oi": "oi",
+                })
+                result = adapter_oi.read()
+        
+        assert len(result) == 2
+        assert result[0]["oi"] == "100"
+        assert result[1]["oi"] == "200"
+
     def test_adapter_missing_required_keys_raises(self):
         """Adapter should raise ValueError for missing required keys."""
         rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]

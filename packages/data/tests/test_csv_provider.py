@@ -100,6 +100,18 @@ class TestCSVDataProvider:
         with pytest.raises(FileNotFoundError):
             provider.fetch()
 
+    def test_provider_get_origin_time(self):
+        """Provider should return NSE origin time (09:15)."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=True)
+            origin_time = provider.get_origin_time()
+        
+        from datetime import time
+        assert origin_time == time(9, 15)
+
     def test_provider_close_method(self):
         """Provider close() should not raise."""
         rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]

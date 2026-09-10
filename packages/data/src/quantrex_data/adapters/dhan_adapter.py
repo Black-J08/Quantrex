@@ -4,7 +4,7 @@ Normalizes raw Dhan API responses to standardized OHLCV format
 for the Backtest Engine.
 """
 
-from datetime import datetime
+from datetime import datetime, time
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -123,6 +123,16 @@ class DhanDataAdapter:
         elif isinstance(supported, list):
             return supported
         return ["1M", "5M", "15M", "30M", "1H", "1D"]
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this adapter's market.
+        
+        Dhan adapter delegates to its underlying provider for origin time.
+        
+        Returns:
+            Origin time as datetime.time (09:15 for NSE).
+        """
+        return self._provider.get_origin_time()
     
     def read(self) -> list[dict]:
         """Read normalized OHLCV data from the Dhan provider (base timeframe).

@@ -5,6 +5,7 @@ Providers handle data acquisition in the source's native format.
 They do NOT perform normalization or conversion to engine format.
 """
 
+from datetime import time
 from typing import Protocol, Any
 
 
@@ -33,6 +34,18 @@ class DataProvider(Protocol):
         
         Returns:
             List of timeframe strings supported by this provider.
+        """
+        ...
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this provider's market.
+        
+        The origin time is the start of the first interval of the trading day
+        (e.g., 09:15 for NSE). This is used for correct timeframe aggregation
+        and close-time alignment.
+        
+        Returns:
+            Origin time as a datetime.time object.
         """
         ...
     

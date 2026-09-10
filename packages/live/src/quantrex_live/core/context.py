@@ -9,6 +9,7 @@ for strategy lookback and timeframe_history support.
 from __future__ import annotations
 
 from collections import deque
+from datetime import time
 from typing import TYPE_CHECKING
 
 from quantrex_core import StrategyContext
@@ -35,6 +36,7 @@ class LiveStrategyContext(StrategyContext):
         self, 
         position_manager: PositionManager,
         max_history_size: int = 10000,
+        origin_time: time | None = None,
     ) -> None:
         self._pm: PositionManager = position_manager
         self._max_history_size = max_history_size
@@ -43,6 +45,7 @@ class LiveStrategyContext(StrategyContext):
         # Derived timeframe histories (updated incrementally)
         self._derived_histories: dict[str, deque[Candle]] = {}
         self._base_timeframe = "1M"  # Default, will be set by engine
+        self._origin_time = origin_time
 
     def submit_order(
         self,
@@ -208,13 +211,22 @@ class LiveStrategyContext(StrategyContext):
         current_interval_start = None
         current_interval_candles = []
 
+        # Use origin time for correct interval alignment
+        # If origin_time is not set, default to midnight (00:00)
+        origin_minutes = 0
+        if self._origin_time is not None:
+            origin_minutes = self._origin_time.hour * 60 + self._origin_time.minute
+
         for candle in candles:
-            # Calculate the interval start for this candle
+            # Calculate the interval start for this candle using origin time
             candle_minutes = candle.timestamp.hour * 60 + candle.timestamp.minute
             # Add days
             candle_minutes += candle.timestamp.day * 24 * 60
-            # Add months/years approximately (for simplicity, we use day of year)
-            interval_start_minutes = (candle_minutes // interval_minutes) * interval_minutes
+            # Calculate interval start relative to origin time
+            # For example, with origin 09:15 (555 minutes) and interval 60 minutes:
+            # - 10:15 candle (615 minutes): (615 - 555) // 60 = 1, interval start = 09:15 + 1*60 = 10:15
+            # - 11:15 candle (675 minutes): (675 - 555) // 60 = 2, interval start = 09:15 + 2*60 = 11:15
+            interval_start_minutes = origin_minutes + ((candle_minutes - origin_minutes) // interval_minutes) * interval_minutes
 
             if current_interval_start is None:
                 current_interval_start = interval_start_minutes

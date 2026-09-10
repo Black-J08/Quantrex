@@ -4,7 +4,7 @@ Fetches raw OHLCV data from DhanHQ REST API with symbol resolution,
 date normalization, and automatic chunking for large date ranges.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 from quantrex_core.logging import get_logger
@@ -411,6 +411,17 @@ class DhanDataProvider:
             List of timeframe strings supported by Dhan API.
         """
         return ["1M", "5M", "15M", "30M", "1H", "1D"]
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this provider's market.
+        
+        Dhan provider uses NSE (National Stock Exchange of India) origin time
+        as the standard for Indian market data.
+        
+        Returns:
+            Origin time as datetime.time (09:15 for NSE).
+        """
+        return time(9, 15)
     
     @property
     def supported_timeframes_property(self) -> list[str]:

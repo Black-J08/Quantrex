@@ -43,7 +43,9 @@ class LiveEngine:
         self._adapter = adapter
         self._symbol = symbol
         self._position_manager = PositionManager()
-        self._context = LiveStrategyContext(self._position_manager, max_history_size)
+        # Get origin time from adapter for correct timeframe aggregation
+        origin_time = self._adapter.get_origin_time()
+        self._context = LiveStrategyContext(self._position_manager, max_history_size, origin_time=origin_time)
         self._strategy.set_context(self._context)
         self._running = False
         

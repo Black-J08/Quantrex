@@ -461,6 +461,19 @@ class TestDhanDataProvider:
             assert provider.security_id == "1333"
         mock_client.close.assert_called_once()
 
+    def test_provider_get_origin_time(self, mock_client, mock_instrument_master):
+        """Provider should return NSE origin time (09:15)."""
+        provider = DhanDataProvider(
+            security_id="1333",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        origin_time = provider.get_origin_time()
+        from datetime import time
+        assert origin_time == time(9, 15)
+
     def test_credential_loading_from_env(self):
         """Provider should load access token from environment when not provided."""
         with patch.dict("os.environ", {"DHAN_ACCESS_TOKEN": "test_token_from_env"}):

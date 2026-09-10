@@ -4,6 +4,7 @@ Normalizes raw CSV data from CSVDataProvider into standardized OHLCV format
 for the Backtest Engine.
 """
 
+from datetime import time
 from typing import Literal
 
 from quantrex_core.logging import get_logger
@@ -69,6 +70,17 @@ class CSVDataAdapter:
         elif isinstance(supported, list):
             return supported
         return ["1M"]
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this adapter's market.
+        
+        CSV adapter delegates to its underlying provider for origin time.
+        
+        Returns:
+            Origin time as datetime.time (09:15 for NSE).
+        """
+        from datetime import time
+        return self._provider.get_origin_time()
     
     def read(self) -> list[dict]:
         """Read normalized OHLCV data from the CSV provider (base timeframe).

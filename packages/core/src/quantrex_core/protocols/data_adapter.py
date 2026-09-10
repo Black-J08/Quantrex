@@ -5,6 +5,7 @@ Adapters consume a DataProvider and convert its source-specific data
 into the standardized market-data interface required by the Backtest Engine.
 """
 
+from datetime import time
 from typing import Protocol
 from quantrex_core.protocols.data_provider import DataProvider
 
@@ -76,6 +77,18 @@ class DataAdapter(Protocol):
         
         Returns:
             The datetime format string (e.g., "%Y%m%d %H:%M").
+        """
+        ...
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this adapter's market.
+        
+        The origin time is the start of the first interval of the trading day
+        (e.g., 09:15 for NSE). This is used for correct timeframe aggregation
+        and close-time alignment.
+        
+        Returns:
+            Origin time as a datetime.time object.
         """
         ...
     

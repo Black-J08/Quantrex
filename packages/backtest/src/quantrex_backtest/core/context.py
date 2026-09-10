@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderStatus, OrderType
@@ -28,6 +28,7 @@ class BacktestStrategyContext(StrategyContext):
         raw_data_by_timeframe: dict[str, list[dict]] | None = None,
         indicators_by_timeframe: dict[str, list[Mapping]] | None = None,
         base_timeframe: str = "1M",
+        origin_time: time | None = None,
     ) -> None:
         self._pm = position_manager
         self._oms = oms
@@ -49,6 +50,7 @@ class BacktestStrategyContext(StrategyContext):
         self._derived_indices: dict[str, int] = {}
         self._symbol = ""
         self._datetime_format = "%Y%m%d %H:%M"
+        self._origin_time = origin_time
         
         # Pre-compute derived timeframe candles
         if raw_data_by_timeframe and indicators_by_timeframe:
@@ -272,19 +274,27 @@ class BacktestStrategyContext(StrategyContext):
         else:
             raise ValueError(f"Unknown interval unit: {unit}")
 
+        # Use origin time for correct interval alignment
+        # If origin_time is not set, default to midnight (00:00)
+        origin_minutes = 0
+        if self._origin_time is not None:
+            origin_minutes = self._origin_time.hour * 60 + self._origin_time.minute
+
         # Group candles by interval
         result = []
         current_interval_start = None
         current_interval_candles = []
 
         for candle in candles:
-            # Calculate the interval start for this candle
+            # Calculate the interval start for this candle using origin time
             candle_minutes = candle.timestamp.hour * 60 + candle.timestamp.minute
             # Add days
             candle_minutes += candle.timestamp.day * 24 * 60
-            # Add months/years approximately (for simplicity, we use day of year)
-            # For more accurate handling, we'd need to consider the full datetime
-            interval_start_minutes = (candle_minutes // interval_minutes) * interval_minutes
+            # Calculate interval start relative to origin time
+            # For example, with origin 09:15 (555 minutes) and interval 60 minutes:
+            # - 10:15 candle (615 minutes): (615 - 555) // 60 = 1, interval start = 09:15 + 1*60 = 10:15
+            # - 11:15 candle (675 minutes): (675 - 555) // 60 = 2, interval start = 09:15 + 2*60 = 11:15
+            interval_start_minutes = origin_minutes + ((candle_minutes - origin_minutes) // interval_minutes) * interval_minutes
 
             if current_interval_start is None:
                 current_interval_start = interval_start_minutes

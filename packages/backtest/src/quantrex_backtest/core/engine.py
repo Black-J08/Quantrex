@@ -159,6 +159,8 @@ class BacktestEngine:
         base_timeframe = required_timeframes[0]
         
         # Create new context with multi-timeframe data
+        # Get origin time from adapter for correct timeframe aggregation
+        origin_time = self._adapter.get_origin_time()
         self._context = BacktestStrategyContext(
             self._position_manager,
             self._oms,
@@ -166,6 +168,7 @@ class BacktestEngine:
             raw_data_by_timeframe=raw_data_by_tf,
             indicators_by_timeframe=per_bar_by_tf,
             base_timeframe=base_timeframe,
+            origin_time=origin_time,
         )
         
         # Set symbol and datetime format for derived candle construction

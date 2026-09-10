@@ -5,6 +5,7 @@ Returns raw rows as lists of strings.
 """
 
 import csv
+from datetime import time
 from pathlib import Path
 from typing import Any
 
@@ -92,6 +93,18 @@ class CSVDataProvider:
         if self._minute_data_available:
             return ["1M"]
         return []
+    
+    def get_origin_time(self) -> time:
+        """Return the origin time for this provider's market.
+        
+        CSV provider uses NSE (National Stock Exchange of India) origin time
+        as the standard for Indian market data.
+        
+        Returns:
+            Origin time as datetime.time (09:15 for NSE).
+        """
+        from datetime import time
+        return time(9, 15)
     
     @property
     def supported_timeframes_property(self) -> list[str]:

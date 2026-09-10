@@ -1,5 +1,6 @@
 """Tests for DataAdapter protocol."""
 
+from datetime import time
 from quantrex_core.protocols import DataAdapter, DataProvider
 
 
@@ -26,6 +27,15 @@ class TestDataAdapterProtocol:
     def test_data_adapter_has_datetime_format_property(self):
         """DataAdapter protocol should expose datetime_format property."""
         assert hasattr(DataAdapter, 'datetime_format')
+    
+    def test_data_adapter_has_get_origin_time_method(self):
+        """DataAdapter should have get_origin_time method."""
+        assert hasattr(DataAdapter, 'get_origin_time')
+    
+    def test_data_adapter_get_origin_time_returns_time(self):
+        """DataAdapter.get_origin_time should return a datetime.time object."""
+        # Protocol check - actual implementation tested in adapter-specific tests
+        assert hasattr(DataAdapter, 'get_origin_time')
     
     def test_data_adapter_read_returns_list_of_dicts(self):
         """DataAdapter.read() should return list[dict]."""
