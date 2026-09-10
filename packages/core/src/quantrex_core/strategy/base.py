@@ -10,6 +10,7 @@ from typing import Mapping
 
 from ..models.candle import Candle
 from .context import StrategyContext
+from .timeframe import TimeframeRegistry, TimeframeDispatcher, on_timeframe
 
 
 class Strategy(ABC):
@@ -32,6 +33,35 @@ class Strategy(ABC):
                 self.indicator_values = []
         """
         self._ctx: StrategyContext | None = None
+        self._timeframe_registry = TimeframeRegistry()
+        self._timeframe_dispatcher = TimeframeDispatcher(self._timeframe_registry)
+        # Auto-register methods decorated with @on_timeframe
+        self._register_timeframe_methods()
+
+    def _register_timeframe_methods(self) -> None:
+        """Auto-register methods decorated with @on_timeframe."""
+        for attr_name in dir(self):
+            # Skip properties and special attributes that may raise on access
+            if attr_name.startswith("_") or attr_name in ("ctx", "timeframe_registry", "timeframe_dispatcher"):
+                continue
+            try:
+                attr = getattr(self, attr_name)
+            except RuntimeError:
+                # Skip properties that raise when context not set
+                continue
+            if callable(attr) and hasattr(attr, "_quantrex_timeframe"):
+                interval = attr._quantrex_timeframe  # type: ignore[attr-defined]
+                self._timeframe_registry.register(interval, attr)
+
+    @property
+    def timeframe_registry(self) -> TimeframeRegistry:
+        """Access the timeframe registry for this strategy."""
+        return self._timeframe_registry
+
+    @property
+    def timeframe_dispatcher(self) -> TimeframeDispatcher:
+        """Access the timeframe dispatcher for this strategy."""
+        return self._timeframe_dispatcher
 
     def set_context(self, ctx: StrategyContext) -> None:
         """Inject StrategyContext after construction. Called by Engine."""
@@ -58,12 +88,13 @@ class Strategy(ABC):
     def compute_indicators(
         self,
         candles: Sequence[Mapping[str, object]],
+        timeframe: str | None = None,
     ) -> Sequence[Mapping[str, float | int | None]]:
         """Precompute technical indicators over the full ordered candle history.
 
-        The engine calls this hook **exactly once** with the full,
-        timestamp-sorted sequence of normalized raw rows (the same
-        ``list[dict]`` shape produced by ``DataAdapter.read()``),
+        The engine calls this hook **once per required timeframe** with the
+        timestamp-sorted sequence of normalized raw rows for that timeframe
+        (the same ``list[dict]`` shape produced by ``DataAdapter.read_timeframe()``),
         before any ``Candle`` instances are constructed and before
         the per-bar ``on_candle`` loop begins.
 
@@ -80,10 +111,12 @@ class Strategy(ABC):
         and do not need to override this hook.
 
         Args:
-            candles: Full ordered raw row sequence. Each element is a
-                string-keyed mapping with at least ``"datetime"``,
-                ``"open"``, ``"high"``, ``"low"``, ``"close"``,
-                ``"volume"`` (the standardized adapter shape).
+            candles: Full ordered raw row sequence for the given timeframe.
+                Each element is a string-keyed mapping with at least
+                ``"datetime"``, ``"open"``, ``"high"``, ``"low"``,
+                ``"close"``, ``"volume"`` (the standardized adapter shape).
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+                ``None`` indicates the base timeframe.
 
         Returns:
             A sequence of mappings, one per bar, aligned by index.
@@ -116,3 +149,29 @@ class Strategy(ABC):
         Override to perform cleanup (e.g., closing positions, saving state).
         """
         pass
+
+    def dispatch_timeframes(self) -> None:
+        """Dispatch timeframe events to registered @on_timeframe methods.
+
+        Call this from your ``on_candle`` method after your main logic
+        to trigger any timeframe-specific handlers.
+
+        Example:
+            def on_candle(self, candle: Candle) -> None:
+                # Your main logic here
+                if candle.close > candle.open:
+                    self.ctx.submit_order(...)
+
+                # Dispatch timeframe events (1H, 1D, etc.)
+                self.dispatch_timeframes()
+        """
+        if self._ctx is not None:
+            self._timeframe_dispatcher.dispatch_all(self._ctx)
+
+    def reset_timeframe_dispatcher(self) -> None:
+        """Reset the timeframe dispatcher state.
+
+        Called by the engine at the start of each run to clear
+        dispatch tracking state.
+        """
+        self._timeframe_dispatcher.reset()

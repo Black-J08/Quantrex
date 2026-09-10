@@ -34,13 +34,22 @@ class CSVDataProvider:
         self._file_handle = None
         self._header = None
     
-    def fetch(self) -> Any:
+    def fetch(self, timeframe: str | None = None) -> Any:
         """Fetch raw CSV data from the file.
+        
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+                      None returns the provider's default/base timeframe.
+                      CSV provider only supports a single timeframe (the file's native resolution).
         
         Returns:
             If has_header=True: tuple of (header_row: list[str], data_rows: list[list[str]])
             If has_header=False: list[list[str]] (all rows including first)
         """
+        if timeframe is not None:
+            # CSV provider only supports its native timeframe
+            logger.debug("CSVDataProvider.fetch called with timeframe=%s (ignored, using file's native resolution)", timeframe)
+        
         if not self._file_path.exists():
             raise FileNotFoundError(f"CSV file not found: {self._file_path}")
         
@@ -62,6 +71,19 @@ class CSVDataProvider:
         else:
             logger.debug("CSV has no header, %d rows", len(rows))
             return rows
+    
+    def supported_timeframes(self) -> list[str]:
+        """Return list of supported timeframe intervals.
+        
+        CSV provider only supports its native file resolution.
+        Returns ["1M"] as a convention for minute-level data.
+        """
+        return ["1M"]
+    
+    @property
+    def supported_timeframes_property(self) -> list[str]:
+        """Property accessor for supported_timeframes."""
+        return self.supported_timeframes()
     
     def close(self) -> None:
         """Close any open resources.

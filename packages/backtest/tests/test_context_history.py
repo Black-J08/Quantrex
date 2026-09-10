@@ -287,7 +287,7 @@ def test_engine_history_preserves_candle_indicators():
             super().__init__()
             self.seen: list[dict] = []
 
-        def compute_indicators(self, candles):
+        def compute_indicators(self, candles, timeframe=None):
             return [{"tag": f"bar_{i}"} for i in range(len(candles))]
 
         def on_candle(self, candle: Candle) -> None:

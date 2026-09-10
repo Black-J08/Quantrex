@@ -104,26 +104,58 @@ class DhanDataAdapter:
     def datetime_format(self) -> str:
         """Format string used for datetime parsing (single source of truth)."""
         return self._datetime_format
-
-
+    
+    @property
+    def supported_timeframes(self) -> list[str]:
+        """Return list of supported timeframe intervals.
+        
+        Delegates to the underlying provider.
+        """
+        # Handle both real providers and mocks
+        supported = getattr(self._provider, 'supported_timeframes_property', None)
+        if supported is None:
+            supported = getattr(self._provider, 'supported_timeframes', None)
+        if callable(supported):
+            try:
+                return supported()
+            except Exception:
+                return ["1M", "5M", "15M", "30M", "1H", "1D"]
+        elif isinstance(supported, list):
+            return supported
+        return ["1M", "5M", "15M", "30M", "1H", "1D"]
+    
     def read(self) -> list[dict]:
-        """Read normalized OHLCV data from the Dhan provider.
-
+        """Read normalized OHLCV data from the Dhan provider (base timeframe).
+        
         Returns:
             List of dictionaries with standardized keys:
             'datetime', 'open', 'high', 'low', 'close', 'volume'
             (and 'oi' if open interest was requested).
-
-        Raises:
-            Exception: Propagates exceptions from provider.fetch().
         """
-        logger.debug("Reading data from DhanDataProvider")
+        # Use the provider's default timeframe
+        timeframes = self.supported_timeframes
+        return self.read_timeframe(timeframes[0] if timeframes else "1M")
+    
+    def read_timeframe(self, timeframe: str) -> list[dict]:
+        """Read normalized OHLCV data for a specific timeframe.
+        
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
+            
+        Returns:
+            List of dictionaries with standardized keys for the given timeframe.
+        """
+        # Validate timeframe is supported
+        if timeframe not in self.supported_timeframes:
+            raise ValueError(f"Timeframe '{timeframe}' not supported. Supported: {self.supported_timeframes}")
+        
+        logger.debug("Reading data from DhanDataProvider for timeframe %s", timeframe)
 
-        # Fetch raw data from provider
-        raw_data = self._provider.fetch()
+        # Fetch raw data from provider with timeframe
+        raw_data = self._provider.fetch(timeframe=timeframe)
 
         if not raw_data or not raw_data.get("timestamp"):
-            logger.warning("No data returned from DhanDataProvider")
+            logger.warning("No data returned from DhanDataProvider for timeframe %s", timeframe)
             return []
 
         # Extract arrays
@@ -176,7 +208,7 @@ class DhanDataAdapter:
 
             results.append(row)
 
-        logger.debug("DhanDataAdapter: normalized %d rows", len(results))
+        logger.debug("DhanDataAdapter: normalized %d rows for timeframe %s", len(results), timeframe)
         return results
 
     def close(self) -> None:

@@ -25,12 +25,32 @@ class DataAdapter(Protocol):
         ...
     
     def read(self) -> list[dict]:
-        """Read normalized OHLCV data ready for the engine.
+        """Read normalized OHLCV data ready for the engine (base timeframe).
         
         Returns:
             List of dictionaries with standardized keys:
             'datetime', 'open', 'high', 'low', 'close', 'volume'
             (and optionally additional fields)
+        """
+        ...
+    
+    def read_timeframe(self, timeframe: str) -> list[dict]:
+        """Read normalized OHLCV data for a specific timeframe.
+        
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+        
+        Returns:
+            List of dictionaries with standardized keys for the given timeframe.
+        """
+        ...
+    
+    @property
+    def supported_timeframes(self) -> list[str]:
+        """Return list of supported timeframe intervals.
+        
+        Returns:
+            List of timeframe strings supported by this adapter.
         """
         ...
     

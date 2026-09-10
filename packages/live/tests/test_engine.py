@@ -1,8 +1,10 @@
-"""Tests for LiveEngine placeholder."""
+"""Tests for LiveEngine."""
 
 import pytest
+from unittest.mock import Mock
 from quantrex_live.core.engine import LiveEngine
 from quantrex_core import Strategy, Candle
+from quantrex_core.protocols import DataAdapter
 from datetime import datetime
 
 
@@ -25,19 +27,31 @@ class TestStrategy(Strategy):
         self.stopped = True
 
 
+def _mock_adapter():
+    """Create a mock DataAdapter for testing."""
+    adapter = Mock(spec=DataAdapter)
+    adapter.supported_timeframes = ["1M"]
+    adapter.datetime_format = "%Y-%m-%d %H:%M:%S"
+    adapter.read.return_value = []
+    adapter.read_timeframe.return_value = []
+    return adapter
+
+
 def test_live_engine_creation():
-    """LiveEngine can be instantiated with a strategy."""
+    """LiveEngine can be instantiated with a strategy and adapter."""
     strategy = TestStrategy()
-    engine = LiveEngine(strategy)
+    adapter = _mock_adapter()
+    engine = LiveEngine(strategy, adapter)
     assert engine is not None
 
 
 def test_live_engine_run_raises_not_implemented():
     """LiveEngine.run raises NotImplementedError after calling on_start."""
     strategy = TestStrategy()
-    engine = LiveEngine(strategy)
+    adapter = _mock_adapter()
+    engine = LiveEngine(strategy, adapter)
     
-    with pytest.raises(NotImplementedError, match="Live engine not yet implemented"):
+    with pytest.raises(NotImplementedError, match="Live data subscription not yet implemented"):
         engine.run()
     
     # on_start should have been called before the exception
@@ -49,7 +63,8 @@ def test_live_engine_run_raises_not_implemented():
 def test_live_engine_accepts_strategy_in_constructor():
     """LiveEngine accepts a Strategy instance in constructor."""
     strategy = TestStrategy()
-    engine = LiveEngine(strategy)
+    adapter = _mock_adapter()
+    engine = LiveEngine(strategy, adapter)
     
     # Should accept the strategy
     assert engine is not None

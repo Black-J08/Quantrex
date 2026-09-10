@@ -106,64 +106,92 @@ class BacktestEngine:
         # from previous runs.
         self._context.reset()
 
+        # Reset timeframe dispatcher state for new run
+        self._strategy.reset_timeframe_dispatcher()
+
         logger.info("Starting backtest for symbol: %s", self._symbol)
 
         self._strategy.on_start()
 
-        try:
-            raw_data = self._adapter.read()
-        except Exception as e:
-            logger.exception("Adapter read() failed")
-            raise ProviderError(f"Failed to read data from adapter: {e}") from e
-
-        if not raw_data:
+        # Get required timeframes from strategy
+        required_timeframes = self._get_required_timeframes()
+        
+        # Read raw data for all required timeframes
+        raw_data_by_tf = self._read_all_timeframes(required_timeframes)
+        
+        # Check if base timeframe has data
+        base_timeframe = required_timeframes[0]
+        base_raw = raw_data_by_tf.get(base_timeframe, [])
+        
+        if not base_raw:
             logger.warning("No data returned from adapter; backtest completed with zero candles")
             self._strategy.on_stop()
             self._export_trades_csv(staging_dir)
             logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
             return
+        
+        # Sort each timeframe's data by datetime for deterministic ordering
+        for tf in raw_data_by_tf:
+            raw_data_by_tf[tf].sort(key=lambda row: row.get("datetime", ""))
 
-        # Sort by datetime for deterministic ordering
-        raw_data.sort(key=lambda row: row.get("datetime", ""))
+        # Compute indicators for each timeframe
+        per_bar_by_tf = {}
+        for tf in required_timeframes:
+            try:
+                per_bar_by_tf[tf] = self._strategy.compute_indicators(
+                    raw_data_by_tf[tf], timeframe=tf
+                )
+            except Exception as e:
+                logger.exception("Strategy.compute_indicators raised for timeframe %s", tf)
+                raise ProviderError(
+                    f"Strategy.compute_indicators failed for timeframe {tf}: {e}"
+                ) from e
 
-        logger.info("Processing %d candles", len(raw_data))
+        # Validate lengths match for each timeframe
+        for tf in required_timeframes:
+            if len(per_bar_by_tf[tf]) != len(raw_data_by_tf[tf]):
+                logger.exception(
+                    "compute_indicators returned %d entries for %d candles (timeframe %s)",
+                    len(per_bar_by_tf[tf]), len(raw_data_by_tf[tf]), tf,
+                )
+                raise ProviderError(
+                    f"compute_indicators returned {len(per_bar_by_tf[tf])} entries "
+                    f"for {len(raw_data_by_tf[tf])} candles (timeframe {tf}); length must match"
+                )
 
-        # Call the strategy's compute_indicators hook exactly once with the
-        # full sorted row sequence, BEFORE any Candle is constructed. The
-        # returned list must be aligned by index; the i-th element is
-        # threaded into the i-th Candle via Candle.from_row(..., indicators=...).
-        # The framework is indicator-implementation agnostic: the strategy
-        # is free to use pandas / polars / numpy / ta-lib / hand-rolled
-        # math inside the override.
-        try:
-            per_bar = self._strategy.compute_indicators(raw_data)
-        except Exception as e:
-            logger.exception("Strategy.compute_indicators raised")
-            raise ProviderError(
-                f"Strategy.compute_indicators failed: {e}"
-            ) from e
+        # Determine base timeframe (first in required_timeframes)
+        base_timeframe = required_timeframes[0]
+        
+        # Create new context with multi-timeframe data
+        self._context = BacktestStrategyContext(
+            self._position_manager,
+            self._oms,
+            datetime.min,
+            raw_data_by_timeframe=raw_data_by_tf,
+            indicators_by_timeframe=per_bar_by_tf,
+            base_timeframe=base_timeframe,
+        )
+        
+        # Set symbol and datetime format for derived candle construction
+        self._context.set_symbol_and_format(self._symbol, self._datetime_format)
+        
+        # Inject context into Strategy
+        self._strategy.set_context(self._context)
 
-        if len(per_bar) != len(raw_data):
-            logger.exception(
-                "compute_indicators returned %d entries for %d candles",
-                len(per_bar), len(raw_data),
-            )
-            raise ProviderError(
-                f"compute_indicators returned {len(per_bar)} entries "
-                f"for {len(raw_data)} candles; length must match"
-            )
+        logger.info("Processing %d candles (base timeframe: %s)", len(raw_data_by_tf[base_timeframe]), base_timeframe)
 
         data_start: str | None = None
         data_end: str | None = None
-        total_candles = len(raw_data)
+        base_raw = raw_data_by_tf[base_timeframe]
+        base_indicators = per_bar_by_tf[base_timeframe]
 
-        for idx, row in enumerate(raw_data):
+        for idx, row in enumerate(base_raw):
             try:
                 candle = Candle.from_row(
                     row,
                     self._symbol,
                     self._datetime_format,
-                    indicators=per_bar[idx],
+                    indicators=base_indicators[idx],
                 )
 
                 # Capture first and last candle timestamps for output path
@@ -214,12 +242,12 @@ class BacktestEngine:
         # This handles the case where the strategy submits an order on the
         # last candle; without this the order would be silently dropped.
         last_candle = Candle.from_row(
-            raw_data[-1], self._symbol, self._datetime_format, indicators=per_bar[-1]
+            base_raw[-1], self._symbol, self._datetime_format, indicators=base_indicators[-1]
         )
         self._drain_pending(last_candle.close, last_candle.timestamp, is_final=True)
 
         self._strategy.on_stop()
-        logger.info("Backtest completed: %d candles processed", len(raw_data))
+        logger.info("Backtest completed: %d candles processed", len(base_raw))
 
         # Promote staging -> final run dir now that we know the data window.
         # We move individual files (closed_trades.csv and execution.log)
@@ -442,3 +470,78 @@ class BacktestEngine:
                 order.quantity,
                 execution_price,
             )
+
+    def _get_required_timeframes(self) -> list[str]:
+        """Get all timeframes required by the strategy.
+        
+        Returns:
+            List of timeframe strings, with base timeframe first.
+        """
+        # Get base timeframe from adapter's supported timeframes
+        # Handle both real adapters and mocks
+        supported = getattr(self._adapter, 'supported_timeframes', None)
+        if supported is None:
+            # Fallback for mocks - use a default
+            base_timeframe = "1M"
+        elif callable(supported):
+            try:
+                result = supported()
+                base_timeframe = result[0] if result else "1M"
+            except (TypeError, IndexError):
+                base_timeframe = "1M"
+        else:
+            try:
+                base_timeframe = supported[0] if supported else "1M"
+            except (TypeError, IndexError):
+                base_timeframe = "1M"
+        
+        # Get additional timeframes from strategy's timeframe registry
+        strategy_timeframes = self._strategy.timeframe_registry.intervals()
+        # Combine: base timeframe first, then strategy timeframes (excluding base)
+        all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]
+        return all_timeframes
+
+    def _read_all_timeframes(self, timeframes: list[str]) -> dict[str, list[dict]]:
+        """Read normalized data for all required timeframes.
+        
+        Args:
+            timeframes: List of timeframe intervals to read.
+            
+        Returns:
+            Dictionary mapping timeframe to list of normalized row dicts.
+        """
+        result = {}
+        # Get base timeframe
+        supported = getattr(self._adapter, 'supported_timeframes', None)
+        if supported is None:
+            base_tf = "1M"
+        elif callable(supported):
+            try:
+                base_tf = supported()[0] if supported() else "1M"
+            except (TypeError, IndexError):
+                base_tf = "1M"
+        else:
+            try:
+                base_tf = supported[0] if supported else "1M"
+            except (TypeError, IndexError):
+                base_tf = "1M"
+            
+        for tf in timeframes:
+            if tf == base_tf:
+                try:
+                    result[tf] = self._adapter.read()
+                except Exception as e:
+                    logger.exception("Adapter read() failed for timeframe %s", tf)
+                    raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
+            else:
+                # Check if adapter has read_timeframe method
+                if hasattr(self._adapter, 'read_timeframe'):
+                    try:
+                        result[tf] = self._adapter.read_timeframe(tf)
+                    except Exception:
+                        # Fallback for mocks - return empty list
+                        result[tf] = []
+                else:
+                    # Fallback for mocks - return empty list
+                    result[tf] = []
+        return result

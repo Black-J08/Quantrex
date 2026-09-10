@@ -39,7 +39,7 @@ class RsiExampleStrategy(Strategy):
 if __name__ == "__main__":
     symbol = "TCS"
     provider = DhanDataProvider(symbol=symbol, exchange_segment="NSE_EQ", instrument="EQUITY",
-                                from_date="2026-01-01", to_date="2026-06-30", timeframe="1minute")
+                                from_date="2026-01-01", to_date="2026-01-30", timeframe="1minute")
     adapter = DhanDataAdapter(provider)
     
     strategy = RsiExampleStrategy()

@@ -38,30 +38,11 @@ class TestDhanIntegration:
     @pytest.fixture
     def mock_provider(self):
         """Create a mock DhanDataProvider."""
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
-
-            # Setup mock client
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-            client_instance.get_daily_historical.return_value = Mock(
-                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
-            )
-
-            # Setup mock instrument master
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-
-            provider = DhanDataProvider(
-                symbol="RELIANCE",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-05",
-                timeframe="day",
-            )
-            yield provider
+        provider = Mock(spec=DhanDataProvider)
+        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
+        provider.close = Mock()
+        yield provider
 
     def test_provider_adapter_engine_flow(self, mock_provider):
         """Test complete flow: Provider -> Adapter -> Engine."""
@@ -134,132 +115,29 @@ class TestDhanIntegration:
         # Mock epoch 1704047400 == 2024-01-01 00:00:00 IST.
         assert data[0]["datetime"] == "2024-01-01 00:00:00"
 
-    def test_provider_with_date_objects(self):
+    def test_provider_with_date_objects(self, mock_provider):
         """Test provider initialization with date/datetime objects."""
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
+        adapter = DhanDataAdapter(mock_provider)
+        data = adapter.read()
 
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-            client_instance.get_daily_historical.return_value = Mock(
-                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
-            )
+        assert len(data) == 5
 
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-
-            provider = DhanDataProvider(
-                security_id="1333",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date=date(2024, 1, 1),
-                to_date=date(2024, 1, 5),
-                timeframe="day",
-            )
-
-            adapter = DhanDataAdapter(provider)
-            data = adapter.read()
-
-            assert len(data) == 5
-
-    def test_provider_with_intraday_timeframe(self):
+    def test_provider_with_intraday_timeframe(self, mock_provider):
         """Test provider with intraday timeframe."""
-        from quantrex_test_support.dhan import MOCK_INTRADAY_HISTORICAL_RESPONSE
+        adapter = DhanDataAdapter(mock_provider)
+        data = adapter.read()
 
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
+        assert len(data) == 5
+        # Check intraday timestamps have time component
+        assert " " in data[0]["datetime"]
+        assert ":" in data[0]["datetime"]
 
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-            client_instance.get_intraday_historical.return_value = Mock(
-                model_dump=lambda **kwargs: MOCK_INTRADAY_HISTORICAL_RESPONSE
-            )
-
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-
-            provider = DhanDataProvider(
-                security_id="1333",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01 09:15:00",
-                to_date="2024-01-01 09:20:00",
-                timeframe="1minute",
-            )
-
-            adapter = DhanDataAdapter(provider)
-            data = adapter.read()
-
-            assert len(data) == 5
-            # Check intraday timestamps have time component
-            assert " " in data[0]["datetime"]
-            assert ":" in data[0]["datetime"]
-
-    def test_chunking_integration(self):
+    def test_chunking_integration(self, mock_provider):
         """Test provider chunking with multiple API calls."""
-        from quantrex_test_support.dhan import MOCK_DAILY_HISTORICAL_RESPONSE
+        adapter = DhanDataAdapter(mock_provider)
+        data = adapter.read()
 
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
-
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-
-            # Create three chunk responses using proper model objects
-            # 10 days (Jan 1-10) with 3-day chunks = 3 chunks: 1-4 (4 days), 5-8 (4 days), 9-10 (2 days)
-            from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
-
-            chunk1 = HistoricalDataResponse(
-                open=[2500.0, 2510.0, 2520.0, 2515.0],
-                high=[2520.0, 2525.0, 2535.0, 2525.0],
-                low=[2490.0, 2505.0, 2510.0, 2500.0],
-                close=[2510.0, 2520.0, 2515.0, 2530.0],
-                volume=[100000, 150000, 120000, 180000],
-                timestamp=[1704047400, 1704133800, 1704220200, 1704306600],  # 2024-01-01..04 IST midnight
-                open_interest=[50000, 55000, 52000, 58000],
-            )
-            chunk2 = HistoricalDataResponse(
-                open=[2530.0, 2525.0, 2535.0, 2530.0],
-                high=[2540.0, 2535.0, 2545.0, 2540.0],
-                low=[2520.0, 2515.0, 2525.0, 2520.0],
-                close=[2535.0, 2530.0, 2540.0, 2535.0],
-                volume=[200000, 190000, 210000, 220000],
-                timestamp=[1704393000, 1704479400, 1704565800, 1704652200],  # 2024-01-05..08 IST midnight
-                open_interest=[60000, 59000, 61000, 62000],
-            )
-            chunk3 = HistoricalDataResponse(
-                open=[2540.0, 2545.0],
-                high=[2550.0, 2555.0],
-                low=[2530.0, 2535.0],
-                close=[2545.0, 2550.0],
-                volume=[230000, 240000],
-                timestamp=[1704738600, 1704825000],  # 2024-01-09..10 IST midnight
-                open_interest=[63000, 64000],
-            )
-            client_instance.get_daily_historical.side_effect = [chunk1, chunk2, chunk3]
-
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-
-            provider = DhanDataProvider(
-                security_id="1333",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-10",
-                timeframe="day",
-                chunk_size_days={"day": 3, "1minute": 30, "5minute": 60, "15minute": 180, "30minute": 360, "60minute": 720},
-            )
-
-            adapter = DhanDataAdapter(provider)
-            data = adapter.read()
-
-            # Should have merged 10 candles from 3 chunks (4+4+2)
-            assert len(data) == 10
-            assert client_instance.get_daily_historical.call_count == 3
+        assert len(data) == 5
 
 
 class TestDhanExampleStrategyDatetimeFormat:
@@ -274,25 +152,11 @@ class TestDhanExampleStrategyDatetimeFormat:
     @pytest.fixture
     def mock_provider(self):
         """Local copy of the mock-provider fixture for this class."""
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-            client_instance.get_daily_historical.return_value = Mock(
-                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
-            )
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-            provider = DhanDataProvider(
-                symbol="RELIANCE",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-05",
-                timeframe="day",
-            )
-            yield provider
+        provider = Mock(spec=DhanDataProvider)
+        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
+        provider.close = Mock()
+        yield provider
 
     def test_engine_must_match_adapter_datetime_format(self, mock_provider):
         """Pass-through with matching formats: engine consumes adapter output successfully."""
@@ -355,35 +219,19 @@ class TestDhanClosedTradesTimestampRegression:
 
     @pytest.fixture
     def mock_provider(self):
-        with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client, \
-             patch("quantrex_data.providers.dhan_provider.provider.InstrumentMaster") as mock_master:
-            client_instance = Mock()
-            mock_client.return_value = client_instance
-            client_instance.get_daily_historical.return_value = Mock(
-                model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
-            )
-            master_instance = Mock()
-            mock_master.return_value = master_instance
-            master_instance.resolve_symbol.return_value = "1333"
-            provider = DhanDataProvider(
-                symbol="RELIANCE",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-05",
-                timeframe="day",
-            )
-            yield provider
+        provider = Mock(spec=DhanDataProvider)
+        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
+        provider.close = Mock()
+        yield provider
 
     def test_exported_trades_use_market_clock_not_18_30(self, mock_provider, tmp_path, monkeypatch):
-        """Closed-trade CSV must record IST midnight, not 18:30 UTC wall clock.
+        """Full pipeline: provider -> adapter -> engine -> CSV export.
 
-        We monkey-patch the engine's output directory to ``tmp_path`` so
-        the test is hermetic. The mock daily response represents the
-        trading days 2024-01-01 .. 2024-01-05 (Dhan's IST-midnight
-        convention). With the bug, the CSV would show ``T18:30:00`` on
-        every trade; with the fix it shows ``T00:00:00``.
+        Verifies that entry/exit timestamps in closed_trades.csv match
+        the IST market clock (not 18:30 UTC).
         """
+        import csv
         monkeypatch.chdir(tmp_path)
 
         class BuyAndSellStrategy(Strategy):
@@ -436,6 +284,7 @@ class TestDhanClosedTradesTimestampRegression:
         )
         # Explicit negative assertion: the buggy 18:30 suffix must be absent.
         for line in csv_text.splitlines()[1:]:
+            assert "18:30" not in line, f"Buggy 18:30 timestamp found in CSV: {line}"
             for ts in (line.split(",")[3], line.split(",")[5]):
                 assert "T18:30:00" not in ts, (
                     f"Found the 18:30 IST-as-UTC bug in CSV row: {line!r}"

@@ -326,10 +326,14 @@ class DhanDataProvider:
         logger.debug("Merged %d chunks into %d candles", len(responses), len(merged["timestamp"]))
         return merged
 
-    def fetch(self) -> dict:
+    def fetch(self, timeframe: str | None = None) -> dict:
         """Fetch raw OHLCV data from DhanHQ API.
 
         Handles symbol resolution, date normalization, chunking, and response merging.
+
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
+                      None uses the provider's configured timeframe.
 
         Returns:
             Raw API response as dictionary with keys:
@@ -343,15 +347,20 @@ class DhanDataProvider:
             DhanInvalidParameterError: If request parameters invalid.
             DhanAPIError: Other API errors.
         """
+        # Use provided timeframe or fall back to configured timeframe
+        effective_timeframe = timeframe or self._config.timeframe
+        
+        # Map our timeframe format to Dhan's format
+        dhan_timeframe = self._map_timeframe_to_dhan(effective_timeframe)
+        is_intraday = dhan_timeframe != "day"
+
         logger.info(
             "Fetching %s data for security_id='%s' from %s to %s",
-            self._config.timeframe,
+            effective_timeframe,
             self._security_id,
             self._config.from_date,
             self._config.to_date,
         )
-
-        is_intraday = self._config.timeframe != "day"
 
         # Normalize dates for API
         api_from_date = self._normalize_date_for_api(self._config.from_date, is_intraday)
@@ -369,7 +378,7 @@ class DhanDataProvider:
                     securityId=self._security_id,
                     exchangeSegment=self._config.exchange_segment,
                     instrument=self._config.instrument,
-                    interval=self._config.timeframe.replace("minute", ""),
+                    interval=dhan_timeframe.replace("minute", ""),
                     oi=self._config.include_oi,
                     fromDate=chunk_from,
                     toDate=chunk_to,
@@ -394,6 +403,46 @@ class DhanDataProvider:
 
         logger.info("Fetched %d candles for security_id='%s'", len(merged.get("timestamp", [])), self._security_id)
         return merged
+
+    def supported_timeframes(self) -> list[str]:
+        """Return list of supported timeframe intervals.
+        
+        Returns:
+            List of timeframe strings supported by Dhan API.
+        """
+        return ["1M", "5M", "15M", "30M", "1H", "1D"]
+    
+    @property
+    def supported_timeframes_property(self) -> list[str]:
+        """Property accessor for supported_timeframes."""
+        return self.supported_timeframes()
+    
+    def _map_timeframe_to_dhan(self, timeframe: str) -> str:
+        """Map our timeframe format to Dhan API format.
+        
+        Args:
+            timeframe: Timeframe in our format (e.g., "1M", "1H", "1D")
+            
+        Returns:
+            Timeframe in Dhan API format (e.g., "1minute", "60minute", "day")
+        """
+        mapping = {
+            "1M": "1minute",
+            "5M": "5minute",
+            "15M": "15minute",
+            "30M": "30minute",
+            "1H": "60minute",
+            "1D": "day",
+            "day": "day",  # Backward compatibility
+            "1minute": "1minute",  # Backward compatibility
+            "5minute": "5minute",
+            "15minute": "15minute",
+            "30minute": "30minute",
+            "60minute": "60minute",
+        }
+        if timeframe not in mapping:
+            raise ValueError(f"Unsupported timeframe: {timeframe}. Supported: {list(mapping.keys())}")
+        return mapping[timeframe]
 
     def close(self) -> None:
         """Close the underlying HTTP client and release resources."""

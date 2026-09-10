@@ -18,6 +18,7 @@ class TestDhanDataAdapter:
         """Create a mock DhanDataProvider."""
         provider = Mock(spec=DhanDataProvider)
         provider.fetch.return_value = MOCK_DAILY_HISTORICAL_RESPONSE
+        provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
         return provider
 
     def test_adapter_init_valid_provider(self, mock_provider):
@@ -245,6 +246,7 @@ class TestDhanAdapterTimezoneRegression:
     def mock_provider(self):
         provider = Mock(spec=DhanDataProvider)
         provider.fetch.return_value = MOCK_DAILY_HISTORICAL_RESPONSE
+        provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
         return provider
 
     def test_daily_candle_does_not_appear_post_market(self, mock_provider):

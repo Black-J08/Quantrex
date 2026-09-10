@@ -118,8 +118,8 @@ def test_csv_adapter_debug_line_format_includes_row_count(
             adapter.read()
 
     # The success-line format we committed to:
-    # "CSVDataAdapter: normalized %d rows" -> "CSVDataAdapter: normalized 1 rows"
+    # "CSVDataAdapter: normalized %d rows for timeframe %s" -> "CSVDataAdapter: normalized 1 rows for timeframe 1M"
     debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
-    assert "CSVDataAdapter: normalized 1 rows" in debugs, (
-        f"Expected exact 'CSVDataAdapter: normalized 1 rows' line, got {debugs}"
+    assert "CSVDataAdapter: normalized 1 rows for timeframe 1M" in debugs, (
+        f"Expected exact 'CSVDataAdapter: normalized 1 rows for timeframe 1M' line, got {debugs}"
     )

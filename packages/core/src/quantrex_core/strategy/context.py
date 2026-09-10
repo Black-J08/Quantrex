@@ -93,3 +93,30 @@ class StrategyContext(ABC):
         detection, last-N-bar comparisons).
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def timeframe_history(self, interval: str) -> tuple[Candle, ...]:
+        """Read-only view of candles filtered by timeframe interval.
+
+        Returns a tuple of :class:`Candle` instances in **chronological
+        order** (oldest first, newest last) that belong to the specified
+        timeframe interval (e.g., "1H", "1D", "4H").
+
+        The filtering is derived from the master ``history`` stream by
+        grouping candles into the specified interval. The candle currently
+        being processed for that timeframe is the **last** element.
+
+        Contract:
+        * **Warmup**: while fewer than ``N`` bars of the timeframe have
+          been processed, ``len(timeframe_history(interval)) < N``.
+        * **Read-only**: the returned tuple is immutable; a snapshot.
+        * **Derived view**: this is a filtered view of ``history``, not
+          a separate data feed. No additional storage is allocated.
+
+        Args:
+            interval: Timeframe interval string (e.g., "1H", "1D", "4H").
+
+        Returns:
+            Tuple of candles belonging to the specified timeframe.
+        """
+        raise NotImplementedError

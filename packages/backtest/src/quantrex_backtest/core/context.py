@@ -7,6 +7,7 @@ from quantrex_core.models.position import Position
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
+from collections.abc import Mapping
 
 
 logger = get_logger(__name__)
@@ -24,6 +25,9 @@ class BacktestStrategyContext(StrategyContext):
         position_manager: PositionManager,
         oms: OrderManagementSystem,
         current_time: datetime,
+        raw_data_by_timeframe: dict[str, list[dict]] | None = None,
+        indicators_by_timeframe: dict[str, list[Mapping]] | None = None,
+        base_timeframe: str = "1M",
     ) -> None:
         self._pm = position_manager
         self._oms = oms
@@ -35,6 +39,57 @@ class BacktestStrategyContext(StrategyContext):
         # property so strategies can do per-bar, ad-hoc lookback
         # (e.g. ``ctx.history[-20:]``) without owning a deque.
         self._history: list[Candle] = []
+        
+        # Multi-timeframe support
+        self._base_timeframe = base_timeframe
+        self._raw_data_by_timeframe = raw_data_by_timeframe or {}
+        self._indicators_by_timeframe = indicators_by_timeframe or {}
+        self._derived_candles: dict[str, list[Candle]] = {}
+        self._derived_histories: dict[str, list[Candle]] = {}
+        self._derived_indices: dict[str, int] = {}
+        self._symbol = ""
+        self._datetime_format = "%Y%m%d %H:%M"
+        
+        # Pre-compute derived timeframe candles
+        if raw_data_by_timeframe and indicators_by_timeframe:
+            self._precompute_derived_candles()
+
+    def _precompute_derived_candles(self) -> None:
+        """Pre-compute candles for all non-base timeframes."""
+        for tf, raw_rows in self._raw_data_by_timeframe.items():
+            if tf != self._base_timeframe:
+                indicators = self._indicators_by_timeframe.get(tf, [{} for _ in raw_rows])
+                self._derived_candles[tf] = self._build_candles_for_timeframe(tf, raw_rows, indicators)
+                self._derived_histories[tf] = []
+                self._derived_indices[tf] = 0
+
+    def _build_candles_for_timeframe(self, timeframe: str, raw_rows: list[dict], indicators: list[Mapping]) -> list[Candle]:
+        """Build Candle objects for a specific timeframe from raw rows."""
+        candles = []
+        for idx, row in enumerate(raw_rows):
+            try:
+                candle = Candle.from_row(
+                    row,
+                    self._symbol,
+                    self._datetime_format,
+                    indicators=indicators[idx] if idx < len(indicators) else {},
+                )
+                candles.append(candle)
+            except Exception:
+                # Skip malformed rows
+                continue
+        return candles
+
+    def set_symbol_and_format(self, symbol: str, datetime_format: str) -> None:
+        """Set symbol and datetime format for derived candle construction.
+        
+        Called by engine after context creation.
+        """
+        self._symbol = symbol
+        self._datetime_format = datetime_format
+        # Rebuild derived candles with correct symbol and format
+        if self._raw_data_by_timeframe and self._indicators_by_timeframe:
+            self._precompute_derived_candles()
 
     def submit_order(self, symbol: str, side: OrderSide, quantity: float,
                      order_type: OrderType = OrderType.MARKET) -> Order:
@@ -101,6 +156,22 @@ class BacktestStrategyContext(StrategyContext):
         captured a reference.
         """
         self._history.append(candle)
+        
+        # Update derived timeframe histories
+        self._update_derived_histories(candle.timestamp)
+
+    def _update_derived_histories(self, current_timestamp: datetime) -> None:
+        """Update derived timeframe histories with candles that close at or before current_timestamp."""
+        for tf, derived_candles in self._derived_candles.items():
+            derived_history = self._derived_histories[tf]
+            idx = self._derived_indices[tf]
+            
+            # Add all derived candles that close at or before the current base candle timestamp
+            while idx < len(derived_candles) and derived_candles[idx].timestamp <= current_timestamp:
+                derived_history.append(derived_candles[idx])
+                idx += 1
+            
+            self._derived_indices[tf] = idx
 
     def reset(self) -> None:
         """Clear the per-bar history and the current candle.
@@ -112,6 +183,10 @@ class BacktestStrategyContext(StrategyContext):
         """
         self._history.clear()
         self._current_candle = None
+        # Reset derived histories
+        for tf in self._derived_histories:
+            self._derived_histories[tf].clear()
+            self._derived_indices[tf] = 0
 
     @property
     def history(self) -> tuple[Candle, ...]:
@@ -124,3 +199,107 @@ class BacktestStrategyContext(StrategyContext):
         cannot mutate the context's internal state.
         """
         return tuple(self._history)
+
+    def timeframe_history(self, interval: str) -> tuple[Candle, ...]:
+        """Read-only view of candles filtered by timeframe interval.
+
+        Returns a tuple of :class:`Candle` instances in **chronological
+        order** (oldest first, newest last) that belong to the specified
+        timeframe interval (e.g., "1H", "1D", "4H").
+
+        For the base timeframe, returns the master history.
+        For derived timeframes, returns pre-computed derived candles.
+
+        Contract:
+        * **Warmup**: while fewer than ``N`` bars of the timeframe have
+          been processed, ``len(timeframe_history(interval)) < N``.
+        * **Read-only**: the returned tuple is immutable; a snapshot.
+        * **Derived view**: this is a filtered view of ``history``, not
+          a separate data feed. No additional storage is allocated.
+
+        Args:
+            interval: Timeframe interval string (e.g., "1H", "1D", "4H").
+
+        Returns:
+            Tuple of candles belonging to the specified timeframe.
+        """
+        if interval == self._base_timeframe:
+            return tuple(self._history)
+        
+        # Return pre-computed derived history
+        if interval in self._derived_histories:
+            return tuple(self._derived_histories[interval])
+        
+        # Fallback to filtering (for backward compatibility)
+        return tuple(self._filter_by_timeframe(self._history, interval))
+
+    @staticmethod
+    def _filter_by_timeframe(candles: list[Candle], interval: str) -> list[Candle]:
+        """Filter candles by timeframe interval.
+
+        Groups candles into the specified interval and returns the last
+        candle of each completed interval (i.e., the "closed" candles
+        for that timeframe).
+
+        Args:
+            candles: List of candles in chronological order.
+            interval: Timeframe interval string (e.g., "1H", "1D", "4H").
+
+        Returns:
+            List of candles representing the last candle of each interval.
+        """
+        if not candles:
+            return []
+
+        # Parse interval string (e.g., "1H" -> 1 hour, "4H" -> 4 hours, "1D" -> 1 day)
+        import re
+        match = re.match(r'^(\d+)([MHDW])$', interval.upper())
+        if not match:
+            raise ValueError(f"Invalid interval format: {interval}. Expected format like '1H', '4H', '1D'")
+
+        value = int(match.group(1))
+        unit = match.group(2)
+
+        # Convert to minutes
+        if unit == 'M':
+            interval_minutes = value
+        elif unit == 'H':
+            interval_minutes = value * 60
+        elif unit == 'D':
+            interval_minutes = value * 60 * 24
+        elif unit == 'W':
+            interval_minutes = value * 60 * 24 * 7
+        else:
+            raise ValueError(f"Unknown interval unit: {unit}")
+
+        # Group candles by interval
+        result = []
+        current_interval_start = None
+        current_interval_candles = []
+
+        for candle in candles:
+            # Calculate the interval start for this candle
+            candle_minutes = candle.timestamp.hour * 60 + candle.timestamp.minute
+            # Add days
+            candle_minutes += candle.timestamp.day * 24 * 60
+            # Add months/years approximately (for simplicity, we use day of year)
+            # For more accurate handling, we'd need to consider the full datetime
+            interval_start_minutes = (candle_minutes // interval_minutes) * interval_minutes
+
+            if current_interval_start is None:
+                current_interval_start = interval_start_minutes
+                current_interval_candles = [candle]
+            elif interval_start_minutes == current_interval_start:
+                current_interval_candles.append(candle)
+            else:
+                # Interval changed - add the last candle of the previous interval
+                if current_interval_candles:
+                    result.append(current_interval_candles[-1])
+                current_interval_start = interval_start_minutes
+                current_interval_candles = [candle]
+
+        # Add the last interval's last candle if it has candles
+        if current_interval_candles:
+            result.append(current_interval_candles[-1])
+
+        return result

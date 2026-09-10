@@ -46,7 +46,7 @@ class _RecordingStrategy(Strategy):
 class _SpreadStrategy(_RecordingStrategy):
     """Hand-rolled indicator: ``close - open`` (library-free, framework-agnostic)."""
 
-    def compute_indicators(self, candles):
+    def compute_indicators(self, candles, timeframe=None):
         self.compute_calls += 1
         # Capture the exact row sequence the engine passed in so the
         # timestamp-ordering test can assert on it.
@@ -148,7 +148,7 @@ def test_engine_wraps_compute_indicators_exception_as_provider_error():
     """
 
     class _BoomStrategy(_RecordingStrategy):
-        def compute_indicators(self, candles):
+        def compute_indicators(self, candles, timeframe=None):
             raise ValueError("indicator math blew up")
 
     rows = [_row("20230101 09:30", 100.0, 101.0, 99.0, 100.5, 10)]
@@ -173,7 +173,7 @@ def test_engine_raises_provider_error_on_length_mismatch():
     """
 
     class _BadLengthStrategy(_RecordingStrategy):
-        def compute_indicators(self, candles):
+        def compute_indicators(self, candles, timeframe=None):
             # 3 input rows, 2 returned dicts — off by one.
             return [{"spread": 0.0}] * (len(candles) - 1)
 
@@ -217,7 +217,7 @@ def test_per_candle_audit_log_includes_indicator_values(
     class _MultiIndicatorStrategy(_RecordingStrategy):
         """Returns multiple indicators including None for warmup bars."""
 
-        def compute_indicators(self, candles):
+        def compute_indicators(self, candles, timeframe=None):
             # spread = close - open; rsi = constant for simplicity
             return [
                 {"spread": float(c["close"]) - float(c["open"]), "rsi": 65.0}

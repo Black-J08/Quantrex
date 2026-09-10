@@ -51,18 +51,53 @@ class CSVDataAdapter:
         """Format string used for datetime parsing (single source of truth)."""
         return self._datetime_format
     
+    @property
+    def supported_timeframes(self) -> list[str]:
+        """Return list of supported timeframe intervals.
+        
+        CSV adapter supports the same timeframes as its provider.
+        """
+        # Handle both real providers and mocks
+        supported = getattr(self._provider, 'supported_timeframes_property', None)
+        if supported is None:
+            supported = getattr(self._provider, 'supported_timeframes', None)
+        if callable(supported):
+            try:
+                return supported()
+            except Exception:
+                return ["1M"]
+        elif isinstance(supported, list):
+            return supported
+        return ["1M"]
+    
     def read(self) -> list[dict]:
-        """Read normalized OHLCV data from the CSV provider.
+        """Read normalized OHLCV data from the CSV provider (base timeframe).
         
         Returns:
             List of dictionaries with standardized keys:
             'datetime', 'open', 'high', 'low', 'close', 'volume'
             (and any additional mapped fields)
         """
+        timeframes = self.supported_timeframes
+        return self.read_timeframe(timeframes[0] if timeframes else "1M")
+    
+    def read_timeframe(self, timeframe: str) -> list[dict]:
+        """Read normalized OHLCV data for a specific timeframe.
+        
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+            
+        Returns:
+            List of dictionaries with standardized keys for the given timeframe.
+        """
+        # Validate timeframe is supported
+        if timeframe not in self.supported_timeframes:
+            raise ValueError(f"Timeframe '{timeframe}' not supported. Supported: {self.supported_timeframes}")
+        
         self._validate_mapping()
         
-        # Fetch raw data from provider
-        raw_data = self._provider.fetch()
+        # Fetch raw data from provider with timeframe
+        raw_data = self._provider.fetch(timeframe=timeframe)
         
         if not raw_data:
             return []
@@ -87,7 +122,7 @@ class CSVDataAdapter:
                 logger.warning("Skipping malformed row at line %d: %s", line_num, e)
                 continue
 
-        logger.debug("CSVDataAdapter: normalized %d rows", len(results))
+        logger.debug("CSVDataAdapter: normalized %d rows for timeframe %s", len(results), timeframe)
         return results
     
     def close(self) -> None:
