@@ -230,7 +230,10 @@ class BacktestEngine:
                     candle.volume,
                     indicator_str,
                 )
-                self._strategy.on_candle(candle)
+                # Call on_candle only when strategy defines it; otherwise
+                # only timeframe dispatch runs (no 1M iteration needed).
+                if any("on_candle" in cls.__dict__ for cls in self._strategy.__class__.__mro__ if cls is not Strategy):
+                    self._strategy.on_candle(candle)
                 # Engine manages timeframe dispatch automatically.
                 self._strategy.timeframe_dispatcher.dispatch_all(self._context)
             except Exception as e:
@@ -471,17 +474,21 @@ class BacktestEngine:
             )
 
     def _get_required_timeframes(self) -> list[str]:
-        """Get all timeframes required by the strategy.
-        
-        Returns:
-            List of timeframe strings, with base timeframe first.
-        """
-        # Default base timeframe is 1-minute when none explicitly defined
-        base_timeframe = "1M"
-        
-        # Get additional timeframes from strategy's timeframe registry
+        """Get timeframes required by strategy. If on_candle is overridden,
+        base is 1M; otherwise base is the first registered @on_timeframe
+        interval (no 1-minute data fetched)."""
         strategy_timeframes = self._strategy.timeframe_registry.intervals()
-        # Combine: base timeframe first, then strategy timeframes (excluding base)
+        # Detect whether strategy defines its own on_candle (not just base)
+        has_custom_on_candle = any(
+            "on_candle" in cls.__dict__ for cls in self._strategy.__class__.__mro__
+            if cls is not Strategy
+        )
+        if has_custom_on_candle:
+            base_timeframe = "1M"
+        elif strategy_timeframes:
+            base_timeframe = strategy_timeframes[0]
+        else:
+            base_timeframe = "1M"
         all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]
         return all_timeframes
 

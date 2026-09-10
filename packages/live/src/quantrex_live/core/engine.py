@@ -58,11 +58,19 @@ class LiveEngine:
         logger.info("LiveEngine initialized for symbol=%s, timeframes=%s", symbol, self._required_timeframes)
     
     def _get_required_timeframes(self) -> list[str]:
-        """Get all timeframes required by the strategy."""
-        # Default base timeframe is 1-minute when none explicitly defined
-        base_timeframe = "1M"
-        
+        """Get timeframes required by strategy. If on_candle overridden,
+        base is 1M; otherwise base is first registered interval."""
         strategy_timeframes = self._strategy.timeframe_registry.intervals()
+        has_custom_on_candle = any(
+            "on_candle" in cls.__dict__ for cls in self._strategy.__class__.__mro__
+            if cls is not Strategy
+        )
+        if has_custom_on_candle:
+            base_timeframe = "1M"
+        elif strategy_timeframes:
+            base_timeframe = strategy_timeframes[0]
+        else:
+            base_timeframe = "1M"
         all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]
         return all_timeframes
 
