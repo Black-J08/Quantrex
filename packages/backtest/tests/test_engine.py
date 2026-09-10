@@ -7,6 +7,7 @@ import csv
 
 from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
+from quantrex_core.strategy.timeframe import on_timeframe
 from quantrex_core.models.enums import OrderSide
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
@@ -197,10 +198,11 @@ class TestBacktestEngine:
     def test_engine_calls_lifecycle_methods(self):
         """Engine should call on_start before and on_stop after processing."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = [
+        mock_adapter.read_timeframe.return_value = [
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
@@ -213,8 +215,9 @@ class TestBacktestEngine:
     def test_engine_handles_empty_data(self):
         """Engine should handle empty data gracefully."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = []
+        mock_adapter.read_timeframe.return_value = []
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
 
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
@@ -258,10 +261,11 @@ class TestBacktestEngine:
             assert candle.volume == 100.0
 
     def test_engine_raises_on_adapter_read_failure(self):
-        """Engine should wrap adapter read() failures in ProviderError."""
+        """Engine should wrap adapter read_timeframe() failures in ProviderError."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.side_effect = IOError("Disk error")
+        mock_adapter.read_timeframe.side_effect = IOError("Disk error")
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
         strategy = TestStrategy()
 
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
@@ -363,11 +367,12 @@ class TestBacktestEngine:
     def test_engine_with_mock_adapter(self):
         """Engine should work with a mock adapter returning dict rows."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = [
+        mock_adapter.read_timeframe.return_value = [
             {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"},
             {"datetime": "20230621 10:00", "open": "101", "high": "102", "low": "100", "close": "101", "volume": "20"},
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
@@ -627,11 +632,12 @@ class TestBacktestEngine:
         and full OHLCV to execution.log, without researcher code changes.
         """
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = [
+        mock_adapter.read_timeframe.return_value = [
             {"datetime": "20230620 19:00", "open": "100.5", "high": "101.25", "low": "99.75", "close": "100.75", "volume": "42"},
             {"datetime": "20230620 19:01", "open": "100.75", "high": "102.0", "low": "100.5", "close": "101.5", "volume": "17"},
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
         strategy = TestStrategy()
         engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
 
@@ -782,3 +788,145 @@ class TestFifoLotAccounting:
 
             # Aggregate P&L = 50 + 15 = 65.
             assert abs(float(tr_a[7]) + float(tr_b[7]) - 65.0) < 0.02
+
+
+class MultiTimeframeStrategy(Strategy):
+    """Test strategy that uses @on_timeframe for multi-timeframe logic."""
+    
+    def __init__(self):
+        super().__init__()
+        self.candles_1m = []
+        self.candles_1h = []
+    
+    @on_timeframe("1H")
+    def on_1h_candle(self, candle: Candle) -> None:
+        self.candles_1h.append(candle)
+    
+    def on_candle(self, candle: Candle) -> None:
+        self.candles_1m.append(candle)
+        # Engine manages timeframe dispatch automatically
+
+
+class TestMultiTimeframeEngine:
+    """Tests for multi-timeframe support in BacktestEngine."""
+
+    def test_engine_derives_timeframes_from_strategy_registry(self):
+        """Engine should read required timeframes from strategy's timeframe_registry."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read_timeframe.return_value = [
+            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
+        ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M", "1H"]
+        
+        strategy = MultiTimeframeStrategy()
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        
+        required = engine._get_required_timeframes()
+        assert "1M" in required  # base timeframe
+        assert "1H" in required  # from @on_timeframe
+
+    def test_engine_reads_all_timeframes_via_read_timeframe(self):
+        """Engine should call adapter.read_timeframe() for all required timeframes."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read_timeframe.return_value = [
+            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
+        ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M", "1H"]
+        
+        strategy = MultiTimeframeStrategy()
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        
+        engine.run()
+        
+        # Should call read_timeframe for both 1M and 1H
+        assert mock_adapter.read_timeframe.call_count == 2
+        calls = mock_adapter.read_timeframe.call_args_list
+        timeframes_called = [call[0][0] for call in calls]
+        assert "1M" in timeframes_called
+        assert "1H" in timeframes_called
+
+    def test_engine_aggregates_1h_from_1m_when_native_unsupported(self):
+        """Engine should work when adapter aggregates 1H from 1M data."""
+        # Create 120 minutes of 1M data (2 hours)
+        rows = []
+        for i in range(120):
+            minute = i % 60
+            hour = 19 + (i // 60)
+            rows.append([f"20230620", f"{hour:02d}:{minute:02d}", "100.00", "101.00", "99.00", "100.50", "10"])
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            strategy = MultiTimeframeStrategy()
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            
+            engine.run()
+            
+            # Should have processed 120 1M candles and 2 1H candles
+            assert len(strategy.candles_1m) == 120
+            assert len(strategy.candles_1h) == 2
+
+    def test_engine_raises_when_timeframe_unavailable_and_no_1m(self):
+        """Engine should raise ProviderError when timeframe unavailable and 1M not available."""
+        rows = [["20230620", "19:00", "100.00", "101.00", "99.00", "100.50", "10"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False, minute_data_available=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            strategy = MultiTimeframeStrategy()
+            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            
+            try:
+                engine.run()
+                assert False, "Should have raised ProviderError"
+            except ProviderError as e:
+                assert "Cannot provide timeframe" in str(e)
+                # Base timeframe 1M is also unavailable when minute_data_available=False
+                assert "1M" in str(e)
+                assert "1-minute data is unavailable" in str(e)
+
+    def test_engine_computes_indicators_per_timeframe(self):
+        """Engine should call compute_indicators once per timeframe."""
+        mock_adapter = Mock(spec=DataAdapter)
+        mock_adapter.read_timeframe.return_value = [
+            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
+        ]
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M", "1H"]
+        
+        class IndicatorStrategy(MultiTimeframeStrategy):
+            def __init__(self):
+                super().__init__()
+                self.compute_calls = []
+            
+            def compute_indicators(self, candles, timeframe=None):
+                self.compute_calls.append(timeframe)
+                return [{} for _ in candles]
+        
+        strategy = IndicatorStrategy()
+        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        
+        engine.run()
+        
+        # Should call compute_indicators for both timeframes
+        assert "1M" in strategy.compute_calls
+        assert "1H" in strategy.compute_calls
+        assert len(strategy.compute_calls) == 2

@@ -75,13 +75,10 @@ class Strategy(ABC):
 
     @abstractmethod
     def on_candle(self, candle: Candle) -> None:
-        """Process a single candle.
+        """Process a single 1-minute candle (default when no timeframe defined).
 
-        This method is called for each candle in the data feed.
-        Strategies should implement their trading logic here.
-
-        Args:
-            candle: The candle to process (OHLCV data with symbol and timestamp)
+        The engine invokes this automatically for each base candle and
+        manages timeframe dispatch; researchers never call it manually.
         """
         pass
 
@@ -150,28 +147,5 @@ class Strategy(ABC):
         """
         pass
 
-    def dispatch_timeframes(self) -> None:
-        """Dispatch timeframe events to registered @on_timeframe methods.
-
-        Call this from your ``on_candle`` method after your main logic
-        to trigger any timeframe-specific handlers.
-
-        Example:
-            def on_candle(self, candle: Candle) -> None:
-                # Your main logic here
-                if candle.close > candle.open:
-                    self.ctx.submit_order(...)
-
-                # Dispatch timeframe events (1H, 1D, etc.)
-                self.dispatch_timeframes()
-        """
-        if self._ctx is not None:
-            self._timeframe_dispatcher.dispatch_all(self._ctx)
-
-    def reset_timeframe_dispatcher(self) -> None:
-        """Reset the timeframe dispatcher state.
-
-        Called by the engine at the start of each run to clear
-        dispatch tracking state.
-        """
-        self._timeframe_dispatcher.reset()
+    # Timeframe dispatch is managed automatically by the engine.
+    # Researchers must never call dispatch_timeframes() manually.

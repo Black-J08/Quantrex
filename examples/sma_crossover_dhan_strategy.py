@@ -88,6 +88,7 @@ class SmaCrossoverStrategy(Strategy):
     def compute_indicators(
         self,
         candles: Sequence[Mapping[str, object]],
+        timeframe: str | None = None,
     ) -> Sequence[Mapping[str, float | None]]:
         """Vectorize the fast and slow SMAs in one pass over the full history.
 

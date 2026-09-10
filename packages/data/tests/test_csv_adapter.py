@@ -298,3 +298,129 @@ class TestCSVDataAdapter:
                 },
             )
             assert adapter.datetime_format == "%Y%m%d %H:%M"
+
+    def test_adapter_read_timeframe_native(self):
+        """Adapter read_timeframe() should work for native timeframe."""
+        rows = [
+            ["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1"],
+            ["20230620", "19:01", "737.50", "737.50", "737.50", "737.50", "2"],
+        ]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            result = adapter.read_timeframe("1M")
+        
+        assert len(result) == 2
+        assert result[0]["datetime"] == "20230620 19:00"
+        assert result[1]["datetime"] == "20230620 19:01"
+
+    def test_adapter_read_timeframe_aggregates_from_1m(self):
+        """Adapter read_timeframe() should aggregate from 1M for unsupported timeframes."""
+        # Create 60 minutes of 1M data
+        rows = []
+        for i in range(60):
+            minute = i % 60
+            hour = 19 + (i // 60)
+            rows.append([f"20230620", f"{hour:02d}:{minute:02d}", "100.00", "101.00", "99.00", "100.50", "10"])
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            # Request 1H timeframe (not natively supported)
+            result = adapter.read_timeframe("1H")
+        
+        # Should produce 1 aggregated 1H candle
+        assert len(result) == 1
+        assert result[0]["open"] == 100.00
+        assert result[0]["high"] == 101.00
+        assert result[0]["low"] == 99.00
+        assert result[0]["close"] == 100.50
+        assert result[0]["volume"] == 600.0  # 60 * 10
+
+    def test_adapter_read_timeframe_raises_when_1m_unavailable(self):
+        """Adapter read_timeframe() should raise ValueError when 1M unavailable and timeframe not native."""
+        rows = [["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False, minute_data_available=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            try:
+                adapter.read_timeframe("1H")
+                assert False, "Should have raised ValueError"
+            except ValueError as e:
+                assert "1-minute data is unavailable" in str(e)
+                assert "1H" in str(e)
+
+    def test_adapter_read_timeframe_invalid_format_raises(self):
+        """Adapter read_timeframe() should raise ValueError for invalid timeframe format."""
+        rows = [["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            try:
+                adapter.read_timeframe("INVALID")
+                assert False, "Should have raised ValueError"
+            except ValueError as e:
+                assert "Invalid timeframe format" in str(e)
+
+    def test_adapter_supported_timeframes_reflects_provider(self):
+        """Adapter supported_timeframes should reflect provider's supported timeframes."""
+        rows = [["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            adapter = CSVDataAdapter(provider, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            assert adapter.supported_timeframes == ["1M"]
+            
+            provider_no_1m = CSVDataProvider(temp_path, has_header=False, minute_data_available=False)
+            adapter_no_1m = CSVDataAdapter(provider_no_1m, column_mapping={
+                "datetime": [0, 1],
+                "open": 2,
+                "high": 3,
+                "low": 4,
+                "close": 5,
+                "volume": 6,
+            })
+            assert adapter_no_1m.supported_timeframes == []

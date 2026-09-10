@@ -20,17 +20,27 @@ class CSVDataProvider:
     Does NOT perform column mapping, validation, or normalization.
     """
     
-    def __init__(self, file_path: str, has_header: bool = False, encoding: str = "utf-8") -> None:
+    def __init__(
+        self,
+        file_path: str,
+        has_header: bool = False,
+        encoding: str = "utf-8",
+        minute_data_available: bool = True,
+    ) -> None:
         """Initialize CSV data provider.
         
         Args:
             file_path: Path to the CSV file
             has_header: Whether the CSV has a header row
             encoding: File encoding (default: utf-8)
+            minute_data_available: Whether 1-minute data is available in the file.
+                If False, the provider cannot supply 1M data and aggregation
+                to higher timeframes is impossible. Default: True.
         """
         self._file_path = Path(file_path)
         self._has_header = has_header
         self._encoding = encoding
+        self._minute_data_available = minute_data_available
         self._file_handle = None
         self._header = None
     
@@ -76,9 +86,12 @@ class CSVDataProvider:
         """Return list of supported timeframe intervals.
         
         CSV provider only supports its native file resolution.
-        Returns ["1M"] as a convention for minute-level data.
+        Returns ["1M"] as a convention for minute-level data when available.
+        Returns empty list when minute_data_available=False.
         """
-        return ["1M"]
+        if self._minute_data_available:
+            return ["1M"]
+        return []
     
     @property
     def supported_timeframes_property(self) -> list[str]:

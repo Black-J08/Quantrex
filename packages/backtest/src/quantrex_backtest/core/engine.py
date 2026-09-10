@@ -106,9 +106,6 @@ class BacktestEngine:
         # from previous runs.
         self._context.reset()
 
-        # Reset timeframe dispatcher state for new run
-        self._strategy.reset_timeframe_dispatcher()
-
         logger.info("Starting backtest for symbol: %s", self._symbol)
 
         self._strategy.on_start()
@@ -234,6 +231,8 @@ class BacktestEngine:
                     indicator_str,
                 )
                 self._strategy.on_candle(candle)
+                # Engine manages timeframe dispatch automatically.
+                self._strategy.timeframe_dispatcher.dispatch_all(self._context)
             except Exception as e:
                 logger.exception("Failed to process candle at index %d", idx)
                 raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
@@ -477,23 +476,8 @@ class BacktestEngine:
         Returns:
             List of timeframe strings, with base timeframe first.
         """
-        # Get base timeframe from adapter's supported timeframes
-        # Handle both real adapters and mocks
-        supported = getattr(self._adapter, 'supported_timeframes', None)
-        if supported is None:
-            # Fallback for mocks - use a default
-            base_timeframe = "1M"
-        elif callable(supported):
-            try:
-                result = supported()
-                base_timeframe = result[0] if result else "1M"
-            except (TypeError, IndexError):
-                base_timeframe = "1M"
-        else:
-            try:
-                base_timeframe = supported[0] if supported else "1M"
-            except (TypeError, IndexError):
-                base_timeframe = "1M"
+        # Default base timeframe is 1-minute when none explicitly defined
+        base_timeframe = "1M"
         
         # Get additional timeframes from strategy's timeframe registry
         strategy_timeframes = self._strategy.timeframe_registry.intervals()
@@ -504,44 +488,30 @@ class BacktestEngine:
     def _read_all_timeframes(self, timeframes: list[str]) -> dict[str, list[dict]]:
         """Read normalized data for all required timeframes.
         
+        Uses adapter.read_timeframe() for all timeframes. The adapter handles
+        native support and aggregation from 1M internally per the protocol contract.
+        
         Args:
             timeframes: List of timeframe intervals to read.
             
         Returns:
             Dictionary mapping timeframe to list of normalized row dicts.
+            
+        Raises:
+            ProviderError: If adapter fails to read data for any timeframe.
         """
         result = {}
-        # Get base timeframe
-        supported = getattr(self._adapter, 'supported_timeframes', None)
-        if supported is None:
-            base_tf = "1M"
-        elif callable(supported):
-            try:
-                base_tf = supported()[0] if supported() else "1M"
-            except (TypeError, IndexError):
-                base_tf = "1M"
-        else:
-            try:
-                base_tf = supported[0] if supported else "1M"
-            except (TypeError, IndexError):
-                base_tf = "1M"
-            
         for tf in timeframes:
-            if tf == base_tf:
-                try:
-                    result[tf] = self._adapter.read()
-                except Exception as e:
-                    logger.exception("Adapter read() failed for timeframe %s", tf)
-                    raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
-            else:
-                # Check if adapter has read_timeframe method
-                if hasattr(self._adapter, 'read_timeframe'):
-                    try:
-                        result[tf] = self._adapter.read_timeframe(tf)
-                    except Exception:
-                        # Fallback for mocks - return empty list
-                        result[tf] = []
-                else:
-                    # Fallback for mocks - return empty list
-                    result[tf] = []
+            try:
+                result[tf] = self._adapter.read_timeframe(tf)
+            except ValueError as e:
+                # Adapter raised ValueError for unsupported timeframe with no 1M available
+                logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
+                raise ProviderError(
+                    f"Cannot provide timeframe '{tf}': {e}. "
+                    f"Available native timeframes: {self._adapter.supported_timeframes}"
+                ) from e
+            except Exception as e:
+                logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
+                raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
         return result

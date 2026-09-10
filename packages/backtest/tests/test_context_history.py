@@ -60,8 +60,9 @@ class _HistoryRecordingStrategy(Strategy):
 
 def _mock_adapter(rows: list[dict]) -> Mock:
     adapter = Mock(spec=DataAdapter)
-    adapter.read.return_value = rows
+    adapter.read_timeframe.return_value = rows
     adapter.datetime_format = "%Y%m%d %H:%M"
+    adapter.supported_timeframes = ["1M"]
     return adapter
 
 

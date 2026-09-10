@@ -37,11 +37,23 @@ class DataAdapter(Protocol):
     def read_timeframe(self, timeframe: str) -> list[dict]:
         """Read normalized OHLCV data for a specific timeframe.
         
+        If the adapter natively supports the requested timeframe, returns
+        the provider's native data for that timeframe. Otherwise, the
+        adapter MUST aggregate/resample from 1-minute data (obtained via
+        the underlying provider's ``fetch("1M")``) to produce the requested
+        timeframe. If 1-minute data is unavailable and the timeframe is
+        not natively supported, raise ``ValueError`` with a clear message
+        naming the missing timeframe and available alternatives.
+        
         Args:
             timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
         
         Returns:
             List of dictionaries with standardized keys for the given timeframe.
+        
+        Raises:
+            ValueError: If the timeframe cannot be provided natively and
+                1-minute data is unavailable for aggregation.
         """
         ...
     

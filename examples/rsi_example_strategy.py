@@ -14,10 +14,10 @@ import pandas_ta as ta
 logger = get_logger(__name__)
 
 class RsiExampleStrategy(Strategy):
-    def compute_indicators(self, candles):
+    def compute_indicators(self, candles, timeframe=None):
         df = pd.DataFrame(candles)
         df['rsi'] = ta.rsi(df['close'], length=14)
-        logger.info(f"Computed RSI indicators for {len(df)} candles.")
+        logger.info(f"Computed RSI indicators for {len(df)} candles (timeframe={timeframe}).")
         # Return only the calculated RSI indicator, not raw OHLCV columns.
         return [{"rsi": row["rsi"]} for row in df.to_dict(orient="records")]
 

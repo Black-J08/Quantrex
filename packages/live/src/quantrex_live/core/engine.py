@@ -59,21 +59,8 @@ class LiveEngine:
     
     def _get_required_timeframes(self) -> list[str]:
         """Get all timeframes required by the strategy."""
-        # Handle both real adapters and mocks
-        supported = getattr(self._adapter, 'supported_timeframes', None)
-        if supported is None:
-            base_timeframe = "1M"
-        elif callable(supported):
-            try:
-                result = supported()
-                base_timeframe = result[0] if result else "1M"
-            except (TypeError, IndexError):
-                base_timeframe = "1M"
-        else:
-            try:
-                base_timeframe = supported[0] if supported else "1M"
-            except (TypeError, IndexError):
-                base_timeframe = "1M"
+        # Default base timeframe is 1-minute when none explicitly defined
+        base_timeframe = "1M"
         
         strategy_timeframes = self._strategy.timeframe_registry.intervals()
         all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]

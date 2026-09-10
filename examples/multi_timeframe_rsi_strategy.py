@@ -21,7 +21,7 @@ class MultiTimeframeRsiStrategy(Strategy):
     Demonstrates:
     - @on_timeframe decorator for higher timeframe handlers
     - ctx.timeframe_history() for accessing higher timeframe data
-    - dispatch_timeframes() in on_candle
+    - Engine manages dispatch automatically (no manual call)
     - compute_indicators with timeframe parameter
     """
 
@@ -56,8 +56,8 @@ class MultiTimeframeRsiStrategy(Strategy):
             candle.timestamp, len(self.ctx.history), len(tf_1h), len(tf_1d)
         )
 
-        # Dispatch timeframe events to @on_timeframe handlers
-        self.dispatch_timeframes()
+        # Engine manages timeframe dispatch automatically.
+        # Researchers never call dispatch_timeframes() manually.
 
     @on_timeframe("1H")
     def on_1h_candle(self, candle):
@@ -84,12 +84,11 @@ if __name__ == "__main__":
 
     symbol = "TCS"
     provider = DhanDataProvider(
-        symbol=symbol, 
-        exchange_segment="NSE_EQ", 
+        symbol=symbol,
+        exchange_segment="NSE_EQ",
         instrument="EQUITY",
-        from_date="2026-01-01", 
-        to_date="2026-01-30", 
-        timeframe="1minute"
+        from_date="2026-01-01",
+        to_date="2026-01-30",
     )
     adapter = DhanDataAdapter(provider)
     

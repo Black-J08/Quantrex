@@ -119,3 +119,35 @@ class TestCSVDataProvider:
             provider = CSVDataProvider(temp_path, has_header=False)
             from pathlib import Path
             assert provider.file_path == Path(temp_path)
+
+    def test_provider_minute_data_available_true_by_default(self):
+        """Provider should have minute_data_available=True by default."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            assert provider._minute_data_available is True
+            assert provider.supported_timeframes() == ["1M"]
+
+    def test_provider_minute_data_available_false(self):
+        """Provider with minute_data_available=False should return empty supported_timeframes."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False, minute_data_available=False)
+            assert provider._minute_data_available is False
+            assert provider.supported_timeframes() == []
+
+    def test_provider_supported_timeframes_property(self):
+        """Provider should expose supported_timeframes_property."""
+        rows = [["20230620 19:00", "737.20", "737.20", "737.20", "737.20", "1"]]
+        csv_content = csv_rows_to_string(rows)
+        
+        with create_temp_csv(csv_content) as temp_path:
+            provider = CSVDataProvider(temp_path, has_header=False)
+            assert provider.supported_timeframes_property == ["1M"]
+            
+            provider_no_1m = CSVDataProvider(temp_path, has_header=False, minute_data_available=False)
+            assert provider_no_1m.supported_timeframes_property == []

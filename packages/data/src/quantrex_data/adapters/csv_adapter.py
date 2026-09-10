@@ -84,16 +84,46 @@ class CSVDataAdapter:
     def read_timeframe(self, timeframe: str) -> list[dict]:
         """Read normalized OHLCV data for a specific timeframe.
         
+        If the timeframe is natively supported by the provider, returns
+        the provider's native data. Otherwise, aggregates from 1-minute
+        data (if available) to produce the requested timeframe.
+        
         Args:
             timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
             
         Returns:
             List of dictionaries with standardized keys for the given timeframe.
+            
+        Raises:
+            ValueError: If the timeframe is not natively supported and
+                1-minute data is unavailable for aggregation.
         """
-        # Validate timeframe is supported
-        if timeframe not in self.supported_timeframes:
-            raise ValueError(f"Timeframe '{timeframe}' not supported. Supported: {self.supported_timeframes}")
+        # Check if timeframe is natively supported
+        native_timeframes = self.supported_timeframes
         
+        if timeframe in native_timeframes:
+            # Native support - use provider directly
+            return self._read_native_timeframe(timeframe)
+        
+        # Not natively supported - try to aggregate from 1M
+        if "1M" not in native_timeframes:
+            raise ValueError(
+                f"Timeframe '{timeframe}' not natively supported and 1-minute data "
+                f"is unavailable for aggregation. Supported native timeframes: {native_timeframes}"
+            )
+        
+        # Fetch 1M data and aggregate
+        logger.debug("Aggregating timeframe %s from 1M data", timeframe)
+        raw_1m = self._read_native_timeframe("1M")
+        if not raw_1m:
+            return []
+        
+        aggregated = self._aggregate_timeframe(raw_1m, timeframe)
+        logger.debug("CSVDataAdapter: aggregated %d rows for timeframe %s from 1M", len(aggregated), timeframe)
+        return aggregated
+    
+    def _read_native_timeframe(self, timeframe: str) -> list[dict]:
+        """Read normalized data for a natively supported timeframe."""
         self._validate_mapping()
         
         # Fetch raw data from provider with timeframe
@@ -124,6 +154,105 @@ class CSVDataAdapter:
 
         logger.debug("CSVDataAdapter: normalized %d rows for timeframe %s", len(results), timeframe)
         return results
+    
+    def _aggregate_timeframe(self, raw_1m: list[dict], target_timeframe: str) -> list[dict]:
+        """Aggregate 1-minute OHLCV data to target timeframe.
+        
+        Args:
+            raw_1m: List of normalized 1-minute OHLCV dicts (sorted by datetime).
+            target_timeframe: Target timeframe string (e.g., "1H", "4H", "1D").
+            
+        Returns:
+            List of aggregated OHLCV dicts for the target timeframe.
+        """
+        if not raw_1m:
+            return []
+        
+        # Parse target timeframe to minutes
+        interval_minutes = self._parse_timeframe_to_minutes(target_timeframe)
+        if interval_minutes is None:
+            raise ValueError(f"Invalid timeframe format: {target_timeframe}. Expected format like '1H', '4H', '1D'")
+        
+        if interval_minutes <= 1:
+            # Target is 1M or smaller - return as-is (shouldn't happen since we check native first)
+            return raw_1m
+        
+        # Group 1M candles into target timeframe buckets
+        from datetime import datetime
+        from collections import defaultdict
+        
+        buckets: dict[int, list[dict]] = defaultdict(list)
+        
+        for row in raw_1m:
+            dt_str = row.get("datetime", "")
+            try:
+                dt = datetime.strptime(dt_str, self._datetime_format)
+            except ValueError:
+                logger.warning("Skipping row with invalid datetime: %s", dt_str)
+                continue
+            
+            # Calculate bucket key (minutes since epoch, floored to interval)
+            total_minutes = dt.hour * 60 + dt.minute + dt.day * 24 * 60
+            # Add months/years approximately using day of year
+            # For more accurate handling, use full timestamp
+            bucket_key = (total_minutes // interval_minutes) * interval_minutes
+            buckets[bucket_key].append(row)
+        
+        # Build aggregated candles
+        aggregated = []
+        for bucket_key in sorted(buckets.keys()):
+            bucket_rows = buckets[bucket_key]
+            if not bucket_rows:
+                continue
+            
+            # OHLCV aggregation
+            opens = [float(r["open"]) for r in bucket_rows]
+            highs = [float(r["high"]) for r in bucket_rows]
+            lows = [float(r["low"]) for r in bucket_rows]
+            closes = [float(r["close"]) for r in bucket_rows]
+            volumes = [float(r["volume"]) for r in bucket_rows]
+            
+            # Use first row's datetime as bucket start, but we need the bucket end time
+            # For simplicity, use the last row's datetime
+            last_row = bucket_rows[-1]
+            
+            aggregated.append({
+                "datetime": last_row["datetime"],
+                "open": opens[0],
+                "high": max(highs),
+                "low": min(lows),
+                "close": closes[-1],
+                "volume": sum(volumes),
+            })
+        
+        return aggregated
+    
+    def _parse_timeframe_to_minutes(self, timeframe: str) -> int | None:
+        """Parse timeframe string to minutes.
+        
+        Args:
+            timeframe: Timeframe string like "1M", "5M", "1H", "4H", "1D", "1W".
+            
+        Returns:
+            Number of minutes, or None if invalid format.
+        """
+        import re
+        match = re.match(r'^(\d+)([MHDW])$', timeframe.upper())
+        if not match:
+            return None
+        
+        value = int(match.group(1))
+        unit = match.group(2)
+        
+        if unit == 'M':
+            return value
+        elif unit == 'H':
+            return value * 60
+        elif unit == 'D':
+            return value * 60 * 24
+        elif unit == 'W':
+            return value * 60 * 24 * 7
+        return None
     
     def close(self) -> None:
         """Close the underlying provider."""

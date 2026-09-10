@@ -58,7 +58,7 @@ class TestStrategy(Strategy):
 
     def on_candle(self, candle: Candle) -> None:
         self.on_candle_calls.append(candle)
-        self.dispatch_timeframes()
+        # Engine manages dispatch automatically; never call manually.
 
 
 def make_candle(timestamp: datetime, symbol: str = "TEST") -> Candle:
@@ -98,9 +98,10 @@ def test_timeframe_dispatcher_dispatches_correctly():
     strategy = TestStrategy()
     strategy.set_context(ctx)
 
-    # Run on_candle for each candle (which calls dispatch_timeframes)
+    # Engine manages dispatch automatically; dispatcher called directly in tests
     for candle in candles:
         strategy.on_candle(candle)
+        strategy.timeframe_dispatcher.dispatch_all(ctx)
 
     # Should have received 1H candles (one per hour boundary)
     # With 30-min candles: 9:00, 9:30, 10:00, 10:30, 11:00, 11:30
@@ -149,7 +150,8 @@ def test_multiple_methods_same_timeframe():
             self.calls_b.append(candle)
 
         def on_candle(self, candle: Candle) -> None:
-            self.dispatch_timeframes()
+            # Engine manages dispatch automatically; never call manually.
+            pass
 
     strategy = MultiMethodStrategy()
     candles = [make_candle(datetime(2024, 1, 1, 9, 0) + timedelta(minutes=i * 30)) for i in range(4)]
@@ -159,25 +161,12 @@ def test_multiple_methods_same_timeframe():
 
     for candle in candles:
         strategy.on_candle(candle)
+        strategy.timeframe_dispatcher.dispatch_all(ctx)
 
     # Both methods should be called
     assert len(strategy.calls_a) >= 1
     assert len(strategy.calls_b) >= 1
     assert len(strategy.calls_a) == len(strategy.calls_b)
-
-
-def test_dispatcher_reset():
-    """Test that dispatcher reset clears tracking state."""
-    strategy = TestStrategy()
-    dispatcher = strategy.timeframe_dispatcher
-
-    # Simulate some dispatch
-    dispatcher._last_dispatched_index["1H"] = 5
-    dispatcher._last_dispatched_index["1D"] = 2
-
-    strategy.reset_timeframe_dispatcher()
-
-    assert dispatcher._last_dispatched_index == {}
 
 
 def test_timeframe_history_returns_tuple():
