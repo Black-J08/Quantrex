@@ -23,6 +23,10 @@ class MCBStrategy(Strategy):
         self.current_breakout_high = None
         self.current_breakout_low = None
         self.breakout_check_date = None
+        # Track position state for 30-minute candle based exit logic
+        self.entry_date = None
+        self.consecutive_red_30m = 0
+        self.consecutive_green_30m = 0
 
     @on_timeframe("30M")
     def on_half_hourly(self, candle: Candle):
@@ -32,27 +36,63 @@ class MCBStrategy(Strategy):
             self.current_breakout_high = candle.high
             self.current_breakout_low = candle.low
 
+        # Update consecutive counters based on 30-minute candle color
+        is_red = candle.close < candle.open
+        is_green = candle.close >= candle.open
+        
+        position = self.ctx.get_position(candle.symbol)
+        
+        if position.quantity > 0:  # long position
+            if is_red:
+                self.consecutive_red_30m += 1
+                self.consecutive_green_30m = 0  # reset green counter
+            else:
+                self.consecutive_red_30m = 0  # reset red counter
+                self.consecutive_green_30m += 1
+        elif position.quantity < 0:  # short position
+            if is_green:
+                self.consecutive_green_30m += 1
+                self.consecutive_red_30m = 0  # reset red counter
+            else:
+                self.consecutive_green_30m = 0  # reset green counter
+                self.consecutive_red_30m += 1
+
     def on_candle(self, candle: Candle):
         """Handle all candles."""
         position = self.ctx.get_position(candle.symbol)
+        current_date = candle.timestamp.date()
 
-        # Exit conditions
+        # Exit conditions based on 30-minute candle consecutive counts
         if position.quantity > 0:  # long
-            if (self.current_breakout_low is not None) and (candle.close < self.current_breakout_low):
-                logger.info(f"Exiting long at breakout low: {candle.close} on {candle.timestamp}")
+            # Exit long after 2 consecutive red 30-minute candles (not same day as entry)
+            if (self.consecutive_red_30m >= 2 and 
+                self.entry_date is not None and 
+                current_date != self.entry_date):
+                logger.info(f"Exiting long after 2 consecutive red 30-minute candles: {candle.close} on {candle.timestamp}")
                 self.ctx.submit_order(
                     symbol=candle.symbol,
                     side=OrderSide.SELL,
                     quantity=position.quantity
                 )
+                # Reset after exit
+                self.entry_date = None
+                self.consecutive_red_30m = 0
+                self.consecutive_green_30m = 0
         elif position.quantity < 0:  # short
-            if (self.current_breakout_high is not None) and (candle.close > self.current_breakout_high):
-                logger.info(f"Exiting short at breakout high: {candle.close} on {candle.timestamp}")
+            # Exit short after 2 consecutive green 30-minute candles (not same day as entry)
+            if (self.consecutive_green_30m >= 2 and 
+                self.entry_date is not None and 
+                current_date != self.entry_date):
+                logger.info(f"Exiting short after 2 consecutive green 30-minute candles: {candle.close} on {candle.timestamp}")
                 self.ctx.submit_order(
                     symbol=candle.symbol,
                     side=OrderSide.BUY,
                     quantity=-position.quantity  # make positive
                 )
+                # Reset after exit
+                self.entry_date = None
+                self.consecutive_red_30m = 0
+                self.consecutive_green_30m = 0
 
         # Entry conditions (only if flat)
         if position.quantity == 0:
@@ -64,6 +104,10 @@ class MCBStrategy(Strategy):
                     side=OrderSide.BUY,
                     quantity=1.0
                 )
+                self.entry_date = current_date
+                # Reset counters on new entry
+                self.consecutive_red_30m = 0
+                self.consecutive_green_30m = 0
             elif (self.current_breakout_low is not None) and (candle.close < self.current_breakout_low):
                 logger.info(
                     f"Breakout low hit at {candle.close} on {candle.timestamp}")
@@ -72,6 +116,10 @@ class MCBStrategy(Strategy):
                     side=OrderSide.SELL,
                     quantity=1.0
                 )
+                self.entry_date = current_date
+                # Reset counters on new entry
+                self.consecutive_red_30m = 0
+                self.consecutive_green_30m = 0
 
 
 if __name__ == "__main__":
