@@ -104,24 +104,83 @@ def test_engine_fetches_1m_for_decorated_with_on_candle():
 # --- Dispatch / on_candle default ---
 
 def test_dispatch_called_automatically_by_engine():
+    # Provide 60 rows of 1M data (10:00 to 10:59) and 1 row of 1H data (10:00-11:00)
+    def make_1m_rows(count=60, start_str="20230101 10:00"):
+        from datetime import datetime, timedelta
+        fmt = "%Y%m%d %H:%M"
+        start = datetime.strptime(start_str, fmt)
+        return [
+            {
+                "datetime": (start + timedelta(minutes=i)).strftime(fmt),
+                "open": "1.0",
+                "high": "2.0",
+                "low": "0.0",
+                "close": "1.0",
+                "volume": "10.0",
+            }
+            for i in range(count)
+        ]
+
+    def make_1h_row(start_str="20230101 10:00"):
+        return [{
+            "datetime": start_str,
+            "open": "1.0",
+            "high": "2.0",
+            "low": "0.0",
+            "close": "1.0",
+            "volume": "10.0",
+        }]
+
     mock = Mock(spec=DataAdapter)
-    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0","close":"1","volume":"10"}]
+    # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
+    mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
     s = WithOnCandleStrategy()
     engine = BacktestEngine(mock, s, symbol="X")
     engine.run()
+    # After processing 1M bar at 10:59, execution time is 11:00
+    # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
     assert len(s.h_1h) == 1  # dispatched
 
 
 def test_on_candle_not_called_when_not_overridden():
+    # Provide 60 rows of 1M data (10:00 to 10:59) and 1 row of 1H data (10:00-11:00)
+    def make_1m_rows(count=60, start_str="20230101 10:00"):
+        from datetime import datetime, timedelta
+        fmt = "%Y%m%d %H:%M"
+        start = datetime.strptime(start_str, fmt)
+        return [
+            {
+                "datetime": (start + timedelta(minutes=i)).strftime(fmt),
+                "open": "1.0",
+                "high": "2.0",
+                "low": "0.0",
+                "close": "1.0",
+                "volume": "10.0",
+            }
+            for i in range(count)
+        ]
+
+    def make_1h_row(start_str="20230101 10:00"):
+        return [{
+            "datetime": start_str,
+            "open": "1.0",
+            "high": "2.0",
+            "low": "0.0",
+            "close": "1.0",
+            "volume": "10.0",
+        }]
+
     mock = Mock(spec=DataAdapter)
-    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0","close":"1","volume":"10"}]
+    # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
+    mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
     s = DecoratedOnlyStrategy()
     engine = BacktestEngine(mock, s, symbol="X")
     engine.run()
-    # No 1M candles collected because on_candle never invoked
-    assert len(s.h_1h) == 1
+    # After processing 1M bar at 10:59, execution time is 11:00
+    # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
+    assert len(s.h_1h) == 1  # dispatched
 
 
 # --- Provider / adapter / 1M fallback ---
@@ -152,6 +211,9 @@ def test_timeframe_history_filtering():
         @property
         def history(self):
             return tuple(self._h)
+        @property
+        def current_time(self):
+            return datetime.min
         def submit_order(self, *a, **k): pass
         def get_position(self, *a, **k): return None
         def timeframe_history(self, interval):

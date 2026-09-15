@@ -7,6 +7,7 @@ from quantrex_core.models.position import Position
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
+from quantrex_backtest.core.timeframe import calculate_close_time
 from collections.abc import Mapping
 
 
@@ -139,6 +140,19 @@ class BacktestStrategyContext(StrategyContext):
     def get_position(self, symbol: str) -> Position:
         return self._pm.get_position(symbol)
 
+    @property
+    def current_time(self) -> datetime:
+        """Execution time: the simulated clock at which the current bar is processed.
+
+        This is the **close time** of the candle currently being processed
+        (open time + timeframe duration), NOT the candle's open-time
+        ``timestamp``. It advances with each processed candle and is the
+        backtest's virtual "now" — never the machine's wall-clock time.
+
+        Before the first bar is processed this is ``datetime.min``.
+        """
+        return self._current_time
+
     def update_time(self, timestamp: datetime) -> None:
         """Called by engine before each candle to update order timestamp."""
         self._current_time = timestamp
@@ -158,21 +172,32 @@ class BacktestStrategyContext(StrategyContext):
         captured a reference.
         """
         self._history.append(candle)
-        
-        # Update derived timeframe histories
-        self._update_derived_histories(candle.timestamp)
+
+        # Update derived timeframe histories using the current execution
+        # time (close of the base bar just processed), so a higher-
+        # timeframe candle becomes visible exactly when its close time is
+        # reached — not one base bar later.
+        self._update_derived_histories(self._current_time)
 
     def _update_derived_histories(self, current_timestamp: datetime) -> None:
-        """Update derived timeframe histories with candles that close at or before current_timestamp."""
+        """Update derived timeframe histories with candles that have completed.
+
+        A derived candle is complete when its **close time** (open time +
+        its own timeframe duration) is at or before the current execution
+        time. Comparing open times here would dispatch higher-timeframe
+        candles before they finish forming.
+        """
         for tf, derived_candles in self._derived_candles.items():
             derived_history = self._derived_histories[tf]
             idx = self._derived_indices[tf]
-            
-            # Add all derived candles that close at or before the current base candle timestamp
-            while idx < len(derived_candles) and derived_candles[idx].timestamp <= current_timestamp:
+
+            # Add all derived candles whose close time has passed
+            while idx < len(derived_candles) and self._calculate_close_time(
+                derived_candles[idx].timestamp, tf
+            ) <= current_timestamp:
                 derived_history.append(derived_candles[idx])
                 idx += 1
-            
+
             self._derived_indices[tf] = idx
 
     def reset(self) -> None:
@@ -192,36 +217,18 @@ class BacktestStrategyContext(StrategyContext):
 
     def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
         """Calculate the close time for a candle given its open time and timeframe.
-        
+
+        Delegates to the shared timeframe utility so there is a single
+        source of truth for timeframe-to-duration conversion.
+
         Args:
             open_time: The candle's open time (period start)
             timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
-            
+
         Returns:
             The candle's close time (period end)
         """
-        # Reuse the engine's parsing logic for consistency
-        import re
-        match = re.match(r'^(\d+)([MHDW])$', timeframe.upper())
-        if not match:
-            # Fallback to 1 minute if parsing fails
-            interval_minutes = 1
-        else:
-            value = int(match.group(1))
-            unit = match.group(2)
-            
-            if unit == 'M':
-                interval_minutes = value
-            elif unit == 'H':
-                interval_minutes = value * 60
-            elif unit == 'D':
-                interval_minutes = value * 66 * 24
-            elif unit == 'W':
-                interval_minutes = value * 60 * 24 * 7
-            else:
-                interval_minutes = 1  # fallback
-                
-        return open_time + timedelta(minutes=interval_minutes)
+        return calculate_close_time(open_time, timeframe)
 
     @property
     def history(self) -> tuple[Candle, ...]:

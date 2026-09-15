@@ -23,6 +23,11 @@ class MockStrategyContext(StrategyContext):
     def history(self) -> tuple[Candle, ...]:
         return tuple(self._history)
 
+    @property
+    def current_time(self) -> datetime:
+        # For testing, we return a fixed time; the tests don't rely on this value.
+        return datetime.min
+
     def timeframe_history(self, interval: str) -> tuple[Candle, ...]:
         # Simple filtering for testing: group by hour
         if interval == "1H":

@@ -14,6 +14,7 @@ from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from .context import BacktestStrategyContext
+from .timeframe import parse_timeframe_to_timedelta
 from ..exceptions.backtest_error import ProviderError
 
 logger = get_logger(__name__)
@@ -531,42 +532,33 @@ class BacktestEngine:
 
     def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
         """Calculate the close time for a candle given its open time and timeframe.
-        
+
+        Delegates to the shared timeframe utility so there is a single
+        source of truth for timeframe-to-duration conversion.
+
         Args:
             open_time: The candle's open time (period start)
             timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
-            
+
         Returns:
             The candle's close time (period end)
         """
-        interval_minutes = self._parse_timeframe_to_minutes(timeframe)
-        if interval_minutes is None:
+        duration = parse_timeframe_to_timedelta(timeframe)
+        if duration is None:
             # Fallback to 1 minute if parsing fails
-            interval_minutes = 1
-        return open_time + timedelta(minutes=interval_minutes)
+            duration = timedelta(minutes=1)
+        return open_time + duration
 
     def _parse_timeframe_to_minutes(self, timeframe: str) -> int | None:
         """Parse timeframe string to minutes.
-        
+
         Args:
             timeframe: Timeframe string like "1M", "5M", "1H", "4H", "1D", "1W".
-            
+
         Returns:
             Number of minutes, or None if invalid format.
         """
-        match = re.match(r'^(\d+)([MHDW])$', timeframe.upper())
-        if not match:
+        duration = parse_timeframe_to_timedelta(timeframe)
+        if duration is None:
             return None
-        
-        value = int(match.group(1))
-        unit = match.group(2)
-        
-        if unit == 'M':
-            return value
-        elif unit == 'H':
-            return value * 60
-        elif unit == 'D':
-            return value * 60 * 24
-        elif unit == 'W':
-            return value * 60 * 24 * 7
-        return None
+        return int(duration.total_seconds() // 60)

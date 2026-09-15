@@ -12,6 +12,7 @@ Implementations live in the execution backends:
 """
 
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 from ..models.candle import Candle
 from ..models.enums import OrderSide, OrderType
@@ -60,6 +61,28 @@ class StrategyContext(ABC):
 
         Returns a zero-quantity :class:`Position` if there is no open
         position for the symbol.
+        """
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def current_time(self) -> datetime:
+        """Execution time: the simulated clock at which the current bar is processed.
+
+        This is the **close time** of the candle currently being processed
+        (open time + timeframe duration), NOT the candle's open-time
+        ``timestamp``. It represents "now" from the strategy's point of
+        view and advances with each processed bar.
+
+        Contract:
+
+        * **Open vs. execution time**: ``candle.timestamp`` is always the
+          candle's **open time**; ``ctx.current_time`` is the **execution
+          time** (close time). Never mix the two.
+        * **Backtest**: advances with each processed candle — it is the
+          simulated/virtual clock, never the machine's wall-clock time.
+        * **Before the first bar**: the value is engine-defined (the
+          backtest engine uses ``datetime.min``).
         """
         raise NotImplementedError
 

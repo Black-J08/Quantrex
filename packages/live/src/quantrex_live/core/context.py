@@ -9,7 +9,7 @@ for strategy lookback and timeframe_history support.
 from __future__ import annotations
 
 from collections import deque
-from datetime import time
+from datetime import datetime, time
 from typing import TYPE_CHECKING
 
 from quantrex_core import StrategyContext
@@ -67,6 +67,18 @@ class LiveStrategyContext(StrategyContext):
 
     def get_position(self, symbol: str):
         return self._pm.get_position(symbol)
+
+    @property
+    def current_time(self) -> datetime:
+        """Execution time: the simulated clock at which the current bar is processed.
+
+        Not yet implemented for live trading — live execution time will be
+        wired when real-time candle subscription lands in the live engine.
+        """
+        raise NotImplementedError(
+            "current_time is not yet supported by the live engine; "
+            "execution-time semantics are currently backtest-only."
+        )
 
     def add_candle(self, candle: Candle) -> None:
         """Add a new candle to the history buffer.
