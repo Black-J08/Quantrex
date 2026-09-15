@@ -224,12 +224,11 @@ class CSVDataAdapter:
             closes = [float(r["close"]) for r in bucket_rows]
             volumes = [float(r["volume"]) for r in bucket_rows]
             
-            # Use first row's datetime as bucket start, but we need the bucket end time
-            # For simplicity, use the last row's datetime
-            last_row = bucket_rows[-1]
+            # Use first row's datetime as bucket start (open time)
+            first_row = bucket_rows[0]
             
             aggregated.append({
-                "datetime": last_row["datetime"],
+                "datetime": first_row["datetime"],
                 "open": opens[0],
                 "high": max(highs),
                 "low": min(lows),
