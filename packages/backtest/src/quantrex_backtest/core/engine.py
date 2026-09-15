@@ -2,7 +2,8 @@
 
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import re
 from pathlib import Path
 import csv
 
@@ -203,8 +204,10 @@ class BacktestEngine:
                 # price used for fill match the current candle exactly.
                 self._drain_pending(candle.open, candle.timestamp)
 
-                # Update context time and candle for order timestamps and pricing
-                self._context.update_time(candle.timestamp)
+                # Update context time with candle's close time for execution timing
+                # and candle for order pricing
+                close_time = self._calculate_close_time(candle.timestamp, base_timeframe)
+                self._context.update_time(close_time)
                 self._context.update_candle(candle)
                 # Record the current bar in the context's history BEFORE
                 # ``on_candle`` so the strategy observes it as the last
@@ -248,7 +251,8 @@ class BacktestEngine:
         last_candle = Candle.from_row(
             base_raw[-1], self._symbol, self._datetime_format, indicators=base_indicators[-1]
         )
-        self._drain_pending(last_candle.close, last_candle.timestamp, is_final=True)
+        last_close_time = self._calculate_close_time(last_candle.timestamp, base_timeframe)
+        self._drain_pending(last_candle.close, last_close_time, is_final=True)
 
         self._strategy.on_stop()
         logger.info("Backtest completed: %d candles processed", len(base_raw))
@@ -524,3 +528,45 @@ class BacktestEngine:
                 logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
                 raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
         return result
+
+    def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
+        """Calculate the close time for a candle given its open time and timeframe.
+        
+        Args:
+            open_time: The candle's open time (period start)
+            timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
+            
+        Returns:
+            The candle's close time (period end)
+        """
+        interval_minutes = self._parse_timeframe_to_minutes(timeframe)
+        if interval_minutes is None:
+            # Fallback to 1 minute if parsing fails
+            interval_minutes = 1
+        return open_time + timedelta(minutes=interval_minutes)
+
+    def _parse_timeframe_to_minutes(self, timeframe: str) -> int | None:
+        """Parse timeframe string to minutes.
+        
+        Args:
+            timeframe: Timeframe string like "1M", "5M", "1H", "4H", "1D", "1W".
+            
+        Returns:
+            Number of minutes, or None if invalid format.
+        """
+        match = re.match(r'^(\d+)([MHDW])$', timeframe.upper())
+        if not match:
+            return None
+        
+        value = int(match.group(1))
+        unit = match.group(2)
+        
+        if unit == 'M':
+            return value
+        elif unit == 'H':
+            return value * 60
+        elif unit == 'D':
+            return value * 60 * 24
+        elif unit == 'W':
+            return value * 60 * 24 * 7
+        return None

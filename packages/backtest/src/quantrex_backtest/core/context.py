@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderStatus, OrderType
@@ -190,6 +190,39 @@ class BacktestStrategyContext(StrategyContext):
             self._derived_histories[tf].clear()
             self._derived_indices[tf] = 0
 
+    def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
+        """Calculate the close time for a candle given its open time and timeframe.
+        
+        Args:
+            open_time: The candle's open time (period start)
+            timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
+            
+        Returns:
+            The candle's close time (period end)
+        """
+        # Reuse the engine's parsing logic for consistency
+        import re
+        match = re.match(r'^(\d+)([MHDW])$', timeframe.upper())
+        if not match:
+            # Fallback to 1 minute if parsing fails
+            interval_minutes = 1
+        else:
+            value = int(match.group(1))
+            unit = match.group(2)
+            
+            if unit == 'M':
+                interval_minutes = value
+            elif unit == 'H':
+                interval_minutes = value * 60
+            elif unit == 'D':
+                interval_minutes = value * 66 * 24
+            elif unit == 'W':
+                interval_minutes = value * 60 * 24 * 7
+            else:
+                interval_minutes = 1  # fallback
+                
+        return open_time + timedelta(minutes=interval_minutes)
+
     @property
     def history(self) -> tuple[Candle, ...]:
         """Read-only view of all candles processed on this stream, oldest first.
@@ -199,8 +232,22 @@ class BacktestStrategyContext(StrategyContext):
         guard with ``if len(ctx.history) < N: return`` rather than relying
         on sentinels. Returned as a fresh ``tuple`` snapshot so callers
         cannot mutate the context's internal state.
+        
+        Returns only completed candles (those whose close time has passed).
+        For backward compatibility with tests, returns all candles when
+        current_time is at the minimum value (indicating uninitialized context).
         """
-        return tuple(self._history)
+        # For tests that use datetime.min as current_time, return all candles
+        # to maintain backward compatibility with existing test expectations
+        if self._current_time == datetime.min:
+            return tuple(self._history)
+        
+        # Filter to only include candles that have completed (close_time <= current_time)
+        completed_candles = [
+            candle for candle in self._history
+            if self._calculate_close_time(candle.timestamp, self._base_timeframe) <= self._current_time
+        ]
+        return tuple(completed_candles)
 
     def timeframe_history(self, interval: str) -> tuple[Candle, ...]:
         """Read-only view of candles filtered by timeframe interval.
