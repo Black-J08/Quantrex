@@ -14,7 +14,7 @@ from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from .context import BacktestStrategyContext
-from .timeframe import parse_timeframe_to_timedelta
+from .timeframe import parse_timeframe_to_timedelta, calculate_close_time
 from ..exceptions.backtest_error import ProviderError
 
 logger = get_logger(__name__)
@@ -207,7 +207,7 @@ class BacktestEngine:
 
                 # Update context time with candle's close time for execution timing
                 # and candle for order pricing
-                close_time = self._calculate_close_time(candle.timestamp, base_timeframe)
+                close_time = calculate_close_time(candle.timestamp, base_timeframe)
                 self._context.update_time(close_time)
                 self._context.update_candle(candle)
                 # Record the current bar in the context's history BEFORE
@@ -252,7 +252,7 @@ class BacktestEngine:
         last_candle = Candle.from_row(
             base_raw[-1], self._symbol, self._datetime_format, indicators=base_indicators[-1]
         )
-        last_close_time = self._calculate_close_time(last_candle.timestamp, base_timeframe)
+        last_close_time = calculate_close_time(last_candle.timestamp, base_timeframe)
         self._drain_pending(last_candle.close, last_close_time, is_final=True)
 
         self._strategy.on_stop()
@@ -530,35 +530,3 @@ class BacktestEngine:
                 raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
         return result
 
-    def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
-        """Calculate the close time for a candle given its open time and timeframe.
-
-        Delegates to the shared timeframe utility so there is a single
-        source of truth for timeframe-to-duration conversion.
-
-        Args:
-            open_time: The candle's open time (period start)
-            timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
-
-        Returns:
-            The candle's close time (period end)
-        """
-        duration = parse_timeframe_to_timedelta(timeframe)
-        if duration is None:
-            # Fallback to 1 minute if parsing fails
-            duration = timedelta(minutes=1)
-        return open_time + duration
-
-    def _parse_timeframe_to_minutes(self, timeframe: str) -> int | None:
-        """Parse timeframe string to minutes.
-
-        Args:
-            timeframe: Timeframe string like "1M", "5M", "1H", "4H", "1D", "1W".
-
-        Returns:
-            Number of minutes, or None if invalid format.
-        """
-        duration = parse_timeframe_to_timedelta(timeframe)
-        if duration is None:
-            return None
-        return int(duration.total_seconds() // 60)

@@ -192,7 +192,7 @@ class BacktestStrategyContext(StrategyContext):
             idx = self._derived_indices[tf]
 
             # Add all derived candles whose close time has passed
-            while idx < len(derived_candles) and self._calculate_close_time(
+            while idx < len(derived_candles) and calculate_close_time(
                 derived_candles[idx].timestamp, tf
             ) <= current_timestamp:
                 derived_history.append(derived_candles[idx])
@@ -215,20 +215,7 @@ class BacktestStrategyContext(StrategyContext):
             self._derived_histories[tf].clear()
             self._derived_indices[tf] = 0
 
-    def _calculate_close_time(self, open_time: datetime, timeframe: str) -> datetime:
-        """Calculate the close time for a candle given its open time and timeframe.
-
-        Delegates to the shared timeframe utility so there is a single
-        source of truth for timeframe-to-duration conversion.
-
-        Args:
-            open_time: The candle's open time (period start)
-            timeframe: Timeframe string (e.g., "1M", "5M", "1H", "1D")
-
-        Returns:
-            The candle's close time (period end)
-        """
-        return calculate_close_time(open_time, timeframe)
+    
 
     @property
     def history(self) -> tuple[Candle, ...]:
@@ -244,15 +231,10 @@ class BacktestStrategyContext(StrategyContext):
         For backward compatibility with tests, returns all candles when
         current_time is at the minimum value (indicating uninitialized context).
         """
-        # For tests that use datetime.min as current_time, return all candles
-        # to maintain backward compatibility with existing test expectations
-        if self._current_time == datetime.min:
-            return tuple(self._history)
-        
         # Filter to only include candles that have completed (close_time <= current_time)
         completed_candles = [
             candle for candle in self._history
-            if self._calculate_close_time(candle.timestamp, self._base_timeframe) <= self._current_time
+            if calculate_close_time(candle.timestamp, self._base_timeframe) <= self._current_time
         ]
         return tuple(completed_candles)
 

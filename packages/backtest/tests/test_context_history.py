@@ -85,13 +85,15 @@ def _row(ts: str, o: float, h: float, l: float, c: float, v: float) -> dict:
 
 def test_history_is_empty_before_any_candle_recorded():
     """A fresh context has an empty history."""
-    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime.min)
+    # Set current_time to a time after the close time of the candle (base timeframe is 1M by default)
+    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime(2024, 1, 1, 9, 32))
     assert ctx.history == ()
 
 
 def test_record_candle_appends_in_order():
     """``record_candle`` appends in the order called; ``history`` reflects that."""
-    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime.min)
+    # Set current_time to a time after the close time of the last candle (base timeframe is 1M by default)
+    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime(2024, 1, 1, 9, 33))
     candles = [
         Candle("X", datetime(2024, 1, 1, 9, 30), 1, 2, 0.5, 1.5, 100),
         Candle("X", datetime(2024, 1, 1, 9, 31), 2, 3, 1.5, 2.5, 200),
@@ -127,7 +129,8 @@ def test_history_is_immutable_tuple():
 
 def test_history_returns_fresh_tuple_each_call():
     """Each access to ``ctx.history`` returns a fresh tuple (snapshot)."""
-    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime.min)
+    # Set current_time to a time after the close time of the candle (base timeframe is 1M by default)
+    ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime(2024, 1, 1, 9, 32))
     ctx.record_candle(
         Candle("X", datetime(2024, 1, 1, 9, 30), 1, 2, 0.5, 1.5, 100)
     )

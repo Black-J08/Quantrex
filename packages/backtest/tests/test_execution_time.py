@@ -283,18 +283,4 @@ class TestTimeframeParser:
         open_time = datetime(2026, 1, 1, 9, 15)
         assert calculate_close_time(open_time, "bogus") == datetime(2026, 1, 1, 9, 16)
 
-    def test_context_and_engine_share_parser(self):
-        """Context close-time calculation matches the engine's exactly."""
-        rows = _make_rows(1)
-        adapter = _mock_adapter(rows)
-        strategy = _ExecutionTimeRecordingStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="TEST")
-        ctx = BacktestStrategyContext(
-            PositionManager(), OrderManagementSystem(), datetime.min
-        )
-
-        open_time = datetime(2026, 1, 1, 9, 15)
-        for tf in ("1M", "5M", "1H", "1D", "1W"):
-            assert ctx._calculate_close_time(open_time, tf) == (
-                engine._calculate_close_time(open_time, tf)
-            )
+    
