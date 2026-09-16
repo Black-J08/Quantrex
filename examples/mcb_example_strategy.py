@@ -35,6 +35,9 @@ class MCBStrategy(Strategy):
             self.breakout_check_date = candle.timestamp.date()
             self.current_breakout_high = candle.high
             self.current_breakout_low = candle.low
+            # Reset consecutive counters at start of each new day
+            self.consecutive_red_30m = 0
+            self.consecutive_green_30m = 0
 
         # Update consecutive counters based on 30-minute candle color
         is_red = candle.close < candle.open
@@ -56,11 +59,15 @@ class MCBStrategy(Strategy):
             else:
                 self.consecutive_green_30m = 0  # reset green counter
                 self.consecutive_red_30m += 1
-
-    def on_candle(self, candle: Candle):
-        """Handle all candles."""
+                
         position = self.ctx.get_position(candle.symbol)
         current_date = candle.timestamp.date()
+
+        # Reset consecutive counters at start of each new day (handles case where on_candle fires before first 30M candle of new day)
+        if hasattr(self, '_last_candle_date') and current_date != self._last_candle_date:
+            self.consecutive_red_30m = 0
+            self.consecutive_green_30m = 0
+        self._last_candle_date = current_date
 
         # Exit conditions based on 30-minute candle consecutive counts
         if position.quantity > 0:  # long
@@ -94,6 +101,12 @@ class MCBStrategy(Strategy):
                 self.consecutive_red_30m = 0
                 self.consecutive_green_30m = 0
 
+
+    def on_candle(self, candle: Candle):
+        """Handle all candles."""
+        position = self.ctx.get_position(candle.symbol)
+        current_date = candle.timestamp.date()
+
         # Entry conditions (only if flat)
         if position.quantity == 0:
             if (self.current_breakout_high is not None) and (candle.close > self.current_breakout_high):
@@ -102,7 +115,7 @@ class MCBStrategy(Strategy):
                 self.ctx.submit_order(
                     symbol=candle.symbol,
                     side=OrderSide.BUY,
-                    quantity=1.0
+                    quantity=10.0
                 )
                 self.entry_date = current_date
                 # Reset counters on new entry
@@ -114,7 +127,7 @@ class MCBStrategy(Strategy):
                 self.ctx.submit_order(
                     symbol=candle.symbol,
                     side=OrderSide.SELL,
-                    quantity=1.0
+                    quantity=10.0
                 )
                 self.entry_date = current_date
                 # Reset counters on new entry
@@ -125,13 +138,13 @@ class MCBStrategy(Strategy):
 if __name__ == "__main__":
     mcb_strategy = MCBStrategy()
 
-    symbol = "TCS"
+    symbol = "RELIANCE"
     provider = ZerodhaDataProvider(
         symbol=symbol,
         exchange_segment="NSE",
         # instrument="EQUITY",
-        from_date="2026-01-01",
-        to_date="2026-01-30",
+        from_date="2025-07-01",
+        to_date="2026-06-30",
     )
     adapter = ZerodhaDataAdapter(provider)
 
