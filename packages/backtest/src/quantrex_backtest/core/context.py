@@ -49,6 +49,7 @@ class BacktestStrategyContext(StrategyContext):
         self._derived_candles: dict[str, list[Candle]] = {}
         self._derived_histories: dict[str, list[Candle]] = {}
         self._derived_indices: dict[str, int] = {}
+        self._base_completed_index = 0
         self._symbol = ""
         self._datetime_format = "%Y%m%d %H:%M"
         self._origin_time = origin_time
@@ -187,6 +188,11 @@ class BacktestStrategyContext(StrategyContext):
         time. Comparing open times here would dispatch higher-timeframe
         candles before they finish forming.
         """
+        # Update base timeframe completed index
+        while (self._base_completed_index < len(self._history) and
+               calculate_close_time(self._history[self._base_completed_index].timestamp, self._base_timeframe) <= current_timestamp):
+            self._base_completed_index += 1
+
         for tf, derived_candles in self._derived_candles.items():
             derived_history = self._derived_histories[tf]
             idx = self._derived_indices[tf]
@@ -214,6 +220,8 @@ class BacktestStrategyContext(StrategyContext):
         for tf in self._derived_histories:
             self._derived_histories[tf].clear()
             self._derived_indices[tf] = 0
+        # Reset base timeframe completed index
+        self._base_completed_index = 0
 
     
 
@@ -231,12 +239,7 @@ class BacktestStrategyContext(StrategyContext):
         For backward compatibility with tests, returns all candles when
         current_time is at the minimum value (indicating uninitialized context).
         """
-        # Filter to only include candles that have completed (close_time <= current_time)
-        completed_candles = [
-            candle for candle in self._history
-            if calculate_close_time(candle.timestamp, self._base_timeframe) <= self._current_time
-        ]
-        return tuple(completed_candles)
+        return tuple(self._history[:self._base_completed_index])
 
     def timeframe_history(self, interval: str) -> tuple[Candle, ...]:
         """Read-only view of candles filtered by timeframe interval.
