@@ -15,4 +15,6 @@ quantrex-test-support = { workspace = true }
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
+    "pandas>=3.0.5",
+    "pandas-ta-classic>=0.8.32"
 ]
