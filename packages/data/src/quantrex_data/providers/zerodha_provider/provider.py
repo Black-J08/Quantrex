@@ -226,12 +226,13 @@ class ZerodhaDataProvider:
             return value  # Zerodha daily API accepts YYYY-MM-DD
         return value + " 09:15:00"
 
-    def _chunk_date_range(self, from_date: str, to_date: str) -> list[tuple[str, str]]:
+    def _chunk_date_range(self, from_date: str, to_date: str, interval: str | None = None) -> list[tuple[str, str]]:
         """Split date range into API-compliant chunks.
 
         Args:
             from_date: Start date string (YYYY-MM-DD HH:MM:SS).
             to_date: End date string (YYYY-MM-DD HH:MM:SS).
+            interval: The interval being fetched (uses config default if None).
 
         Returns:
             List of (chunk_from, chunk_to) date tuples.
@@ -246,7 +247,9 @@ class ZerodhaDataProvider:
             end = datetime.strptime(to_date, "%Y-%m-%d")
             fmt = "%Y-%m-%d"
 
-        chunk_days = self._config.chunk_size_days.get(self._config.interval, 30)
+        # Use provided interval or fall back to config default
+        effective_interval = interval or self._config.interval
+        chunk_days = self._config.chunk_size_days.get(effective_interval, 30)
 
         if start >= end:
             # Same-day or invalid range
@@ -336,8 +339,8 @@ class ZerodhaDataProvider:
         api_from_date = self._normalize_date_for_api(self._config.from_date)
         api_to_date = self._normalize_date_for_api(self._config.to_date)
 
-        # Chunk date range
-        chunks = self._chunk_date_range(api_from_date, api_to_date)
+        # Chunk date range using the effective interval (not config default)
+        chunks = self._chunk_date_range(api_from_date, api_to_date, effective_interval)
 
         responses = []
         for i, (chunk_from, chunk_to) in enumerate(chunks):

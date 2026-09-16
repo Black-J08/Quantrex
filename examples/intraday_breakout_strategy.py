@@ -87,7 +87,7 @@ if __name__ == "__main__":
         exchange_segment="NSE",
         # instrument="EQUITY",
         from_date="2026-01-01",
-        to_date="2026-01-30",
+        to_date="2026-06-30",
     )
     adapter = ZerodhaDataAdapter(provider)
 

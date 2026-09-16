@@ -185,6 +185,46 @@ class TestZerodhaDataProvider:
         assert len(data["candles"]) == 5
         assert mock_client.get_historical_data.call_count == 2
 
+    def test_fetch_minute_data_uses_minute_chunk_size(self, mock_client, mock_instrument_master, mock_auth):
+        """Provider should use minute chunk size (30 days) when fetching minute data,
+        even if provider was initialized with default interval='day'.
+        
+        Regression test for: Zerodha API limits minute data to 60 days per request.
+        The bug was that _chunk_date_range used config.interval instead of the
+        effective interval being fetched.
+        """
+        # Create mock responses for 3 chunks (90 days / 30 days per chunk = 3 calls)
+        chunk1_candles = MOCK_HISTORICAL_RESPONSE_MINUTE["data"]["candles"]
+        chunk2_candles = MOCK_HISTORICAL_RESPONSE_MINUTE["data"]["candles"]
+        chunk3_candles = MOCK_HISTORICAL_RESPONSE_MINUTE["data"]["candles"]
+
+        mock_client.get_historical_data.side_effect = [
+            Mock(get_candles=lambda: chunk1_candles),
+            Mock(get_candles=lambda: chunk2_candles),
+            Mock(get_candles=lambda: chunk3_candles),
+        ]
+
+        # Provider initialized with default interval="day" (chunk=500 days)
+        provider = ZerodhaDataProvider(
+            instrument_token="5633",
+            exchange_segment="NSE",
+            from_date="2024-01-01",
+            to_date="2024-03-31",  # 90 days - should trigger 3 chunks of 30 days each for minute data
+            interval="day",  # Default interval is day
+        )
+        # Fetch minute data explicitly - should use minute chunk size (30 days)
+        data = provider.fetch(interval="minute")
+
+        assert "candles" in data
+        assert len(data["candles"]) == 15  # 5 candles * 3 chunks
+        # Should make 3 calls (90 days / 30 days per chunk for minute data)
+        # NOT 1 call (which would happen if it used day chunk size of 500)
+        assert mock_client.get_historical_data.call_count == 3
+        
+        # Verify the intervals passed to client were "minute"
+        for call in mock_client.get_historical_data.call_args_list:
+            assert call.kwargs["interval"] == "minute"
+
     def test_fetch_empty_data_raises(self, mock_client, mock_instrument_master, mock_auth):
         """Provider should raise ZerodhaDataNotFoundError for empty data."""
         from quantrex_data.providers.zerodha_provider.exceptions import ZerodhaDataNotFoundError
