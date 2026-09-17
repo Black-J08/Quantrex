@@ -7,11 +7,13 @@ completion filtering) so the two can never diverge.
 """
 
 import re
+from functools import lru_cache
 from datetime import timedelta
 
 _TIMEFRAME_PATTERN = re.compile(r"^(\d+)([MHDW])$")
 
 
+@lru_cache(maxsize=32)
 def parse_timeframe_to_timedelta(timeframe: str) -> timedelta | None:
     """Parse a timeframe string into its duration.
 
