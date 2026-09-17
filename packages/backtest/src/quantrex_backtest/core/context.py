@@ -142,6 +142,19 @@ class BacktestStrategyContext(StrategyContext):
         return self._pm.get_position(symbol)
 
     @property
+    def equity(self) -> float:
+        """Total portfolio equity (cash + position market values)."""
+        # For single-instrument mode, equity = cash + position value
+        cash = 0.0  # We don't track cash in single-instrument mode
+        position_value = 0.0
+        for symbol in self._pm._lots.keys():
+            pos = self._pm.get_position(symbol)
+            if pos.quantity != 0:
+                # Use entry price as approximation for current value
+                position_value += abs(pos.quantity) * pos.entry_price
+        return cash + position_value
+
+    @property
     def current_time(self) -> datetime:
         """Execution time: the simulated clock at which the current bar is processed.
 

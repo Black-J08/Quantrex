@@ -13,6 +13,7 @@ Implementations live in the execution backends:
 
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Dict
 
 from ..models.candle import Candle
 from ..models.enums import OrderSide, OrderType
@@ -143,3 +144,27 @@ class StrategyContext(ABC):
             Tuple of candles belonging to the specified timeframe.
         """
         raise NotImplementedError
+
+    # Portfolio-level extensions (composed, not inherited)
+    # Default implementations return empty/zero for backward compatibility
+    # with single-instrument backtests and live trading without portfolio support.
+
+    @property
+    def portfolio(self) -> 'PortfolioContext':
+        """Portfolio-level view: cash, equity, positions dict, margin used.
+
+        Returns an EmptyPortfolioContext by default. Execution environments
+        with portfolio support (backtest, live) should override this to
+        return their concrete PortfolioContext implementation.
+        """
+        from quantrex_core.portfolio.context import EmptyPortfolioContext
+        return EmptyPortfolioContext()
+
+    @property
+    def positions(self) -> Dict[str, Position]:
+        """All open positions keyed by symbol.
+
+        Returns empty dict by default. Execution environments with portfolio
+        support should override this to return the actual positions dict.
+        """
+        return {}

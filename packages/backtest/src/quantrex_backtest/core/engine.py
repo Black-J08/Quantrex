@@ -6,6 +6,7 @@ from datetime import datetime, timezone, timedelta
 import re
 from pathlib import Path
 import csv
+from typing import List, Optional, Union
 
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
@@ -13,9 +14,13 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
+from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_backtest.portfolio import PortfolioResult, SymbolResult
 from .context import BacktestStrategyContext
 from .timeframe import parse_timeframe_to_timedelta, calculate_close_time
 from ..exceptions.backtest_error import ProviderError
+from ..data import DataOrchestrator, DataOrchestratorConfig
+from ..portfolio import BacktestPortfolioContext
 
 logger = get_logger(__name__)
 
@@ -28,7 +33,10 @@ class BacktestEngine:
     Processes OHLCV candles sequentially in timestamp order,
     invoking a strategy's lifecycle methods for each candle.
 
-    Example:
+    Supports both single-instrument and portfolio backtesting
+    through a unified API.
+
+    Example (single instrument):
         >>> from quantrex_data.providers.csv_provider import CSVDataProvider
         >>> from quantrex_data.adapters.csv_adapter import CSVDataAdapter
         >>> from quantrex_backtest import BacktestEngine
@@ -42,50 +50,113 @@ class BacktestEngine:
         >>> adapter = CSVDataAdapter(provider, mapping={...})
         >>> strategy = MyStrategy()
         >>> engine = BacktestEngine(adapter, strategy, symbol="COPPER")
-        >>> engine.run()
+        >>> result = engine.run()
+
+    Example (portfolio):
+        >>> from quantrex_backtest import InstrumentSpec, PortfolioConfig
+        >>>
+        >>> instruments = [
+        ...     InstrumentSpec(symbol="COPPER", adapter=copper_adapter),
+        ...     InstrumentSpec(symbol="SILVER", adapter=silver_adapter),
+        ... ]
+        >>> config = PortfolioConfig(initial_cash=1_000_000)
+        >>> engine = BacktestEngine(instruments, strategy, config)
+        >>> result = engine.run()
     """
 
     def __init__(
         self,
-        adapter: object,
+        instruments_or_adapter: Union[List[InstrumentSpec], object],
         strategy: Strategy,
         symbol: str = "",
+        config: Optional[PortfolioConfig] = None,
     ) -> None:
         """Initialize the backtest engine.
 
+        Two calling conventions supported:
+
+        1. Portfolio mode (new):
+           BacktestEngine(instruments: List[InstrumentSpec], strategy: Strategy, config: PortfolioConfig)
+
+        2. Single-instrument mode (backward compatible):
+           BacktestEngine(adapter: DataAdapter, strategy: Strategy, symbol: str = "")
+
         Args:
-            adapter: DataAdapter instance providing normalized candle data via read()
+            instruments_or_adapter: Either list of InstrumentSpec (portfolio mode) or DataAdapter (single mode)
             strategy: Strategy instance to execute
-            symbol: Trading symbol for the candles
+            symbol_or_config: Either PortfolioConfig (portfolio mode) or symbol string (single mode)
 
         Raises:
-            ProviderError: If adapter is None or strategy is None.
+            ProviderError: If required arguments are None or invalid.
         """
-        if adapter is None:
-            raise ProviderError("DataAdapter is required; received None")
         if strategy is None:
             raise ProviderError("Strategy is required; received None")
 
-        self._adapter = adapter
         self._strategy = strategy
-        self._symbol = symbol
-        # Single source of truth: read datetime format directly from adapter
-        self._datetime_format = adapter.datetime_format
 
-        # Create PositionManager, OMS, and StrategyContext
+        # Detect calling convention
+        if isinstance(instruments_or_adapter, list):
+            # Portfolio mode
+            self._instruments = instruments_or_adapter
+            self._config = config if isinstance(config, PortfolioConfig) else PortfolioConfig()
+            self._is_portfolio_mode = True
+
+            if not self._instruments:
+                raise ProviderError("At least one instrument required in portfolio mode")
+
+            # Validate all instruments have adapters
+            for spec in self._instruments:
+                if spec.adapter is None:
+                    raise ProviderError(f"DataAdapter required for instrument {spec.symbol}; received None")
+
+            # Use first instrument's adapter for datetime format (they should be consistent)
+            self._datetime_format = self._instruments[0].adapter.datetime_format
+
+        else:
+            # Single-instrument mode (backward compatible)
+            adapter = instruments_or_adapter
+            if adapter is None:
+                raise ProviderError("DataAdapter is required; received None")
+
+            self._instruments = [InstrumentSpec(
+                symbol=symbol if isinstance(symbol, str) else "",
+                adapter=adapter,
+            )]
+            self._config = PortfolioConfig()
+            self._is_portfolio_mode = False
+            self._symbol = symbol if isinstance(symbol, str) else ""
+            self._datetime_format = adapter.datetime_format
+
+        # Create PositionManager, OMS
         self._position_manager = PositionManager()
         self._oms = OrderManagementSystem()
-        self._context = BacktestStrategyContext(self._position_manager, self._oms, datetime.min)
-        
-        # Inject context into Strategy
-        self._strategy.set_context(self._context)
 
-    def run(self) -> None:
+        # Context will be created in run() after data preparation
+        self._context: Optional[BacktestPortfolioContext] = None
+        self._data_orchestrator = DataOrchestrator(DataOrchestratorConfig(
+            cache_dir=Path("data/cache"),
+            exchange_calendar="NSE",
+            auto_download=self._config.auto_download,
+            validate_completeness=self._config.validate_completeness if hasattr(self._config, 'validate_completeness') else True,
+            min_bars_required=100,
+        ))
+
+        # Inject context into Strategy (will be updated in run())
+        self._strategy.set_context(self._context)  # Will be set properly in run()
+
+    def run(self, parallel: bool = False, max_workers: Optional[int] = None) -> PortfolioResult:
         """Run the backtest, invoking the strategy's lifecycle methods.
 
         Calls strategy.on_start(), then strategy.on_candle() for each candle
         in timestamp order, then strategy.on_stop().
-        After completion, exports closed trades to CSV.
+        After completion, exports closed trades to CSV and returns PortfolioResult.
+
+        Args:
+            parallel: If True, run independent instruments in parallel (experimental).
+            max_workers: Maximum number of worker processes for parallel execution.
+
+        Returns:
+            PortfolioResult with portfolio-level and per-symbol metrics.
 
         Raises:
             ProviderError: If adapter.read() fails or returns invalid data.
@@ -100,17 +171,19 @@ class BacktestEngine:
         staging_dir.mkdir(parents=True, exist_ok=True)
         self._ensure_run_log_file(staging_dir)
 
-        # Reset the context's per-bar history and current candle so a
-        # repeated ``run()`` on the same engine instance starts clean.
-        # The context is constructed in ``__init__`` and reused across
-        # runs; without this, ``ctx.history`` would accumulate candles
-        # from previous runs.
-        self._context.reset()
-
-        logger.info("Starting backtest for symbol: %s", self._symbol)
+        logger.info("Starting backtest for %d instrument(s)", len(self._instruments))
 
         self._strategy.on_start()
 
+        # Single-instrument mode: use legacy logic for backward compatibility
+        if not self._is_portfolio_mode:
+            return self._run_single_instrument(staging_dir, backtest_start_utc)
+
+        # Portfolio mode: use DataOrchestrator and synchronized execution
+        return self._run_portfolio(staging_dir, backtest_start_utc)
+
+    def _run_single_instrument(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
+        """Run backtest in single-instrument mode (legacy logic)."""
         # Get required timeframes from strategy
         required_timeframes = self._get_required_timeframes()
         
@@ -126,7 +199,7 @@ class BacktestEngine:
             self._strategy.on_stop()
             self._export_trades_csv(staging_dir)
             logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
-            return
+            return PortfolioResult.empty(self._config.initial_cash)
         
         # Sort each timeframe's data by datetime for deterministic ordering
         for tf in raw_data_by_tf:
@@ -162,7 +235,7 @@ class BacktestEngine:
         
         # Create new context with multi-timeframe data
         # Get origin time from adapter for correct timeframe aggregation
-        origin_time = self._adapter.get_origin_time()
+        origin_time = self._instruments[0].adapter.get_origin_time()
         self._context = BacktestStrategyContext(
             self._position_manager,
             self._oms,
@@ -185,6 +258,7 @@ class BacktestEngine:
         data_end: str | None = None
         base_raw = raw_data_by_tf[base_timeframe]
         base_indicators = per_bar_by_tf[base_timeframe]
+        equity_curve: List[tuple[datetime, float]] = []
 
         for idx, row in enumerate(base_raw):
             try:
@@ -242,6 +316,10 @@ class BacktestEngine:
                     self._strategy.on_candle(candle)
                 # Engine manages timeframe dispatch automatically.
                 self._strategy.timeframe_dispatcher.dispatch_all(self._context)
+
+                # Record equity curve point
+                equity_curve.append((close_time, self._context.equity))
+
             except Exception as e:
                 logger.exception("Failed to process candle at index %d", idx)
                 raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
@@ -271,6 +349,206 @@ class BacktestEngine:
         # Export closed trades into the final run dir.
         self._export_trades_csv(run_dir)
         logger.info("Run log: %s", run_dir / _RUN_LOG_FILENAME)
+
+        # Build PortfolioResult
+        return self._build_portfolio_result(
+            equity_curve=equity_curve,
+            data_start=data_start,
+            data_end=data_end,
+            symbols=[self._symbol],
+        )
+
+    def _run_portfolio(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
+        """Run backtest in portfolio mode (new logic)."""
+        # Step 1: Prepare data using DataOrchestrator
+        logger.info("Preparing data for %d instruments", len(self._instruments))
+        synchronized_data = self._data_orchestrator.validate_and_prepare(
+            self._instruments,
+            self._config,
+        )
+
+        if not synchronized_data:
+            logger.warning("No data available for any instrument; backtest completed with zero candles")
+            self._strategy.on_stop()
+            self._export_trades_csv(staging_dir)
+            logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
+            return PortfolioResult.empty(self._config.initial_cash)
+
+        # Step 2: Create unified PortfolioContext
+        symbols = list(synchronized_data.keys())
+        origin_time = self._instruments[0].adapter.get_origin_time()
+        
+        self._context = BacktestPortfolioContext(
+            position_manager=self._position_manager,
+            oms=self._oms,
+            current_time=datetime.min,
+            instruments=symbols,
+            initial_cash=self._config.initial_cash,
+            margin_requirement=self._config.margin_requirement,
+            raw_data_by_timeframe={},  # Will be populated per timeframe
+            indicators_by_timeframe={},
+            base_timeframe="1M",
+            origin_time=origin_time,
+        )
+
+        # Set symbol and datetime format for each instrument's context
+        for spec in self._instruments:
+            self._context.strategy_context.set_symbol_and_format(spec.symbol, spec.adapter.datetime_format)
+
+        # Inject context into Strategy
+        self._strategy.set_context(self._context)
+
+        # Step 3: Get required timeframes and compute indicators for each instrument
+        required_timeframes = self._get_required_timeframes()
+        
+        # Compute indicators for each instrument and timeframe
+        all_indicators = {}
+        for spec in self._instruments:
+            symbol = spec.symbol
+            data = synchronized_data[symbol]
+            all_indicators[symbol] = {}
+            for tf in required_timeframes:
+                try:
+                    all_indicators[symbol][tf] = self._strategy.compute_indicators(data, timeframe=tf)
+                except Exception as e:
+                    logger.exception("Strategy.compute_indicators raised for %s timeframe %s", symbol, tf)
+                    raise ProviderError(
+                        f"Strategy.compute_indicators failed for {symbol} timeframe {tf}: {e}"
+                    ) from e
+
+        # Step 4: Create common time index from base timeframe data
+        base_timeframe = required_timeframes[0]
+        base_data = synchronized_data[symbols[0]]  # Use first symbol as reference
+        
+        if not base_data:
+            logger.warning("No base timeframe data; backtest completed with zero candles")
+            self._strategy.on_stop()
+            self._export_trades_csv(staging_dir)
+            logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
+            return PortfolioResult.empty(self._config.initial_cash)
+
+        # Sort base data by datetime
+        base_data.sort(key=lambda row: row.get("datetime", ""))
+
+        # Step 5: Main event loop - iterate synchronized timestamps
+        logger.info("Processing %d synchronized candles (base timeframe: %s)", len(base_data), base_timeframe)
+
+        data_start: str | None = None
+        data_end: str | None = None
+        equity_curve: List[tuple[datetime, float]] = []
+
+        for idx, base_row in enumerate(base_data):
+            try:
+                # Create candles for all symbols at this timestamp
+                timestamp = base_row.get("datetime")
+                if isinstance(timestamp, str):
+                    for fmt in ("%Y%m%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
+                        try:
+                            ts = datetime.strptime(timestamp, fmt)
+                            break
+                        except ValueError:
+                            continue
+                else:
+                    ts = timestamp
+
+                # Capture first and last candle timestamps for output path
+                if data_start is None:
+                    data_start = ts.strftime("%Y%m%d_%H%M%S")
+                data_end = ts.strftime("%Y%m%d_%H%M%S")
+
+                # Create candles for each symbol
+                candles = {}
+                for symbol in symbols:
+                    # Find matching row for this symbol at this timestamp
+                    symbol_row = None
+                    for row in synchronized_data[symbol]:
+                        if row.get("datetime") == base_row.get("datetime"):
+                            symbol_row = row
+                            break
+                    
+                    if symbol_row is None:
+                        continue  # Skip if no data for this symbol at this timestamp
+
+                    indicators = all_indicators[symbol].get(base_timeframe, [{}])[idx] if idx < len(all_indicators[symbol].get(base_timeframe, [])) else {}
+                    candle = Candle.from_row(
+                        symbol_row,
+                        symbol,
+                        self._instruments[0].adapter.datetime_format,  # Use first adapter's format
+                        indicators=indicators,
+                    )
+                    candles[symbol] = candle
+
+                # Drain pending orders at this timestamp's open prices
+                for symbol, candle in candles.items():
+                    self._drain_pending(candle.open, candle.timestamp, symbol=symbol)
+
+                # Update context time with candle's close time
+                close_time = calculate_close_time(candle.timestamp, base_timeframe)
+                self._context.update_time(close_time)
+
+                # Update context with each candle and call strategy
+                for symbol, candle in candles.items():
+                    self._context.update_candle(candle)
+                    self._context.record_candle(candle)
+
+                    # Emit per-bar audit line
+                    indicator_parts = [
+                        f"{k}={v}" for k, v in sorted(candle.indicators.items()) if v is not None
+                    ]
+                    indicator_str = " " + " ".join(indicator_parts) if indicator_parts else ""
+                    logger.info(
+                        "[%s %s] O=%s H=%s L=%s C=%s V=%s%s",
+                        candle.symbol,
+                        candle.timestamp.isoformat(),
+                        candle.open,
+                        candle.high,
+                        candle.low,
+                        candle.close,
+                        candle.volume,
+                        indicator_str,
+                    )
+
+                    # Call on_candle for this symbol
+                    if any("on_candle" in cls.__dict__ for cls in self._strategy.__class__.__mro__ if cls is not Strategy):
+                        self._strategy.on_candle(candle)
+
+                # Dispatch timeframe events
+                self._strategy.timeframe_dispatcher.dispatch_all(self._context)
+
+                # Record equity curve point
+                equity_curve.append((close_time, self._context.equity))
+
+            except Exception as e:
+                logger.exception("Failed to process candle at index %d", idx)
+                raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
+
+        # Flush any remaining pending orders at the final candle's close price
+        if candles:
+            last_candle = list(candles.values())[0]
+            last_close_time = calculate_close_time(last_candle.timestamp, base_timeframe)
+            self._drain_pending(last_candle.close, last_close_time, is_final=True)
+
+        self._strategy.on_stop()
+        logger.info("Backtest completed: %d candles processed", len(base_data))
+
+        # Promote staging -> final run dir now that we know the data window
+        final_run_dir = self._build_run_dir(backtest_start_utc, data_start, data_end)
+        if final_run_dir != staging_dir:
+            run_dir = self._promote_run_dir(staging_dir, final_run_dir)
+        else:
+            run_dir = staging_dir
+
+        # Export closed trades into the final run dir
+        self._export_trades_csv(run_dir)
+        logger.info("Run log: %s", run_dir / _RUN_LOG_FILENAME)
+
+        # Build PortfolioResult
+        return self._build_portfolio_result(
+            equity_curve=equity_curve,
+            data_start=data_start,
+            data_end=data_end,
+            symbols=symbols,
+        )
 
     def _promote_run_dir(self, staging_dir: Path, final_run_dir: Path) -> Path:
         """Move a staging run directory's files into the final location.
@@ -422,7 +700,7 @@ class BacktestEngine:
         logger.info("Exported %d closed trades to %s", len(trades), output_file)
 
     def _drain_pending(
-        self, execution_price: float, execution_timestamp: datetime, is_final: bool = False
+        self, execution_price: float, execution_timestamp: datetime, is_final: bool = False, symbol: Optional[str] = None
     ) -> None:
         """Drain all pending orders from the OMS.
 
@@ -431,6 +709,12 @@ class BacktestEngine:
         and price match the current candle. On the final candle the
         ``is_final`` flag triggers a WARNING if any orders were still
         pending (strategy submitted on the last bar).
+
+        Args:
+            execution_price: Price to fill orders at.
+            execution_timestamp: Timestamp for the fill.
+            is_final: Whether this is the final drain.
+            symbol: Optional symbol to drain orders for (portfolio mode).
         """
         if self._oms.pending_count == 0:
             return
@@ -446,6 +730,12 @@ class BacktestEngine:
         entries = self._oms.drain(execution_price, execution_timestamp)
         for entry in entries:
             order = entry.order
+            # If symbol specified, only process orders for that symbol
+            if symbol is not None and order.symbol != symbol:
+                # Re-queue orders for other symbols
+                self._oms.submit(order, entry.fill_price, entry.fill_timestamp)
+                continue
+
             # Emit ORDER line at fill time (not signal time) so the timestamp
             # matches the candle the order executes on.
             logger.info(
@@ -500,7 +790,7 @@ class BacktestEngine:
         return all_timeframes
 
     def _read_all_timeframes(self, timeframes: list[str]) -> dict[str, list[dict]]:
-        """Read normalized data for all required timeframes.
+        """Read normalized data for all required timeframes (single-instrument mode).
         
         Uses adapter.read_timeframe() for all timeframes. The adapter handles
         native support and aggregation from 1M internally per the protocol contract.
@@ -517,16 +807,127 @@ class BacktestEngine:
         result = {}
         for tf in timeframes:
             try:
-                result[tf] = self._adapter.read_timeframe(tf)
+                result[tf] = self._instruments[0].adapter.read_timeframe(tf)
             except ValueError as e:
                 # Adapter raised ValueError for unsupported timeframe with no 1M available
                 logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
                 raise ProviderError(
                     f"Cannot provide timeframe '{tf}': {e}. "
-                    f"Available native timeframes: {self._adapter.supported_timeframes}"
+                    f"Available native timeframes: {self._instruments[0].adapter.supported_timeframes}"
                 ) from e
             except Exception as e:
                 logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
                 raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
         return result
+
+    def _build_portfolio_result(
+        self,
+        equity_curve: List[tuple[datetime, float]],
+        data_start: Optional[str],
+        data_end: Optional[str],
+        symbols: List[str],
+    ) -> PortfolioResult:
+        """Build PortfolioResult from backtest execution."""
+        from quantrex_core.models.trade import TradeRecord
+        from quantrex_core.models.position import Position
+
+        # Get all closed trades
+        trades = self._position_manager.get_closed_trades()
+
+        # Calculate portfolio metrics
+        initial_cash = self._config.initial_cash
+        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
+        total_return = final_equity - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
+
+        # Calculate max drawdown
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        peak = initial_cash
+        for _, equity in equity_curve:
+            if equity > peak:
+                peak = equity
+            drawdown = peak - equity
+            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+            if drawdown_pct > max_drawdown_pct:
+                max_drawdown_pct = drawdown_pct
+
+        # Calculate trade statistics
+        total_trades = len(trades)
+        winning_trades = sum(1 for t in trades if t.pnl > 0)
+        losing_trades = sum(1 for t in trades if t.pnl < 0)
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # Profit factor
+        gross_profit = sum(t.pnl for t in trades if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+
+        # Per-symbol results
+        per_symbol = {}
+        for symbol in symbols:
+            symbol_trades = [t for t in trades if t.symbol == symbol]
+            symbol_total = len(symbol_trades)
+            symbol_winning = sum(1 for t in symbol_trades if t.pnl > 0)
+            symbol_losing = sum(1 for t in symbol_trades if t.pnl < 0)
+            symbol_pnl = sum(t.pnl for t in symbol_trades)
+            symbol_position = self._position_manager.get_position(symbol)
+
+            per_symbol[symbol] = SymbolResult(
+                symbol=symbol,
+                trades=symbol_trades,
+                final_position=symbol_position,
+                total_trades=symbol_total,
+                winning_trades=symbol_winning,
+                losing_trades=symbol_losing,
+                total_pnl=symbol_pnl,
+                max_drawdown=0.0,  # Would need per-symbol equity curve
+            )
+
+        return PortfolioResult(
+            initial_cash=initial_cash,
+            final_equity=final_equity,
+            total_return=total_return,
+            total_return_pct=total_return_pct,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_drawdown_pct,
+            sharpe_ratio=None,  # Would need returns series
+            total_trades=total_trades,
+            winning_trades=winning_trades,
+            losing_trades=losing_trades,
+            win_rate=win_rate,
+            profit_factor=profit_factor,
+            per_symbol=per_symbol,
+            equity_curve=equity_curve,
+            start_date=datetime.strptime(data_start, "%Y%m%d_%H%M%S") if data_start else None,
+            end_date=datetime.strptime(data_end, "%Y%m%d_%H%M%S") if data_end else None,
+            symbols=symbols,
+        )
+
+    def _build_run_dir(
+        self,
+        backtest_start_utc: datetime,
+        data_start: str | None,
+        data_end: str | None,
+    ) -> Path:
+        """Build the per-run output directory path (does not create it)."""
+        strategy_name = type(self._strategy).__name__
+        backtest_start_str = backtest_start_utc.strftime("%Y%m%d_%H%M%S")
+        if data_start is None or data_end is None:
+            data_start = backtest_start_str
+            data_end = backtest_start_str
+        
+        # Use first symbol for directory name in portfolio mode
+        symbol_str = self._instruments[0].symbol if self._instruments else "UNKNOWN"
+        if len(self._instruments) > 1:
+            symbol_str += f"_+{len(self._instruments)-1}"
+        
+        return (
+            Path("output")
+            / "backtest"
+            / strategy_name
+            / f"{backtest_start_str}_{symbol_str}_{data_start}_{data_end}_short"
+        )
 
