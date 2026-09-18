@@ -77,9 +77,12 @@ class PortfolioResult:
         # time-series merging of equity curves
         combined_symbols = {**self.per_symbol, **other.per_symbol}
 
+        # final_equity = initial_cash + total_return (from both)
+        combined_final_equity = self.initial_cash + self.total_return + other.total_return
+
         return PortfolioResult(
             initial_cash=self.initial_cash,
-            final_equity=self.final_equity + other.final_equity - self.initial_cash,
+            final_equity=combined_final_equity,
             total_return=self.total_return + other.total_return,
             total_return_pct=0.0,  # Would need recalculation
             max_drawdown=max(self.max_drawdown, other.max_drawdown),

@@ -1,5 +1,6 @@
 """Quantrex Backtest Engine - Minimal public API."""
 
+from quantrex_core import InstrumentSpec, PortfolioConfig
 from .core.engine import BacktestEngine
 from .exceptions.backtest_error import BacktestError, ProviderError
 from .portfolio import BacktestPortfolioContext, PortfolioResult, SymbolResult
@@ -14,4 +15,6 @@ __all__ = [
     "SymbolResult",
     "DataOrchestrator",
     "DataOrchestratorConfig",
+    "InstrumentSpec",
+    "PortfolioConfig",
 ]

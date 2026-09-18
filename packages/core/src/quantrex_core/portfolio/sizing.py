@@ -1,10 +1,12 @@
 """Portfolio position sizing protocol for Quantrex."""
 
 from typing import Dict, Protocol
+from typing_extensions import runtime_checkable
 
 from ..models.portfolio import PortfolioState
 
 
+@runtime_checkable
 class PositionSizer(Protocol):
     """Protocol for portfolio-level position sizing.
 

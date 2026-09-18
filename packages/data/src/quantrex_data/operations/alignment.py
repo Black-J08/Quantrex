@@ -51,6 +51,7 @@ def align_to_exchange_calendar(
     aligned = []
     for row in data:
         dt_val = row.get("datetime")
+        dt = None
         if isinstance(dt_val, str):
             for fmt in ("%Y%m%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
                 try:
@@ -61,6 +62,10 @@ def align_to_exchange_calendar(
         elif isinstance(dt_val, datetime):
             dt = dt_val
         else:
+            continue
+
+        # Check if dt was successfully parsed
+        if dt is None:
             continue
 
         # Check if within market hours

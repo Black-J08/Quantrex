@@ -74,6 +74,20 @@ class BacktestPortfolioContext(PortfolioContext):
             )
             return rejected
 
+        # Check if we have a current candle (required for order submission)
+        if self._strategy_context._current_candle is None:
+            logger.warning("Cannot submit order: no current candle available")
+            rejected = Order(
+                id="0",
+                symbol=symbol,
+                side=side,
+                quantity=quantity,
+                order_type=order_type,
+                status=OrderStatus.REJECTED,
+                timestamp=self._strategy_context.current_time,
+            )
+            return rejected
+
         return self._strategy_context.submit_order(symbol, side, quantity, order_type)
 
     def get_position(self, symbol: str) -> Position:
