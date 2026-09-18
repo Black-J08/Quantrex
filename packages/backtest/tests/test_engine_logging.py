@@ -17,7 +17,7 @@ from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 # Logger name used by the backtest engine module; the per-bar audit
 # log line is emitted on this logger.
@@ -43,6 +43,7 @@ def _mock_adapter(rows: list[dict]) -> Mock:
     adapter.read_timeframe.return_value = rows
     adapter.datetime_format = "%Y%m%d %H:%M"
     adapter.supported_timeframes = ["1M"]
+    adapter.get_origin_time.return_value = None
     return adapter
 
 
@@ -54,7 +55,7 @@ def test_engine_logs_ohlc_per_candle_to_logger(caplog: pytest.LogCaptureFixture)
 
     adapter = _mock_adapter([
         {
-            "datetime": "20230620 19:00",
+            "datetime": "20230620 09:15",
             "open": "100.5",
             "high": "101.25",
             "low": "99.75",
@@ -62,7 +63,7 @@ def test_engine_logs_ohlc_per_candle_to_logger(caplog: pytest.LogCaptureFixture)
             "volume": "42",
         },
         {
-            "datetime": "20230620 19:01",
+            "datetime": "20230620 09:16",
             "open": "100.75",
             "high": "102.0",
             "low": "100.5",
@@ -72,7 +73,11 @@ def test_engine_logs_ohlc_per_candle_to_logger(caplog: pytest.LogCaptureFixture)
     ])
 
     strategy = _LoggingProbeStrategy()
-    engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     # Pick the audit lines from the captured engine-logger records.
@@ -87,20 +92,20 @@ def test_engine_logs_ohlc_per_candle_to_logger(caplog: pytest.LogCaptureFixture)
         f"{[r.getMessage() for r in audit_records]!r}"
     )
 
-    # Candle 1: 2023-06-20 19:00 — verify every OHLCV field appears
+    # Candle 1: 2023-06-20 09:15 — verify every OHLCV field appears
     # in a single record tagged with the symbol and candle timestamp.
     msg1 = audit_records[0].getMessage()
-    assert "[COPPER 2023-06-20T19:00:00]" in msg1
+    assert "[COPPER 2023-06-20T09:15:00]" in msg1
     assert "O=100.5" in msg1
     assert "H=101.25" in msg1
     assert "L=99.75" in msg1
     assert "C=100.75" in msg1
     assert "V=42" in msg1
 
-    # Candle 2: 2023-06-20 19:01 — distinct values prove the line is
+    # Candle 2: 2023-06-20 09:16 — distinct values prove the line is
     # emitted per bar.
     msg2 = audit_records[1].getMessage()
-    assert "[COPPER 2023-06-20T19:01:00]" in msg2
+    assert "[COPPER 2023-06-20T09:16:00]" in msg2
     assert "O=100.75" in msg2
     assert "H=102.0" in msg2
     assert "C=101.5" in msg2
@@ -127,7 +132,11 @@ def test_engine_log_uses_candle_timestamp_not_wall_clock(
     ])
 
     strategy = _LoggingProbeStrategy()
-    engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     audit_records = [
@@ -212,7 +221,11 @@ def test_engine_logs_orders_with_candle_timestamp(
     ])
 
     strategy = _OrderSubmittingStrategy()
-    engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     # Filter for order audit lines on the engine logger.

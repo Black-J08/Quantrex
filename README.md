@@ -21,8 +21,8 @@ This is a monorepo with the following packages:
 ```python
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-from quantrex_backtest import BacktestEngine
-from quantrex_test_support.csv import make_ohlc_series, create_temp_csv
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 # Generate synthetic data
 rows = make_ohlc_series(num_rows=10, start_price=737.20, seed=42)
@@ -43,9 +43,14 @@ with create_temp_csv(csv_content) as temp_path:
         },
     )
 
-    # Run backtest
-    engine = BacktestEngine(adapter, symbol="COPPER")
-    engine.run(lambda candle: print(candle.timestamp, candle.close))
+    # Run backtest (portfolio mode)
+    instruments = [
+        InstrumentSpec(symbol="COPPER", adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+    strategy = MyStrategy()  # Your Strategy subclass
+    engine = BacktestEngine(instruments, strategy, config)
+    result = engine.run()
 ```
 
 ## Precomputed Indicators

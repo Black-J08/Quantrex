@@ -114,7 +114,11 @@ def main():
     # Note: datetime_format MUST match the format the adapter emits; otherwise
     # Candle.from_row will fail with "unconverted data" / ValueError.
     strategy = DhanExampleStrategy()
-    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+    instruments = [
+        InstrumentSpec(symbol="RELIANCE", adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+    engine = BacktestEngine(instruments, strategy, config)
 
     try:
         logger.info("Starting backtest...")

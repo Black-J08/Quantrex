@@ -34,6 +34,8 @@ class PortfolioConfig:
         data_start: Start date for data (ISO format "YYYY-MM-DD"). None = earliest available.
         data_end: End date for data (ISO format "YYYY-MM-DD"). None = latest available.
         auto_download: Whether to automatically download missing data via providers.
+        validate_completeness: Whether to validate data completeness (minimum bars).
+        min_bars_required: Minimum number of bars required for completeness check.
     """
     initial_cash: float = 1_000_000.0
     margin_requirement: float = 1.0
@@ -41,3 +43,5 @@ class PortfolioConfig:
     data_start: Optional[str] = None
     data_end: Optional[str] = None
     auto_download: bool = True
+    validate_completeness: bool = True
+    min_bars_required: int = 100

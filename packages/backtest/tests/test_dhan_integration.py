@@ -1,12 +1,11 @@
 """Integration tests for Dhan provider with BacktestEngine."""
 
 import pytest
-from unittest.mock import Mock, patch
-from datetime import date
+from unittest.mock import Mock
 
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
@@ -51,7 +50,9 @@ class TestDhanIntegration:
 
         # Create strategy and engine - adapter owns the datetime format
         strategy = TestStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+        instruments = [InstrumentSpec(symbol="RELIANCE", adapter=adapter)]
+        config = PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        engine = BacktestEngine(instruments, strategy, config)
 
         # Run backtest
         engine.run()
@@ -91,7 +92,9 @@ class TestDhanIntegration:
 
         adapter = DhanDataAdapter(mock_provider)
         strategy = OrderStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+        instruments = [InstrumentSpec(symbol="RELIANCE", adapter=adapter)]
+        config = PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        engine = BacktestEngine(instruments, strategy, config)
 
         engine.run()
 
@@ -178,7 +181,9 @@ class TestDhanExampleStrategyDatetimeFormat:
         adapter = DhanDataAdapter(mock_provider)
         strategy = TestStrategy()
         # Engine no longer accepts datetime_format; it reads from adapter.
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+        instruments = [InstrumentSpec(symbol="RELIANCE", adapter=adapter)]
+        config = PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        engine = BacktestEngine(instruments, strategy, config)
         # Should succeed because adapter and engine agree automatically.
         engine.run()
         assert strategy.started
@@ -188,7 +193,9 @@ class TestDhanExampleStrategyDatetimeFormat:
         """When both adapter and engine use "%Y-%m-%d %H:%M:%S", the backtest runs cleanly."""
         adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
         strategy = TestStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+        instruments = [InstrumentSpec(symbol="RELIANCE", adapter=adapter)]
+        config = PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        engine = BacktestEngine(instruments, strategy, config)
 
         engine.run()
 
@@ -231,7 +238,6 @@ class TestDhanClosedTradesTimestampRegression:
         Verifies that entry/exit timestamps in closed_trades.csv match
         the IST market clock (not 18:30 UTC).
         """
-        import csv
         monkeypatch.chdir(tmp_path)
 
         class BuyAndSellStrategy(Strategy):
@@ -251,7 +257,9 @@ class TestDhanClosedTradesTimestampRegression:
                         self.ctx.submit_order(symbol=candle.symbol, side=OrderSide.SELL, quantity=pos.quantity)
 
         adapter = DhanDataAdapter(mock_provider, datetime_format="%Y-%m-%d %H:%M:%S")
-        engine = BacktestEngine(adapter, BuyAndSellStrategy(), symbol="RELIANCE")
+        instruments = [InstrumentSpec(symbol="RELIANCE", adapter=adapter)]
+        config = PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        engine = BacktestEngine(instruments, BuyAndSellStrategy(), config)
         engine.run()
 
         # Locate the CSV the engine just wrote.

@@ -1,7 +1,7 @@
 """Example strategy demonstrating the new StrategyContext API.
 
 One script works for backtesting, paper trading, and live trading.
-This version uses the new DataProvider → DataAdapter pattern.
+This version uses the new DataProvider → DataAdapter pattern with portfolio mode.
 """
 
 from quantrex_core.logging import get_logger
@@ -10,7 +10,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 logger = get_logger(__name__)
@@ -64,9 +64,13 @@ if __name__ == "__main__":
             },
         )
 
-        # 3. Create engine with data adapter and strategy instance
+        # 3. Create engine with data adapter and strategy instance (portfolio mode)
         strategy = MyStrategy()
-        engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+        instruments = [
+            InstrumentSpec(symbol="COPPER", adapter=adapter),
+        ]
+        config = PortfolioConfig(initial_cash=1_000_000.0)
+        engine = BacktestEngine(instruments, strategy, config)
 
         # 4. Run backtest - engine will call strategy.on_start(), on_candle(), on_stop()
         engine.run()

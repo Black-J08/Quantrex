@@ -6,7 +6,7 @@ from quantrex_core.logging import get_logger
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.timeframe import on_timeframe
 
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 from quantrex_data.providers.zerodha_provider import ZerodhaDataProvider
 from quantrex_data.adapters.zerodha_adapter import ZerodhaDataAdapter
@@ -79,6 +79,10 @@ class HourlyInsideBreakoutStrategy(Strategy):
 
 
 if __name__ == "__main__":
+    from quantrex_core.logging import setup_logging
+
+    setup_logging(level="INFO")
+
     strategy = HourlyInsideBreakoutStrategy()
 
     symbol = "RELIANCE"
@@ -87,13 +91,18 @@ if __name__ == "__main__":
         exchange_segment="NSE",
         # instrument="EQUITY",
         from_date="2026-01-01",
-        to_date="2026-06-30",
+        to_date="2026-01-30",
     )
     adapter = ZerodhaDataAdapter(provider)
 
+    instruments = [
+        InstrumentSpec(symbol=symbol, adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+
     engine = BacktestEngine(
-        adapter=adapter,
+        instruments=instruments,
         strategy=strategy,
-        symbol=symbol,
+        config=config,
     )
     engine.run()

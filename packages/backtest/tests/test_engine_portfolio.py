@@ -1,17 +1,14 @@
 """Tests for unified BacktestEngine portfolio mode."""
 
-from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
 
 from quantrex_core import Strategy
 from quantrex_core.models import Candle
-from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, PortfolioConfig, PortfolioResult
 from quantrex_core import InstrumentSpec
-from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 
 class TestStrategy(Strategy):
@@ -52,7 +49,6 @@ class TestBacktestEnginePortfolioMode:
 
         engine = BacktestEngine(instruments, strategy, config)
 
-        assert engine._is_portfolio_mode is True
         assert len(engine._instruments) == 2
         assert engine._config.initial_cash == 1_000_000.0
 
@@ -69,7 +65,6 @@ class TestBacktestEnginePortfolioMode:
 
         engine = BacktestEngine(instruments, strategy, config)
 
-        assert engine._is_portfolio_mode is True
         assert len(engine._instruments) == 1
 
     def test_portfolio_mode_requires_instruments(self):
@@ -85,7 +80,6 @@ class TestBacktestEnginePortfolioMode:
     def test_portfolio_mode_requires_adapters(self):
         """Test portfolio mode requires adapters for all instruments."""
         from quantrex_core import InstrumentSpec
-        from quantrex_core.protocols import DataAdapter
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=None)]
         strategy = TestStrategy()
@@ -173,9 +167,9 @@ class TestBacktestEnginePortfolioMode:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(initial_cash=1_000_000.0, auto_download=False),
+            config,
         )
-        result = engine.run()
+        _result = engine.run()
 
         # Strategy should have received portfolio context
         assert len(strategy.portfolio_snapshots) > 0
@@ -184,33 +178,12 @@ class TestBacktestEnginePortfolioMode:
             assert 'equity' in snapshot
             assert 'positions' in snapshot
 
-    def test_portfolio_mode_backward_compatibility(self):
-        """Test single-instrument mode still works (backward compatibility)."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-        ]
-
-        strategy = TestStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="RELIANCE")
-
-        assert engine._is_portfolio_mode is False
-        assert engine._symbol == "RELIANCE"
-        assert len(engine._instruments) == 1
-
-        result = engine.run()
-        assert isinstance(result, PortfolioResult)
-        assert result.symbols == ["RELIANCE"]
-
 
 class TestBacktestEnginePortfolioModeEdgeCases:
     """Tests for edge cases in portfolio mode."""
 
     def test_portfolio_mode_empty_data(self):
-        """Test portfolio mode with empty data raises ValueError."""
+        """Test portfolio mode with empty data returns empty PortfolioResult."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
@@ -223,9 +196,11 @@ class TestBacktestEnginePortfolioModeEdgeCases:
 
         engine = BacktestEngine(instruments, strategy, config)
         
-        with pytest.raises(ValueError) as exc_info:
-            engine.run()
-        assert "No data rows provided" in str(exc_info.value)
+        result = engine.run()
+        assert isinstance(result, PortfolioResult)
+        assert result.initial_cash == 1_000_000.0
+        assert result.final_equity == 1_000_000.0
+        assert result.total_trades == 0
 
     def test_portfolio_mode_mismatched_timestamps(self):
         """Test portfolio mode with mismatched timestamps across symbols."""

@@ -2,11 +2,10 @@
 
 import logging
 import os
-from datetime import datetime, timezone, timedelta
-import re
+from datetime import datetime, timezone
 from pathlib import Path
 import csv
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
@@ -16,8 +15,7 @@ from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core import InstrumentSpec, PortfolioConfig
 from quantrex_backtest.portfolio import PortfolioResult, SymbolResult
-from .context import BacktestStrategyContext
-from .timeframe import parse_timeframe_to_timedelta, calculate_close_time
+from .timeframe import calculate_close_time
 from ..exceptions.backtest_error import ProviderError
 from ..data import DataOrchestrator, DataOrchestratorConfig
 from ..portfolio import BacktestPortfolioContext
@@ -33,13 +31,12 @@ class BacktestEngine:
     Processes OHLCV candles sequentially in timestamp order,
     invoking a strategy's lifecycle methods for each candle.
 
-    Supports both single-instrument and portfolio backtesting
-    through a unified API.
+    Supports portfolio backtesting through a unified API.
 
-    Example (single instrument):
+    Example (portfolio):
+        >>> from quantrex_backtest import InstrumentSpec, PortfolioConfig
         >>> from quantrex_data.providers.csv_provider import CSVDataProvider
         >>> from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-        >>> from quantrex_backtest import BacktestEngine
         >>> from quantrex_core import Strategy, Candle
         >>>
         >>> class MyStrategy(Strategy):
@@ -48,43 +45,27 @@ class BacktestEngine:
         >>>
         >>> provider = CSVDataProvider("data.csv", has_header=False)
         >>> adapter = CSVDataAdapter(provider, mapping={...})
-        >>> strategy = MyStrategy()
-        >>> engine = BacktestEngine(adapter, strategy, symbol="COPPER")
-        >>> result = engine.run()
-
-    Example (portfolio):
-        >>> from quantrex_backtest import InstrumentSpec, PortfolioConfig
-        >>>
         >>> instruments = [
-        ...     InstrumentSpec(symbol="COPPER", adapter=copper_adapter),
-        ...     InstrumentSpec(symbol="SILVER", adapter=silver_adapter),
+        ...     InstrumentSpec(symbol="COPPER", adapter=adapter),
         ... ]
         >>> config = PortfolioConfig(initial_cash=1_000_000)
+        >>> strategy = MyStrategy()
         >>> engine = BacktestEngine(instruments, strategy, config)
         >>> result = engine.run()
     """
 
     def __init__(
         self,
-        instruments_or_adapter: Union[List[InstrumentSpec], object],
+        instruments: List[InstrumentSpec],
         strategy: Strategy,
-        symbol: str = "",
-        config: Optional[PortfolioConfig] = None,
+        config: PortfolioConfig,
     ) -> None:
-        """Initialize the backtest engine.
-
-        Two calling conventions supported:
-
-        1. Portfolio mode (new):
-           BacktestEngine(instruments: List[InstrumentSpec], strategy: Strategy, config: PortfolioConfig)
-
-        2. Single-instrument mode (backward compatible):
-           BacktestEngine(adapter: DataAdapter, strategy: Strategy, symbol: str = "")
+        """Initialize the backtest engine in portfolio mode.
 
         Args:
-            instruments_or_adapter: Either list of InstrumentSpec (portfolio mode) or DataAdapter (single mode)
+            instruments: List of InstrumentSpec defining symbols and their data adapters
             strategy: Strategy instance to execute
-            symbol_or_config: Either PortfolioConfig (portfolio mode) or symbol string (single mode)
+            config: PortfolioConfig with portfolio-level settings
 
         Raises:
             ProviderError: If required arguments are None or invalid.
@@ -92,44 +73,24 @@ class BacktestEngine:
         if strategy is None:
             raise ProviderError("Strategy is required; received None")
 
+        if not instruments:
+            raise ProviderError("At least one instrument required")
+
+        # Validate all instruments have adapters
+        for spec in instruments:
+            if spec.adapter is None:
+                raise ProviderError(f"DataAdapter required for instrument {spec.symbol}; received None")
+
+        self._instruments = instruments
         self._strategy = strategy
-
-        # Detect calling convention
-        if isinstance(instruments_or_adapter, list):
-            # Portfolio mode
-            self._instruments = instruments_or_adapter
-            self._config = config if isinstance(config, PortfolioConfig) else PortfolioConfig()
-            self._is_portfolio_mode = True
-
-            if not self._instruments:
-                raise ProviderError("At least one instrument required in portfolio mode")
-
-            # Validate all instruments have adapters
-            for spec in self._instruments:
-                if spec.adapter is None:
-                    raise ProviderError(f"DataAdapter required for instrument {spec.symbol}; received None")
-
-            # Use first instrument's adapter for datetime format (they should be consistent)
-            self._datetime_format = self._instruments[0].adapter.datetime_format
-
-        else:
-            # Single-instrument mode (backward compatible)
-            adapter = instruments_or_adapter
-            if adapter is None:
-                raise ProviderError("DataAdapter is required; received None")
-
-            self._instruments = [InstrumentSpec(
-                symbol=symbol if isinstance(symbol, str) else "",
-                adapter=adapter,
-            )]
-            self._config = PortfolioConfig()
-            self._is_portfolio_mode = False
-            self._symbol = symbol if isinstance(symbol, str) else ""
-            self._datetime_format = adapter.datetime_format
+        self._config = config
 
         # Create PositionManager, OMS
         self._position_manager = PositionManager()
         self._oms = OrderManagementSystem()
+
+        # Build symbol→adapter map for O(1) lookup in hot loop
+        self._symbol_to_adapter = {spec.symbol: spec.adapter for spec in instruments}
 
         # Context will be created in run() after data preparation
         self._context: Optional[BacktestPortfolioContext] = None
@@ -137,14 +98,14 @@ class BacktestEngine:
             cache_dir=Path("data/cache"),
             exchange_calendar="NSE",
             auto_download=self._config.auto_download,
-            validate_completeness=self._config.validate_completeness if hasattr(self._config, 'validate_completeness') else True,
-            min_bars_required=100,
+            validate_completeness=self._config.validate_completeness,
+            min_bars_required=self._config.min_bars_required,
         ))
 
         # Inject context into Strategy (will be updated in run())
         self._strategy.set_context(self._context)  # Will be set properly in run()
 
-    def run(self, parallel: bool = False, max_workers: Optional[int] = None) -> PortfolioResult:
+    def run(self) -> PortfolioResult:
         """Run the backtest, invoking the strategy's lifecycle methods.
 
         Calls strategy.on_start(), then strategy.on_candle() for each candle
@@ -175,207 +136,63 @@ class BacktestEngine:
 
         self._strategy.on_start()
 
-        # Single-instrument mode: use legacy logic for backward compatibility
-        if not self._is_portfolio_mode:
-            return self._run_single_instrument(staging_dir, backtest_start_utc)
-
         # Portfolio mode: use DataOrchestrator and synchronized execution
         return self._run_portfolio(staging_dir, backtest_start_utc)
 
-    def _run_single_instrument(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
-        """Run backtest in single-instrument mode (legacy logic)."""
-        # Get required timeframes from strategy
-        required_timeframes = self._get_required_timeframes()
-        
-        # Read raw data for all required timeframes
-        raw_data_by_tf = self._read_all_timeframes(required_timeframes)
-        
-        # Check if base timeframe has data
-        base_timeframe = required_timeframes[0]
-        base_raw = raw_data_by_tf.get(base_timeframe, [])
-        
-        if not base_raw:
-            logger.warning("No data returned from adapter; backtest completed with zero candles")
-            self._strategy.on_stop()
-            self._export_trades_csv(staging_dir)
-            logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
-            return PortfolioResult.empty(self._config.initial_cash)
-        
-        # Sort each timeframe's data by datetime for deterministic ordering
-        for tf in raw_data_by_tf:
-            raw_data_by_tf[tf].sort(key=lambda row: row.get("datetime", ""))
-
-        # Compute indicators for each timeframe
-        per_bar_by_tf = {}
-        for tf in required_timeframes:
-            try:
-                per_bar_by_tf[tf] = self._strategy.compute_indicators(
-                    raw_data_by_tf[tf], timeframe=tf
-                )
-            except Exception as e:
-                logger.exception("Strategy.compute_indicators raised for timeframe %s", tf)
-                raise ProviderError(
-                    f"Strategy.compute_indicators failed for timeframe {tf}: {e}"
-                ) from e
-
-        # Validate lengths match for each timeframe
-        for tf in required_timeframes:
-            if len(per_bar_by_tf[tf]) != len(raw_data_by_tf[tf]):
-                logger.exception(
-                    "compute_indicators returned %d entries for %d candles (timeframe %s)",
-                    len(per_bar_by_tf[tf]), len(raw_data_by_tf[tf]), tf,
-                )
-                raise ProviderError(
-                    f"compute_indicators returned {len(per_bar_by_tf[tf])} entries "
-                    f"for {len(raw_data_by_tf[tf])} candles (timeframe {tf}); length must match"
-                )
-
-        # Determine base timeframe (first in required_timeframes)
-        base_timeframe = required_timeframes[0]
-        
-        # Create new context with multi-timeframe data
-        # Get origin time from adapter for correct timeframe aggregation
-        origin_time = self._instruments[0].adapter.get_origin_time()
-        self._context = BacktestStrategyContext(
-            self._position_manager,
-            self._oms,
-            datetime.min,
-            raw_data_by_timeframe=raw_data_by_tf,
-            indicators_by_timeframe=per_bar_by_tf,
-            base_timeframe=base_timeframe,
-            origin_time=origin_time,
-        )
-        
-        # Set symbol and datetime format for derived candle construction
-        self._context.set_symbol_and_format(self._symbol, self._datetime_format)
-        
-        # Inject context into Strategy
-        self._strategy.set_context(self._context)
-
-        logger.info("Processing %d candles (base timeframe: %s)", len(raw_data_by_tf[base_timeframe]), base_timeframe)
-
-        data_start: str | None = None
-        data_end: str | None = None
-        base_raw = raw_data_by_tf[base_timeframe]
-        base_indicators = per_bar_by_tf[base_timeframe]
-        equity_curve: List[tuple[datetime, float]] = []
-
-        for idx, row in enumerate(base_raw):
-            try:
-                candle = Candle.from_row(
-                    row,
-                    self._symbol,
-                    self._datetime_format,
-                    indicators=base_indicators[idx],
-                )
-
-                # Capture first and last candle timestamps for output path
-                if data_start is None:
-                    data_start = candle.timestamp.strftime("%Y%m%d_%H%M%S")
-                data_end = candle.timestamp.strftime("%Y%m%d_%H%M%S")
-
-                # Drain any pending orders at this candle's open price (T+1 execution).
-                # This runs BEFORE update_time / update_candle so the timestamp and
-                # price used for fill match the current candle exactly.
-                self._drain_pending(candle.open, candle.timestamp)
-
-                # Update context time with candle's close time for execution timing
-                # and candle for order pricing
-                close_time = calculate_close_time(candle.timestamp, base_timeframe)
-                self._context.update_time(close_time)
-                self._context.update_candle(candle)
-                # Record the current bar in the context's history BEFORE
-                # ``on_candle`` so the strategy observes it as the last
-                # element of ``ctx.history`` (``ctx.history[-1] is candle``).
-                # This is what makes the ``ctx.history[-N:]`` lookback idiom
-                # work end-to-end with no per-bar bookkeeping in the
-                # strategy.
-                self._context.record_candle(candle)
-                # Emit a per-bar audit line so execution.log records the
-                # backtest/candle timestamp, OHLCV, and all precomputed
-                # indicator values without researchers having to add logging
-                # in their strategy.
-                indicator_parts = [
-                    f"{k}={v}" for k, v in sorted(candle.indicators.items()) if v is not None
-                ]
-                indicator_str = " " + " ".join(indicator_parts) if indicator_parts else ""
-                logger.info(
-                    "[%s %s] O=%s H=%s L=%s C=%s V=%s%s",
-                    candle.symbol,
-                    candle.timestamp.isoformat(),
-                    candle.open,
-                    candle.high,
-                    candle.low,
-                    candle.close,
-                    candle.volume,
-                    indicator_str,
-                )
-                # Call on_candle only when strategy defines it; otherwise
-                # only timeframe dispatch runs (no 1M iteration needed).
-                if any("on_candle" in cls.__dict__ for cls in self._strategy.__class__.__mro__ if cls is not Strategy):
-                    self._strategy.on_candle(candle)
-                # Engine manages timeframe dispatch automatically.
-                self._strategy.timeframe_dispatcher.dispatch_all(self._context)
-
-                # Record equity curve point
-                equity_curve.append((close_time, self._context.equity))
-
-            except Exception as e:
-                logger.exception("Failed to process candle at index %d", idx)
-                raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
-
-        # Flush any remaining pending orders at the final candle's close price.
-        # This handles the case where the strategy submits an order on the
-        # last candle; without this the order would be silently dropped.
-        last_candle = Candle.from_row(
-            base_raw[-1], self._symbol, self._datetime_format, indicators=base_indicators[-1]
-        )
-        last_close_time = calculate_close_time(last_candle.timestamp, base_timeframe)
-        self._drain_pending(last_candle.close, last_close_time, is_final=True)
-
-        self._strategy.on_stop()
-        logger.info("Backtest completed: %d candles processed", len(base_raw))
-
-        # Promote staging -> final run dir now that we know the data window.
-        # We move individual files (closed_trades.csv and execution.log)
-        # rather than renaming the directory, because Path.rename fails on
-        # non-empty directories in some environments.
-        final_run_dir = self._build_run_dir(backtest_start_utc, data_start, data_end)
-        if final_run_dir != staging_dir:
-            run_dir = self._promote_run_dir(staging_dir, final_run_dir)
-        else:
-            run_dir = staging_dir
-
-        # Export closed trades into the final run dir.
-        self._export_trades_csv(run_dir)
-        logger.info("Run log: %s", run_dir / _RUN_LOG_FILENAME)
-
-        # Build PortfolioResult
-        return self._build_portfolio_result(
-            equity_curve=equity_curve,
-            data_start=data_start,
-            data_end=data_end,
-            symbols=[self._symbol],
-        )
-
     def _run_portfolio(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
         """Run backtest in portfolio mode (new logic)."""
-        # Step 1: Prepare data using DataOrchestrator
-        logger.info("Preparing data for %d instruments", len(self._instruments))
-        synchronized_data = self._data_orchestrator.validate_and_prepare(
-            self._instruments,
-            self._config,
-        )
-
-        if not synchronized_data:
+        # Step 1: Get required timeframes
+        required_timeframes = self._get_required_timeframes()
+        base_timeframe = required_timeframes[0]
+        
+        # Step 2: Use DataOrchestrator to prepare validated, synchronized base timeframe data
+        logger.info("Preparing data for %d instruments using DataOrchestrator", len(self._instruments))
+        try:
+            synchronized_base_data = self._data_orchestrator.validate_and_prepare(
+                self._instruments,
+                self._config,
+            )
+        except ValueError as e:
+            # Wrap orchestrator ValueError in ProviderError for consistent error handling
+            raise ProviderError(f"Failed to read data: {e}") from e
+        
+        if not synchronized_base_data:
             logger.warning("No data available for any instrument; backtest completed with zero candles")
             self._strategy.on_stop()
             self._export_trades_csv(staging_dir)
             logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
             return PortfolioResult.empty(self._config.initial_cash)
 
-        # Step 2: Create unified PortfolioContext
-        symbols = list(synchronized_data.keys())
+        # Step 3: Read additional timeframes directly from adapters (non-base timeframes)
+        additional_timeframes = [tf for tf in required_timeframes if tf != base_timeframe]
+        all_raw_data = {}
+        
+        # Add synchronized base timeframe data from orchestrator
+        for symbol, data in synchronized_base_data.items():
+            all_raw_data[symbol] = {base_timeframe: data}
+        
+        # Read additional timeframes for each instrument
+        for spec in self._instruments:
+            symbol = spec.symbol
+            if symbol not in all_raw_data:
+                all_raw_data[symbol] = {}
+            for tf in additional_timeframes:
+                try:
+                    all_raw_data[symbol][tf] = spec.adapter.read_timeframe(tf)
+                except ValueError as e:
+                    logger.exception("Adapter read_timeframe failed for %s timeframe %s", symbol, tf)
+                    raise ProviderError(
+                        f"Cannot provide timeframe '{tf}': {e}. "
+                        f"Available native timeframes: {spec.adapter.supported_timeframes}"
+                    ) from e
+                except Exception as e:
+                    logger.exception("Adapter read_timeframe failed for %s timeframe %s", symbol, tf)
+                    raise ProviderError(
+                        f"Failed to read data for {symbol} timeframe {tf}: {e}"
+                    ) from e
+
+        # Step 4: Create unified PortfolioContext
+        symbols = list(all_raw_data.keys())
         origin_time = self._instruments[0].adapter.get_origin_time()
         
         self._context = BacktestPortfolioContext(
@@ -385,9 +202,9 @@ class BacktestEngine:
             instruments=symbols,
             initial_cash=self._config.initial_cash,
             margin_requirement=self._config.margin_requirement,
-            raw_data_by_timeframe={},  # Will be populated per timeframe
-            indicators_by_timeframe={},
-            base_timeframe="1M",
+            raw_data_by_timeframe=all_raw_data,
+            indicators_by_timeframe={},  # Will be populated after indicator computation
+            base_timeframe=base_timeframe,
             origin_time=origin_time,
         )
 
@@ -398,27 +215,8 @@ class BacktestEngine:
         # Inject context into Strategy
         self._strategy.set_context(self._context)
 
-        # Step 3: Get required timeframes and compute indicators for each instrument
-        required_timeframes = self._get_required_timeframes()
-        
-        # Compute indicators for each instrument and timeframe
-        all_indicators = {}
-        for spec in self._instruments:
-            symbol = spec.symbol
-            data = synchronized_data[symbol]
-            all_indicators[symbol] = {}
-            for tf in required_timeframes:
-                try:
-                    all_indicators[symbol][tf] = self._strategy.compute_indicators(data, timeframe=tf)
-                except Exception as e:
-                    logger.exception("Strategy.compute_indicators raised for %s timeframe %s", symbol, tf)
-                    raise ProviderError(
-                        f"Strategy.compute_indicators failed for {symbol} timeframe {tf}: {e}"
-                    ) from e
-
-        # Step 4: Create common time index from base timeframe data
-        base_timeframe = required_timeframes[0]
-        base_data = synchronized_data[symbols[0]]  # Use first symbol as reference
+        # Step 5: Create common time index from base timeframe data
+        base_data = all_raw_data[symbols[0]][base_timeframe]  # Use first symbol as reference
         
         if not base_data:
             logger.warning("No base timeframe data; backtest completed with zero candles")
@@ -430,7 +228,55 @@ class BacktestEngine:
         # Sort base data by datetime
         base_data.sort(key=lambda row: row.get("datetime", ""))
 
-        # Step 5: Main event loop - iterate synchronized timestamps
+        # Step 5: Compute indicators for each instrument and timeframe
+        all_indicators = {}
+        for spec in self._instruments:
+            symbol = spec.symbol
+            all_indicators[symbol] = {}
+            for tf in required_timeframes:
+                try:
+                    indicators = self._strategy.compute_indicators(
+                        all_raw_data[symbol][tf], timeframe=tf
+                    )
+                    # Validate length matches
+                    if len(indicators) != len(all_raw_data[symbol][tf]):
+                        logger.exception(
+                            "compute_indicators returned %d entries for %d candles (timeframe %s)",
+                            len(indicators), len(all_raw_data[symbol][tf]), tf,
+                        )
+                        raise ProviderError(
+                            f"compute_indicators returned {len(indicators)} entries "
+                            f"for {len(all_raw_data[symbol][tf])} candles (timeframe {tf}); length must match"
+                        )
+                    all_indicators[symbol][tf] = indicators
+                except Exception as e:
+                    logger.exception("Strategy.compute_indicators raised for %s timeframe %s", symbol, tf)
+                    raise ProviderError(
+                        f"Strategy.compute_indicators failed for {symbol} timeframe {tf}: {e}"
+                    ) from e
+
+        # Update context with computed indicators
+        self._context._strategy_context._indicators_by_timeframe = all_indicators
+
+        # Step 6: Pre-build datetime→row dictionaries for O(1) lookup in main loop
+        symbol_tf_to_rows = {}
+        for symbol in symbols:
+            symbol_tf_to_rows[symbol] = {}
+            for tf in required_timeframes:
+                row_map = {}
+                adapter = self._symbol_to_adapter[symbol]
+                for row in all_raw_data[symbol][tf]:
+                    dt_val = row.get("datetime")
+                    if isinstance(dt_val, str):
+                        dt = datetime.strptime(dt_val, adapter.datetime_format)
+                    elif isinstance(dt_val, datetime):
+                        dt = dt_val
+                    else:
+                        continue
+                    row_map[dt] = row
+                symbol_tf_to_rows[symbol][tf] = row_map
+
+        # Step 7: Main event loop - iterate synchronized timestamps
         logger.info("Processing %d synchronized candles (base timeframe: %s)", len(base_data), base_timeframe)
 
         data_start: str | None = None
@@ -442,12 +288,9 @@ class BacktestEngine:
                 # Create candles for all symbols at this timestamp
                 timestamp = base_row.get("datetime")
                 if isinstance(timestamp, str):
-                    for fmt in ("%Y%m%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-                        try:
-                            ts = datetime.strptime(timestamp, fmt)
-                            break
-                        except ValueError:
-                            continue
+                    # Use first symbol's adapter format for base timeframe parsing
+                    base_adapter = self._symbol_to_adapter[symbols[0]]
+                    ts = datetime.strptime(timestamp, base_adapter.datetime_format)
                 else:
                     ts = timestamp
 
@@ -459,33 +302,26 @@ class BacktestEngine:
                 # Create candles for each symbol
                 candles = {}
                 for symbol in symbols:
-                    # Find matching row for this symbol at this timestamp
-                    symbol_row = None
-                    for row in synchronized_data[symbol]:
-                        if row.get("datetime") == base_row.get("datetime"):
-                            symbol_row = row
-                            break
+                    # O(1) lookup for matching row
+                    symbol_row = symbol_tf_to_rows[symbol][base_timeframe].get(ts)
                     
                     if symbol_row is None:
                         continue  # Skip if no data for this symbol at this timestamp
 
-                    # Find the adapter for this symbol
-                    symbol_adapter = None
-                    for spec in self._instruments:
-                        if spec.symbol == symbol:
-                            symbol_adapter = spec.adapter
-                            break
-                    
-                    if symbol_adapter is None:
-                        symbol_adapter = self._instruments[0].adapter
+                    # O(1) adapter lookup
+                    symbol_adapter = self._symbol_to_adapter[symbol]
 
                     indicators = all_indicators[symbol].get(base_timeframe, [{}])[idx] if idx < len(all_indicators[symbol].get(base_timeframe, [])) else {}
-                    candle = Candle.from_row(
-                        symbol_row,
-                        symbol,
-                        symbol_adapter.datetime_format,  # Use this symbol's adapter format
-                        indicators=indicators,
-                    )
+                    try:
+                        candle = Candle.from_row(
+                            symbol_row,
+                            symbol,
+                            symbol_adapter.datetime_format,  # Use this symbol's adapter format
+                            indicators=indicators,
+                        )
+                    except ValueError as e:
+                        logger.exception("Failed to create candle for %s at index %d", symbol, idx)
+                        raise ProviderError(f"Failed to process candle at index {idx}: {e}") from e
                     candles[symbol] = candle
 
                 # Drain pending orders at this timestamp's open prices
@@ -586,25 +422,6 @@ class BacktestEngine:
         # Rebind the handler to the new log path.
         self._ensure_run_log_file(final_run_dir)
         return final_run_dir
-
-    def _build_run_dir(
-        self,
-        backtest_start_utc: datetime,
-        data_start: str | None,
-        data_end: str | None,
-    ) -> Path:
-        """Build the per-run output directory path (does not create it)."""
-        strategy_name = type(self._strategy).__name__
-        backtest_start_str = backtest_start_utc.strftime("%Y%m%d_%H%M%S")
-        if data_start is None or data_end is None:
-            data_start = backtest_start_str
-            data_end = backtest_start_str
-        return (
-            Path("output")
-            / "backtest"
-            / strategy_name
-            / f"{backtest_start_str}_{self._symbol}_{data_start}_{data_end}_short"
-        )
 
     # Sentinel attribute on handlers we attach ourselves so subsequent
     # ``_ensure_run_log_file`` calls can detect (and rebind to the new
@@ -799,37 +616,6 @@ class BacktestEngine:
         all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]
         return all_timeframes
 
-    def _read_all_timeframes(self, timeframes: list[str]) -> dict[str, list[dict]]:
-        """Read normalized data for all required timeframes (single-instrument mode).
-        
-        Uses adapter.read_timeframe() for all timeframes. The adapter handles
-        native support and aggregation from 1M internally per the protocol contract.
-        
-        Args:
-            timeframes: List of timeframe intervals to read.
-            
-        Returns:
-            Dictionary mapping timeframe to list of normalized row dicts.
-            
-        Raises:
-            ProviderError: If adapter fails to read data for any timeframe.
-        """
-        result = {}
-        for tf in timeframes:
-            try:
-                result[tf] = self._instruments[0].adapter.read_timeframe(tf)
-            except ValueError as e:
-                # Adapter raised ValueError for unsupported timeframe with no 1M available
-                logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
-                raise ProviderError(
-                    f"Cannot provide timeframe '{tf}': {e}. "
-                    f"Available native timeframes: {self._instruments[0].adapter.supported_timeframes}"
-                ) from e
-            except Exception as e:
-                logger.exception("Adapter read_timeframe failed for timeframe %s", tf)
-                raise ProviderError(f"Failed to read data from adapter for timeframe {tf}: {e}") from e
-        return result
-
     def _build_portfolio_result(
         self,
         equity_curve: List[tuple[datetime, float]],
@@ -838,9 +624,6 @@ class BacktestEngine:
         symbols: List[str],
     ) -> PortfolioResult:
         """Build PortfolioResult from backtest execution."""
-        from quantrex_core.models.trade import TradeRecord
-        from quantrex_core.models.position import Position
-
         # Get all closed trades
         trades = self._position_manager.get_closed_trades()
 

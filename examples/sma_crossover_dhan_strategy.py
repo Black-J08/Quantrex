@@ -28,7 +28,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 logger = get_logger(__name__)
 
@@ -175,7 +175,11 @@ def main() -> None:
     adapter = DhanDataAdapter(provider, datetime_format=DATETIME_FORMAT)
 
     strategy = SmaCrossoverStrategy(fast_period=FAST_PERIOD, slow_period=SLOW_PERIOD)
-    engine = BacktestEngine(adapter, strategy, symbol="RELIANCE")
+    instruments = [
+        InstrumentSpec(symbol="RELIANCE", adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+    engine = BacktestEngine(instruments, strategy, config)
 
     try:
         logger.info("Starting backtest...")

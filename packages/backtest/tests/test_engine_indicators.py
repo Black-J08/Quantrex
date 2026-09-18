@@ -18,7 +18,7 @@ from unittest.mock import Mock
 
 from quantrex_core import Candle, Strategy
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 
 
@@ -61,6 +61,7 @@ def _mock_adapter(rows: list[dict]) -> Mock:
     adapter.read_timeframe.return_value = rows
     adapter.datetime_format = "%Y%m%d %H:%M"
     adapter.supported_timeframes = ["1M"]
+    adapter.get_origin_time.return_value = None
     return adapter
 
 
@@ -94,7 +95,11 @@ def test_engine_attaches_indicators_from_compute_indicators_hook():
         _row("20230101 09:32", 102.0, 103.0, 101.0, 102.5, 30),
     ]
     strategy = _SpreadStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
 
     engine.run()
 
@@ -125,7 +130,11 @@ def test_engine_passes_raw_rows_in_timestamp_order():
         _row("20230101 09:31", 101.0, 102.0, 100.0, 101.5, 20),  # middle
     ]
     strategy = _SpreadStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
 
     engine.run()
 
@@ -153,7 +162,11 @@ def test_engine_wraps_compute_indicators_exception_as_provider_error():
             raise ValueError("indicator math blew up")
 
     rows = [_row("20230101 09:30", 100.0, 101.0, 99.0, 100.5, 10)]
-    engine = BacktestEngine(_mock_adapter(rows), _BoomStrategy(), symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
+        _BoomStrategy(),
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
 
     try:
         engine.run()
@@ -183,7 +196,11 @@ def test_engine_raises_provider_error_on_length_mismatch():
         _row("20230101 09:31", 101.0, 102.0, 100.0, 101.5, 20),
         _row("20230101 09:32", 102.0, 103.0, 101.0, 102.5, 30),
     ]
-    engine = BacktestEngine(_mock_adapter(rows), _BadLengthStrategy(), symbol="COPPER")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
+        _BadLengthStrategy(),
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
 
     try:
         engine.run()
@@ -226,7 +243,11 @@ def test_per_candle_audit_log_includes_indicator_values(
             ]
 
     strategy = _MultiIndicatorStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="GOLD")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="GOLD", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
 
     # Capture INFO-level log records.
     with caplog.at_level(logging.INFO):

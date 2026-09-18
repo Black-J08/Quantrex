@@ -23,7 +23,7 @@ import pytest
 
 from quantrex_core import Candle, Strategy
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 from quantrex_backtest.core.context import BacktestStrategyContext
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
@@ -63,6 +63,7 @@ def _mock_adapter(rows: list[dict]) -> Mock:
     adapter.read_timeframe.return_value = rows
     adapter.datetime_format = "%Y%m%d %H:%M"
     adapter.supported_timeframes = ["1M"]
+    adapter.get_origin_time.return_value = None
     return adapter
 
 
@@ -158,7 +159,11 @@ def test_engine_history_grows_one_per_bar():
         _row("20240101 09:33", 4, 5, 3.5, 4.5, 400),
     ]
     strategy = _HistoryRecordingStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig()
+    )
     engine.run()
 
     assert len(strategy.history_per_bar) == 4
@@ -177,7 +182,11 @@ def test_engine_history_includes_current_candle_as_last_element():
         _row("20240101 09:32", 3, 4, 2.5, 3.5, 300),
     ]
     strategy = _HistoryRecordingStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig()
+    )
     engine.run()
 
     # ``on_candle`` recorded the i-th candle; that same instance must be
@@ -196,7 +205,11 @@ def test_engine_history_is_chronological():
         _row("20240101 09:34", 5, 6, 4.5, 5.5, 500),
     ]
     strategy = _HistoryRecordingStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig()
+    )
     engine.run()
 
     final = strategy.history_per_bar[-1]
@@ -214,7 +227,8 @@ def test_engine_history_warmup_yields_shorter_tuple():
     because warmup bars yield a shorter tuple — never padded with
     ``None`` sentinels. This test exercises the warmup path itself.
     """
-    rows = [_row(f"20240101 09:{30 + i:02d}", i, i + 1, i - 0.5, i + 0.5, 100)
+    # Use valid OHLC values: open > 0, high >= max(open, close), low <= min(open, close), low > 0
+    rows = [_row(f"20240101 09:{30 + i:02d}", 100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 100.0)
             for i in range(3)]
 
     observed_lengths: list[int] = []
@@ -223,7 +237,11 @@ def test_engine_history_warmup_yields_shorter_tuple():
         def on_candle(self, candle: Candle) -> None:
             observed_lengths.append(len(self.ctx.history))
 
-    engine = BacktestEngine(_mock_adapter(rows), _WarmupStrategy(), symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        _WarmupStrategy(),
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     # On the first three (and only) bars, history grows 1 -> 2 -> 3.
@@ -232,8 +250,8 @@ def test_engine_history_warmup_yields_shorter_tuple():
 
 def test_engine_history_supports_lookback_slicing():
     """The ``ctx.history[-N:]`` idiom returns the last N closed bars + current."""
-    rows = [_row(f"20240101 09:{30 + i:02d}", float(i), float(i + 1),
-                 float(i) - 0.5, float(i) + 0.5, 100.0)
+    # Use valid OHLC values: open > 0, high >= max(open, close), low <= min(open, close), low > 0
+    rows = [_row(f"20240101 09:{30 + i:02d}", 100.0 + i, 101.0 + i, 99.0 + i, 100.5 + i, 100.0)
             for i in range(10)]
 
     captured: list[tuple[Candle, ...]] = []
@@ -245,7 +263,11 @@ def test_engine_history_supports_lookback_slicing():
             window = self.ctx.history[-self.LOOKBACK:]
             captured.append(window)
 
-    engine = BacktestEngine(_mock_adapter(rows), _LookbackStrategy(), symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        _LookbackStrategy(),
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     # 10 bars total. The last call sees the full 10-bar history; slicing
@@ -302,7 +324,11 @@ def test_engine_history_preserves_candle_indicators():
                 self.seen.append(dict(prior.indicators))
 
     strat = _TaggedStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strat, symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        strat,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
 
     # First bar: only the current candle's indicator seen.
@@ -327,7 +353,11 @@ def test_engine_history_is_per_run_not_shared_across_runs():
         _row("20240101 09:31", 2, 3, 1.5, 2.5, 200),
     ]
     strategy = _HistoryRecordingStrategy()
-    engine = BacktestEngine(_mock_adapter(rows), strategy, symbol="X")
+    engine = BacktestEngine(
+        [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
+        strategy,
+        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+    )
     engine.run()
     first_run_final_len = len(strategy.history_per_bar[-1])
 

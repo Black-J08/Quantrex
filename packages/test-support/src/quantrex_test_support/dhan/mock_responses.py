@@ -22,9 +22,10 @@ MCX,M,12345,FUTCOM,0,COPPER24JANFUT,1000,COPPER24JANFUT,2024-01-19,0,XX,0.05,M,F
 # matching ``dhanhq.convert_to_date_time``). The first candle is
 # 2024-01-01 00:00:00 IST (= 2023-12-31 18:30:00 UTC), and each
 # subsequent value is one IST day later.
+# OHLC values are valid: high >= max(open, close), low <= min(open, close), all > 0
 MOCK_DAILY_HISTORICAL_RESPONSE = {
     "open": [2500.0, 2510.0, 2520.0, 2515.0, 2530.0],
-    "high": [2520.0, 2525.0, 2535.0, 2525.0, 2540.0],
+    "high": [2520.0, 2525.0, 2535.0, 2535.0, 2540.0],  # Fixed: row 3 high >= max(2515, 2530) = 2530
     "low": [2490.0, 2505.0, 2510.0, 2500.0, 2520.0],
     "close": [2510.0, 2520.0, 2515.0, 2530.0, 2535.0],
     "volume": [100000, 150000, 120000, 180000, 200000],

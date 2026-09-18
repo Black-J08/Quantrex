@@ -94,5 +94,10 @@ if __name__ == "__main__":
     
     strategy = MultiTimeframeRsiStrategy()
     
-    engine = BacktestEngine(strategy=strategy, adapter=adapter, symbol=symbol)
+    instruments = [
+        InstrumentSpec(symbol=symbol, adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+    
+    engine = BacktestEngine(instruments=instruments, strategy=strategy, config=config)
     engine.run()

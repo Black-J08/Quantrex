@@ -15,9 +15,6 @@ from quantrex_data.operations import (
     validate_completeness,
     check_timestamp_alignment,
     ParquetCache,
-    get_cache_dir,
-    align_to_exchange_calendar,
-    resample_to_timeframe,
     synchronize_symbols,
     download_dhan_data,
     download_zerodha_data,
@@ -80,23 +77,28 @@ class DataOrchestrator:
         if self.config.validate_completeness:
             self._validate_all_data(symbol_data, start, end)
 
-        # Step 3: Align timestamps across symbols
-        synchronized = synchronize_symbols(
-            symbol_data,
-            exchange=self.config.exchange_calendar,
-            timeframe="1M",  # Base timeframe
-        )
+        # Step 3: Align timestamps across symbols (only for multi-symbol)
+        if len(symbol_data) > 1:
+            synchronized = synchronize_symbols(
+                symbol_data,
+                exchange=self.config.exchange_calendar,
+                timeframe="1M",  # Base timeframe
+            )
+        else:
+            # Single symbol: no synchronization needed, use data as-is
+            synchronized = symbol_data
 
-        # Step 4: Final validation of alignment
-        is_aligned, warnings = check_timestamp_alignment(
-            synchronized,
-            tolerance_seconds=self.config.alignment_tolerance_seconds,
-        )
-        for warning in warnings:
-            logger.warning("Alignment warning: %s", warning)
+        # Step 4: Final validation of alignment (only for multi-symbol)
+        if len(synchronized) > 1:
+            is_aligned, warnings = check_timestamp_alignment(
+                synchronized,
+                tolerance_seconds=self.config.alignment_tolerance_seconds,
+            )
+            for warning in warnings:
+                logger.warning("Alignment warning: %s", warning)
 
-        if not is_aligned:
-            logger.warning("Timestamp alignment issues detected but continuing")
+            if not is_aligned:
+                logger.warning("Timestamp alignment issues detected but continuing")
 
         logger.info("Data preparation complete for %d instruments", len(synchronized))
         return synchronized
@@ -129,6 +131,7 @@ class DataOrchestrator:
 
         if not data:
             logger.warning("No data returned from adapter for %s", symbol)
+            return []  # Return empty list instead of continuing
 
         # Filter by date range if specified
         if start or end:
@@ -240,7 +243,7 @@ class DataOrchestrator:
     ) -> None:
         """Validate completeness for all symbols."""
         for symbol, data in symbol_data.items():
-            is_valid, warnings = validate_completeness(
+            _, warnings = validate_completeness(
                 data,
                 expected_start=start,
                 expected_end=end,

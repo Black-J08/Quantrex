@@ -5,7 +5,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.models.position import Position
 from quantrex_core.strategy.timeframe import on_timeframe
 
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 from quantrex_data.providers.zerodha_provider import ZerodhaDataProvider
 from quantrex_data.adapters.zerodha_adapter import ZerodhaDataAdapter
@@ -136,6 +136,10 @@ class MCBStrategy(Strategy):
 
 
 if __name__ == "__main__":
+    from quantrex_core.logging import setup_logging
+
+    setup_logging(level="INFO")
+
     mcb_strategy = MCBStrategy()
 
     symbol = "RELIANCE"
@@ -148,9 +152,14 @@ if __name__ == "__main__":
     )
     adapter = ZerodhaDataAdapter(provider)
 
+    instruments = [
+        InstrumentSpec(symbol=symbol, adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+
     engine = BacktestEngine(
-        adapter=adapter,
+        instruments=instruments,
         strategy=mcb_strategy,
-        symbol=symbol,
+        config=config,
     )
     engine.run()

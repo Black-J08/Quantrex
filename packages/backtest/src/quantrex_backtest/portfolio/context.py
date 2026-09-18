@@ -11,7 +11,6 @@ from quantrex_core.models.order import Order
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_backtest.core.context import BacktestStrategyContext
-from quantrex_backtest.core.timeframe import calculate_close_time
 
 logger = get_logger(__name__)
 
@@ -165,7 +164,7 @@ class BacktestPortfolioContext(PortfolioContext):
     def realized_pnl(self) -> float:
         return self._realized_pnl
 
-    def _check_margin(self, symbol: str, side: OrderSide, quantity: float) -> bool:
+    def _check_margin(self, symbol: str, _side: OrderSide, quantity: float) -> bool:
         """Check if order would exceed available margin."""
         # Simplified margin check - in production would be more sophisticated
         current_price = self._position_values.get(symbol, 0.0)

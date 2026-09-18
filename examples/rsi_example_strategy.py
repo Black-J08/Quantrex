@@ -4,7 +4,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
 
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 import pandas as pd
 import pandas_ta_classic as ta
@@ -37,6 +37,10 @@ class RsiExampleStrategy(Strategy):
 
 
 if __name__ == "__main__":
+    from quantrex_core.logging import setup_logging
+
+    setup_logging(level="INFO")
+
     symbol = "TCS"
     provider = DhanDataProvider(symbol=symbol, exchange_segment="NSE_EQ", instrument="EQUITY",
                                 from_date="2026-01-01", to_date="2026-01-30", timeframe="1minute")
@@ -44,6 +48,11 @@ if __name__ == "__main__":
     
     strategy = RsiExampleStrategy()
     
-    engine = BacktestEngine(strategy=strategy, adapter=adapter, symbol=symbol)
+    instruments = [
+        InstrumentSpec(symbol=symbol, adapter=adapter),
+    ]
+    config = PortfolioConfig(initial_cash=1_000_000.0)
+    
+    engine = BacktestEngine(instruments=instruments, strategy=strategy, config=config)
     engine.run()
     

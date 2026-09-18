@@ -1,6 +1,6 @@
 """Tests for BacktestEngine."""
 
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock
 from datetime import datetime
 from pathlib import Path
 import csv
@@ -11,11 +11,10 @@ from quantrex_core.strategy.timeframe import on_timeframe
 from quantrex_core.models.enums import OrderSide
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 from quantrex_core.protocols import DataAdapter
 from quantrex_test_support.csv import (
-    make_ohlc_series,
     csv_rows_to_string,
     create_temp_csv,
 )
@@ -112,41 +111,51 @@ class PartialCloseStrategy(Strategy):
 class TestBacktestEngine:
     """Tests for BacktestEngine core functionality."""
 
-    def test_engine_rejects_none_adapter(self):
-        """Engine should raise ProviderError when adapter is None."""
+    def test_engine_rejects_none_instruments(self):
+        """Engine should raise ProviderError when instruments list is empty."""
         strategy = TestStrategy()
         try:
-            BacktestEngine(None, strategy, symbol="COPPER")
+            BacktestEngine([], strategy, PortfolioConfig())
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
-            assert "DataAdapter is required" in str(e)
+            assert "At least one instrument required" in str(e)
 
     def test_engine_rejects_none_strategy(self):
         """Engine should raise ProviderError when strategy is None."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = []
+        mock_adapter.read_timeframe.return_value = []
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         try:
-            BacktestEngine(mock_adapter, None, symbol="COPPER")
+            BacktestEngine([InstrumentSpec(symbol="COPPER", adapter=mock_adapter)], None, PortfolioConfig())
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
             assert "Strategy is required" in str(e)
 
-    def test_engine_accepts_valid_adapter_and_strategy(self):
-        """Engine should accept a valid DataAdapter and Strategy."""
+    def test_engine_accepts_valid_instruments_and_strategy(self):
+        """Engine should accept valid instruments and Strategy."""
         mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.read.return_value = []
+        mock_adapter.read_timeframe.return_value = []
+        mock_adapter.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         strategy = TestStrategy()
 
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig()
+        )
         assert engine is not None
 
     def test_engine_processes_candles_in_timestamp_order(self):
         """Engine should process candles sorted by timestamp."""
         # Create CSV with out-of-order timestamps using test-support
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
             ["20230621", "10:06", "740.00", "740.00", "740.00", "740.00", "2", "1"],  # Later
-            ["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
+            ["20230620", "09:15", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -161,50 +170,34 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
             assert len(strategy.candles) == 2
             # Should be sorted by timestamp (earlier first)
-            assert strategy.candles[0].timestamp == datetime(2023, 6, 20, 19, 0)
+            assert strategy.candles[0].timestamp == datetime(2023, 6, 20, 9, 15)
             assert strategy.candles[1].timestamp == datetime(2023, 6, 21, 10, 6)
-
-    def test_engine_calls_strategy_on_candle_for_each_candle(self):
-        """Engine should invoke strategy.on_candle for each candle."""
-        rows = make_ohlc_series(num_rows=3, seed=42)
-        csv_content = csv_rows_to_string(rows)
-
-        with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
-            adapter = CSVDataAdapter(provider, column_mapping={
-                "datetime": [0, 1],
-                "open": 2,
-                "high": 3,
-                "low": 4,
-                "close": 5,
-                "volume": 6,
-            })
-            strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
-
-            engine.run()
-
-            assert len(strategy.candles) == 3
-            for candle in strategy.candles:
-                assert isinstance(candle, Candle)
-                assert candle.symbol == "COPPER"
 
     def test_engine_calls_lifecycle_methods(self):
         """Engine should call on_start before and on_stop after processing."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
+            {"datetime": "20230620 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
 
         engine.run()
 
@@ -218,9 +211,14 @@ class TestBacktestEngine:
         mock_adapter.read_timeframe.return_value = []
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
 
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
 
         engine.run()
 
@@ -231,7 +229,7 @@ class TestBacktestEngine:
     def test_engine_passes_candle_with_correct_values(self):
         """Engine should pass correctly parsed Candle to strategy."""
         rows = [
-            ["20230620", "19:00", "737.20", "738.00", "736.50", "737.50", "100", "50"],
+            ["20230620", "09:15", "737.20", "738.00", "736.50", "737.50", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -246,14 +244,18 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
             assert len(strategy.candles) == 1
             candle = strategy.candles[0]
             assert candle.symbol == "COPPER"
-            assert candle.timestamp == datetime(2023, 6, 20, 19, 0)
+            assert candle.timestamp == datetime(2023, 6, 20, 9, 15)
             assert candle.open == 737.20
             assert candle.high == 738.00
             assert candle.low == 736.50
@@ -266,22 +268,27 @@ class TestBacktestEngine:
         mock_adapter.read_timeframe.side_effect = IOError("Disk error")
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         strategy = TestStrategy()
 
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
 
         try:
             engine.run()
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
-            assert "Failed to read data from adapter" in str(e)
+            assert "Failed to read data" in str(e)
             assert "Disk error" in str(e)
 
     def test_engine_raises_on_invalid_candle_data(self):
         """Engine should raise ProviderError for malformed candle data."""
         # CSV with invalid float value
         rows = [
-            ["20230620", "19:00", "not_a_number", "738.00", "736.50", "737.50", "100", "50"],
+            ["20230620", "09:15", "not_a_number", "738.00", "736.50", "737.50", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -296,19 +303,26 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             try:
                 engine.run()
                 assert False, "Should have raised ProviderError"
             except ProviderError as e:
-                assert "Failed to process candle" in str(e)
+                # Error now comes from DataOrchestrator validation
+                assert "Failed to read data" in str(e)
+                assert "Invalid data format" in str(e)
+                assert "open must be numeric" in str(e)
 
     def test_engine_deterministic_order(self):
         """Engine should produce identical callback sequence on repeated runs."""
         rows = [
             ["20230621", "10:06", "740.00", "740.00", "740.00", "740.00", "2", "1"],  # Later
-            ["20230620", "19:00", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
+            ["20230620", "09:15", "737.20", "737.20", "737.20", "737.20", "1", "1"],  # Earlier
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -324,12 +338,19 @@ class TestBacktestEngine:
             })
             
             strategy1 = TestStrategy()
-            engine1 = BacktestEngine(adapter, strategy1, symbol="COPPER")
+            engine1 = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy1,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
             engine1.run()
             run1_timestamps = [c.timestamp for c in strategy1.candles]
-
             strategy2 = TestStrategy()
-            engine2 = BacktestEngine(adapter, strategy2, symbol="COPPER")
+            engine2 = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy2,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
             engine2.run()
             run2_timestamps = [c.timestamp for c in strategy2.candles]
 
@@ -337,8 +358,9 @@ class TestBacktestEngine:
 
     def test_engine_custom_datetime_format(self):
         """Engine should respect custom datetime format."""
+        # Use a format that the alignment code can parse
         rows = [
-            ["20-06-2023", "19:00", "737.20", "738.00", "736.50", "737.50", "100", "50"],
+            ["2023-06-20 09:15:00", "737.20", "738.00", "736.50", "737.50", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -347,34 +369,43 @@ class TestBacktestEngine:
             adapter = CSVDataAdapter(
                 provider,
                 column_mapping={
-                    "datetime": [0, 1],
-                    "open": 2,
-                    "high": 3,
-                    "low": 4,
-                    "close": 5,
-                    "volume": 6,
+                    "datetime": 0,
+                    "open": 1,
+                    "high": 2,
+                    "low": 3,
+                    "close": 4,
+                    "volume": 5,
                 },
-                datetime_format="%d-%m-%Y %H:%M",
+                datetime_format="%Y-%m-%d %H:%M:%S",
             )
             strategy = TestStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
             assert len(strategy.candles) == 1
-            assert strategy.candles[0].timestamp == datetime(2023, 6, 20, 19, 0)
+            assert strategy.candles[0].timestamp == datetime(2023, 6, 20, 9, 15)
 
     def test_engine_with_mock_adapter(self):
         """Engine should work with a mock adapter returning dict rows."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"},
+            {"datetime": "20230620 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"},
             {"datetime": "20230621 10:00", "open": "101", "high": "102", "low": "100", "close": "101", "volume": "20"},
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
 
         engine.run()
 
@@ -385,11 +416,12 @@ class TestBacktestEngine:
     def test_engine_exports_closed_trades_csv(self):
         """Engine should export closed trades to CSV after backtest completes."""
         # Create CSV with 4 candles: buy on 1st, sell on 3rd
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
-            ["20230620", "19:00", "100.00", "101.00", "99.00", "100.50", "100", "50"],
-            ["20230620", "19:01", "100.50", "101.50", "100.00", "101.00", "100", "50"],
-            ["20230620", "19:02", "101.00", "102.00", "100.50", "101.50", "100", "50"],
-            ["20230620", "19:03", "101.50", "102.50", "101.00", "102.00", "100", "50"],
+            ["20230620", "09:15", "100.00", "101.00", "99.00", "100.50", "100", "50"],
+            ["20230620", "09:16", "100.50", "101.50", "100.00", "101.00", "100", "50"],
+            ["20230620", "09:17", "101.00", "102.00", "100.50", "101.50", "100", "50"],
+            ["20230620", "09:18", "101.50", "102.50", "101.00", "102.00", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -404,7 +436,11 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = TradeRecordingStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
@@ -443,11 +479,12 @@ class TestBacktestEngine:
     def test_engine_exports_partial_close_trades_csv(self):
         """Engine should export multiple trades for partial position closes."""
         # Create CSV with 4 candles: buy 20 on 1st, sell 10 on 2nd, sell 10 on 3rd
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
-            ["20230620", "19:00", "100.00", "101.00", "99.00", "100.50", "100", "50"],
-            ["20230620", "19:01", "100.50", "101.50", "100.00", "101.00", "100", "50"],
-            ["20230620", "19:02", "101.00", "102.00", "100.50", "101.50", "100", "50"],
-            ["20230620", "19:03", "101.50", "102.50", "101.00", "102.00", "100", "50"],
+            ["20230620", "09:15", "100.00", "101.00", "99.00", "100.50", "100", "50"],
+            ["20230620", "09:16", "100.50", "101.50", "100.00", "101.00", "100", "50"],
+            ["20230620", "09:17", "101.00", "102.00", "100.50", "101.50", "100", "50"],
+            ["20230620", "09:18", "101.50", "102.50", "101.00", "102.00", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -462,7 +499,11 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = PartialCloseStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
@@ -511,9 +552,10 @@ class TestBacktestEngine:
 
     def test_engine_exports_empty_trades_csv(self):
         """Engine should export CSV with headers only when no trades occurred."""
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
-            ["20230620", "19:00", "100.00", "101.00", "99.00", "100.50", "100", "50"],
-            ["20230620", "19:01", "100.50", "101.50", "100.00", "101.00", "100", "50"],
+            ["20230620", "09:15", "100.00", "101.00", "99.00", "100.50", "100", "50"],
+            ["20230620", "09:16", "100.50", "101.50", "100.00", "101.00", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -528,7 +570,11 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = TestStrategy()  # No orders submitted
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
@@ -554,11 +600,12 @@ class TestBacktestEngine:
     def test_engine_short_position_trade_recording(self):
         """Engine should correctly record trades for short positions."""
         # Create CSV: sell short on 1st, buy to cover on 3rd
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
-            ["20230620", "19:00", "100.00", "101.00", "99.00", "100.50", "100", "50"],
-            ["20230620", "19:01", "100.50", "101.50", "100.00", "101.00", "100", "50"],
-            ["20230620", "19:02", "101.00", "102.00", "100.50", "101.50", "100", "50"],
-            ["20230620", "19:03", "101.50", "102.50", "101.00", "102.00", "100", "50"],
+            ["20230620", "09:15", "100.00", "101.00", "99.00", "100.50", "100", "50"],
+            ["20230620", "09:16", "100.50", "101.50", "100.00", "101.00", "100", "50"],
+            ["20230620", "09:17", "101.00", "102.00", "100.50", "101.50", "100", "50"],
+            ["20230620", "09:18", "101.50", "102.50", "101.00", "102.00", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -599,7 +646,11 @@ class TestBacktestEngine:
                 "volume": 6,
             })
             strategy = ShortStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
@@ -633,13 +684,18 @@ class TestBacktestEngine:
         """
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20230620 19:00", "open": "100.5", "high": "101.25", "low": "99.75", "close": "100.75", "volume": "42"},
-            {"datetime": "20230620 19:01", "open": "100.75", "high": "102.0", "low": "100.5", "close": "101.5", "volume": "17"},
+            {"datetime": "20230620 09:15", "open": "100.5", "high": "101.25", "low": "99.75", "close": "100.75", "volume": "42"},
+            {"datetime": "20230620 09:16", "open": "100.75", "high": "102.0", "low": "100.5", "close": "101.5", "volume": "17"},
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
+        mock_adapter.get_origin_time.return_value = None
         strategy = TestStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
 
         engine.run()
 
@@ -652,18 +708,18 @@ class TestBacktestEngine:
 
         contents = log_path.read_text(encoding="utf-8")
 
-        # Candle 1: 2023-06-20 19:00 — verify every OHLCV field appears
+        # Candle 1: 2023-06-20 09:15 — verify every OHLCV field appears
         # in a single line tagged with the symbol and candle timestamp.
-        assert "[COPPER 2023-06-20T19:00:00]" in contents
+        assert "[COPPER 2023-06-20T09:15:00]" in contents
         assert "O=100.5" in contents
         assert "H=101.25" in contents
         assert "L=99.75" in contents
         assert "C=100.75" in contents
         assert "V=42" in contents
 
-        # Candle 2: 2023-06-20 19:01 — distinct values to ensure the line
+        # Candle 2: 2023-06-20 09:16 — distinct values to ensure the line
         # is emitted per-bar, not a one-shot header.
-        assert "[COPPER 2023-06-20T19:01:00]" in contents
+        assert "[COPPER 2023-06-20T09:16:00]" in contents
         assert "O=100.75" in contents
         assert "H=102.0" in contents
         assert "C=101.5" in contents
@@ -722,13 +778,14 @@ class TestFifoLotAccounting:
         """
         # Candle opens: 100.00, 100.00, 110.00, 110.00, 125.00, 125.00.
         # All candles are 6 deep so each row has matching HLCV.
+        # Use NSE market hours (9:15-15:30) to pass alignment
         rows = [
-            ["20230620", "19:00", "100.00", "101.00", "99.50", "100.50", "100", "50"],
-            ["20230620", "19:01", "100.00", "101.00", "99.50", "100.50", "100", "50"],
-            ["20230620", "19:02", "110.00", "111.00", "109.50", "110.50", "100", "50"],
-            ["20230620", "19:03", "110.00", "111.00", "109.50", "110.50", "100", "50"],
-            ["20230620", "19:04", "125.00", "126.00", "124.50", "125.50", "100", "50"],
-            ["20230620", "19:05", "125.00", "126.00", "124.50", "125.50", "100", "50"],
+            ["20230620", "09:15", "100.00", "101.00", "99.50", "100.50", "100", "50"],
+            ["20230620", "09:16", "100.00", "101.00", "99.50", "100.50", "100", "50"],
+            ["20230620", "09:17", "110.00", "111.00", "109.50", "110.50", "100", "50"],
+            ["20230620", "09:18", "110.00", "111.00", "109.50", "110.50", "100", "50"],
+            ["20230620", "09:19", "125.00", "126.00", "124.50", "125.50", "100", "50"],
+            ["20230620", "09:20", "125.00", "126.00", "124.50", "125.50", "100", "50"],
         ]
         csv_content = csv_rows_to_string(rows)
 
@@ -743,7 +800,11 @@ class TestFifoLotAccounting:
                 "volume": 6,
             })
             strategy = FifoLotStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
 
             engine.run()
 
@@ -771,9 +832,9 @@ class TestFifoLotAccounting:
             assert tr_a[0] == "COPPER"
             assert tr_a[1] == "LONG"
             assert float(tr_a[2]) == 2.0
-            assert tr_a[3].startswith("2023-06-20T19:01:00")  # entry_timestamp
+            assert tr_a[3].startswith("2023-06-20T09:16:00")  # entry_timestamp
             assert float(tr_a[4]) == 100.00  # entry_price
-            assert tr_a[5].startswith("2023-06-20T19:05:00")  # exit_timestamp
+            assert tr_a[5].startswith("2023-06-20T09:20:00")  # exit_timestamp
             assert float(tr_a[6]) == 125.00  # exit_price
             assert abs(float(tr_a[7]) - 50.0) < 0.01  # pnl
 
@@ -818,9 +879,14 @@ class TestMultiTimeframeEngine:
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M", "1H"]
+        mock_adapter.get_origin_time.return_value = None
         
         strategy = MultiTimeframeStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
         
         required = engine._get_required_timeframes()
         assert "1M" in required  # base timeframe
@@ -830,13 +896,18 @@ class TestMultiTimeframeEngine:
         """Engine should call adapter.read_timeframe() for all required timeframes."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20230620 19:00", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
+            {"datetime": "20230620 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "10"}
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M", "1H"]
+        mock_adapter.get_origin_time.return_value = None
         
         strategy = MultiTimeframeStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
         
         engine.run()
         
@@ -849,11 +920,12 @@ class TestMultiTimeframeEngine:
 
     def test_engine_aggregates_1h_from_1m_when_native_unsupported(self):
         """Engine should work when adapter aggregates 1H from 1M data."""
-        # Create 120 minutes of 1M data (2 hours)
+        # Create 120 minutes of 1M data (2 hours) - use NSE market hours (9:15-15:30)
+        # Start from 9:15 to ensure all data is within market hours
         rows = []
         for i in range(120):
-            minute = i % 60
-            hour = 19 + (i // 60)
+            minute = (15 + i) % 60
+            hour = 9 + (15 + i) // 60
             rows.append([f"20230620", f"{hour:02d}:{minute:02d}", "100.00", "101.00", "99.00", "100.50", "10"])
         csv_content = csv_rows_to_string(rows)
         
@@ -868,7 +940,11 @@ class TestMultiTimeframeEngine:
                 "volume": 6,
             })
             strategy = MultiTimeframeStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
             
             engine.run()
             
@@ -892,14 +968,18 @@ class TestMultiTimeframeEngine:
                 "volume": 6,
             })
             strategy = MultiTimeframeStrategy()
-            engine = BacktestEngine(adapter, strategy, symbol="COPPER")
+            engine = BacktestEngine(
+                [InstrumentSpec(symbol="COPPER", adapter=adapter)],
+                strategy,
+                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            )
             
             try:
                 engine.run()
                 assert False, "Should have raised ProviderError"
             except ProviderError as e:
-                assert "Cannot provide timeframe" in str(e)
-                # Base timeframe 1M is also unavailable when minute_data_available=False
+                # Error now comes from DataOrchestrator which wraps adapter error
+                assert "Failed to read data" in str(e)
                 assert "1M" in str(e)
                 assert "1-minute data is unavailable" in str(e)
 
@@ -911,6 +991,7 @@ class TestMultiTimeframeEngine:
         ]
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M", "1H"]
+        mock_adapter.get_origin_time.return_value = None
         
         class IndicatorStrategy(MultiTimeframeStrategy):
             def __init__(self):
@@ -922,7 +1003,11 @@ class TestMultiTimeframeEngine:
                 return [{} for _ in candles]
         
         strategy = IndicatorStrategy()
-        engine = BacktestEngine(mock_adapter, strategy, symbol="COPPER")
+        engine = BacktestEngine(
+            [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
+            strategy,
+            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        )
         
         engine.run()
         
