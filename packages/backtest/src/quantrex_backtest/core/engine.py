@@ -95,7 +95,6 @@ class BacktestEngine:
         # Context will be created in run() after data preparation
         self._context: Optional[BacktestPortfolioContext] = None
         self._data_orchestrator = DataOrchestrator(DataOrchestratorConfig(
-            cache_dir=Path("data/cache"),
             exchange_calendar="NSE",
             auto_download=self._config.auto_download,
             validate_completeness=self._config.validate_completeness,

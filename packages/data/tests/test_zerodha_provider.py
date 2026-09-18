@@ -64,7 +64,18 @@ class TestZerodhaDataProvider:
             mock.return_value = auth_instance
             yield auth_instance
 
-    def test_provider_init_with_symbol(self, mock_client, mock_instrument_master, mock_auth):
+    @pytest.fixture
+    def mock_cache(self):
+        """Create a mock ArrowCache."""
+        with patch("quantrex_data.providers.zerodha_provider.provider.ArrowCache") as mock:
+            cache_instance = Mock()
+            cache_instance.load_partition.return_value = None
+            cache_instance.get_last_timestamp.return_value = None
+            cache_instance.load_current_partition.return_value = None
+            mock.return_value = cache_instance
+            yield cache_instance
+
+    def test_provider_init_with_symbol(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should initialize with symbol and resolve to instrument_token."""
         provider = ZerodhaDataProvider(
             symbol="RELIANCE",
@@ -75,7 +86,7 @@ class TestZerodhaDataProvider:
         assert provider.instrument_token == "5633"
         mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE")
 
-    def test_provider_init_with_instrument_token(self, mock_client, mock_instrument_master, mock_auth):
+    def test_provider_init_with_instrument_token(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should initialize with instrument_token directly."""
         provider = ZerodhaDataProvider(
             instrument_token="5633",
@@ -86,7 +97,7 @@ class TestZerodhaDataProvider:
         assert provider.instrument_token == "5633"
         mock_instrument_master.resolve_symbol.assert_not_called()
 
-    def test_provider_init_with_date_objects(self, mock_client, mock_instrument_master, mock_auth):
+    def test_provider_init_with_date_objects(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should accept date and datetime objects."""
         provider = ZerodhaDataProvider(
             instrument_token="5633",
@@ -97,7 +108,7 @@ class TestZerodhaDataProvider:
         assert provider.config.from_date == "2024-01-01"
         assert provider.config.to_date == "2024-01-31 15:30:00"
 
-    def test_fetch_minute_data(self, mock_client, mock_instrument_master, mock_auth):
+    def test_fetch_minute_data(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should fetch minute historical data."""
         mock_client.get_historical_data.return_value = Mock(
             get_candles=lambda: MOCK_HISTORICAL_RESPONSE_MINUTE["data"]["candles"]
@@ -117,7 +128,7 @@ class TestZerodhaDataProvider:
         assert data["candles"][0][0] == "2024-01-01T09:15:00+0530"
         mock_client.get_historical_data.assert_called_once()
 
-    def test_fetch_day_data(self, mock_client, mock_instrument_master, mock_auth):
+    def test_fetch_day_data(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should fetch daily historical data."""
         mock_client.get_historical_data.return_value = Mock(
             get_candles=lambda: MOCK_HISTORICAL_RESPONSE_DAY["data"]["candles"]
@@ -137,7 +148,7 @@ class TestZerodhaDataProvider:
         assert data["candles"][0][0] == "2024-01-01T00:00:00+0530"
         mock_client.get_historical_data.assert_called_once()
 
-    def test_fetch_with_oi(self, mock_client, mock_instrument_master, mock_auth):
+    def test_fetch_with_oi(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should fetch data with open interest."""
         mock_client.get_historical_data.return_value = Mock(
             get_candles=lambda: MOCK_HISTORICAL_RESPONSE_WITH_OI["data"]["candles"]
@@ -159,7 +170,7 @@ class TestZerodhaDataProvider:
         assert len(data["candles"][0]) == 7
         assert data["candles"][0][6] == 50000  # OI value
 
-    def test_fetch_chunked_data(self, mock_client, mock_instrument_master, mock_auth):
+    def test_fetch_chunked_data(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should chunk large date ranges and merge responses."""
         # Create mock responses for multiple chunks
         chunk1_candles = MOCK_HISTORICAL_RESPONSE_DAY["data"]["candles"][:3]
@@ -185,7 +196,7 @@ class TestZerodhaDataProvider:
         assert len(data["candles"]) == 5
         assert mock_client.get_historical_data.call_count == 2
 
-    def test_fetch_minute_data_uses_minute_chunk_size(self, mock_client, mock_instrument_master, mock_auth):
+    def test_fetch_minute_data_uses_minute_chunk_size(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should use minute chunk size (30 days) when fetching minute data,
         even if provider was initialized with default interval='day'.
         
@@ -287,7 +298,7 @@ class TestZerodhaDataProvider:
         with pytest.raises(ValueError, match="Unsupported timeframe"):
             provider._map_timeframe_to_zerodha("invalid")
 
-    def test_close_delegates_to_client(self, mock_client, mock_instrument_master, mock_auth):
+    def test_close_delegates_to_client(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider close() should delegate to client.close()."""
         provider = ZerodhaDataProvider(
             instrument_token="5633",
@@ -298,7 +309,7 @@ class TestZerodhaDataProvider:
         provider.close()
         mock_client.close.assert_called_once()
 
-    def test_context_manager(self, mock_client, mock_instrument_master, mock_auth):
+    def test_context_manager(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
         """Provider should work as context manager."""
         with ZerodhaDataProvider(
             instrument_token="5633",

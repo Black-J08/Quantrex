@@ -1,7 +1,7 @@
 """Zerodha Data Provider for Quantrex framework.
 
 Fetches raw OHLCV data from Zerodha Kite Connect REST API with symbol resolution,
-date normalization, automatic chunking for large date ranges, and authentication handling.
+date normalization, automatic chunking, and transparent caching.
 """
 
 import time
@@ -11,6 +11,7 @@ from typing import Any
 
 from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataProvider
+from quantrex_data.operations import ArrowCache
 
 from .auth import ZerodhaAuth
 from .client import ZerodhaAPIClient
@@ -138,6 +139,9 @@ class ZerodhaDataProvider:
         # Initialize components
         self._client = ZerodhaAPIClient(self._config)
         self._instrument_master = InstrumentMaster(self._config, self._client)
+
+        # Initialize automatic cache (zero-config, internal)
+        self._cache = ArrowCache()
 
         # Ensure we have a valid token before resolving symbols or downloading instrument master
         self._ensure_valid_token()
@@ -300,10 +304,140 @@ class ZerodhaDataProvider:
         logger.debug("Merged %d chunks into %d candles", len(responses), len(merged_candles))
         return {"candles": merged_candles}
 
-    def fetch(self, interval: str | None = None) -> dict:
-        """Fetch raw OHLCV data from Zerodha Kite Connect API.
+    def _fetch_from_api(self, interval: str, from_date: str | None = None, to_date: str | None = None) -> dict:
+        """Internal method to fetch raw data from Zerodha API.
 
-        Handles symbol resolution, date normalization, chunking, and response merging.
+        Args:
+            interval: Interval in Zerodha format (e.g., "minute", "day")
+            from_date: Optional override for start date (API format)
+            to_date: Optional override for end date (API format)
+
+        Returns:
+            Raw API response as dictionary.
+        """
+        # Ensure we have a valid token before making requests
+        self._ensure_valid_token()
+
+        # Use provided dates or fall back to config
+        api_from_date = from_date or self._normalize_date_for_api(self._config.from_date)
+        api_to_date = to_date or self._normalize_date_for_api(self._config.to_date)
+
+        logger.info(
+            "Fetching %s data from API for instrument_token='%s' from %s to %s",
+            interval,
+            self._instrument_token,
+            api_from_date,
+            api_to_date,
+        )
+
+        # Chunk date range using the effective interval
+        chunks = self._chunk_date_range(api_from_date, api_to_date, interval)
+
+        responses = []
+        for i, (chunk_from, chunk_to) in enumerate(chunks):
+            logger.debug("Fetching chunk %d/%d: %s to %s", i + 1, len(chunks), chunk_from, chunk_to)
+
+            try:
+                response = self._client.get_historical_data(
+                    instrument_token=self._instrument_token,
+                    interval=interval,
+                    from_date=chunk_from,
+                    to_date=chunk_to,
+                    continuous=self._config.continuous,
+                    oi=self._config.oi,
+                )
+                responses.append(response)
+            except ZerodhaAuthenticationError:
+                # Token expired during chunked requests - trigger login flow and retry
+                logger.warning("Authentication error during chunked fetch, re-authenticating...")
+                self._trigger_login_flow()
+                # Retry the same chunk
+                response = self._client.get_historical_data(
+                    instrument_token=self._instrument_token,
+                    interval=interval,
+                    from_date=chunk_from,
+                    to_date=chunk_to,
+                    continuous=self._config.continuous,
+                    oi=self._config.oi,
+                )
+                responses.append(response)
+
+        # Merge all chunked responses
+        merged = self._merge_responses(responses)
+
+        logger.info("Fetched %d candles from API for instrument_token='%s'", len(merged.get("candles", [])), self._instrument_token)
+        return merged
+
+    def _format_cached_response(self, rows: list[dict]) -> dict:
+        """Convert cached rows back to provider response format."""
+        if not rows:
+            return {"candles": []}
+
+        candles = []
+        for row in rows:
+            dt_str = row.get("datetime", "")
+            # Zerodha expects ISO format with timezone
+            try:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                iso_str = dt.strftime("%Y-%m-%dT%H:%M:%S+0530")
+            except Exception:
+                iso_str = dt_str
+
+            candle = [
+                iso_str,
+                row.get("open", 0.0),
+                row.get("high", 0.0),
+                row.get("low", 0.0),
+                row.get("close", 0.0),
+                row.get("volume", 0.0),
+            ]
+            if "oi" in row and row["oi"] is not None:
+                candle.append(row["oi"])
+            candles.append(candle)
+
+        return {"candles": candles}
+
+    def _response_to_rows(self, response: dict, symbol: str, interval: str, provider: str) -> list[dict]:
+        """Convert provider response dict to list of row dicts for caching."""
+        candles = response.get("candles", [])
+        if not candles:
+            return []
+
+        rows = []
+        for candle in candles:
+            if len(candle) < 6:
+                continue
+
+            # Parse timestamp - Zerodha returns ISO 8601 with offset
+            timestamp_str = candle[0]
+            try:
+                dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                dt_str = ""
+
+            row = {
+                "datetime": dt_str,
+                "open": float(candle[1]),
+                "high": float(candle[2]),
+                "low": float(candle[3]),
+                "close": float(candle[4]),
+                "volume": float(candle[5]),
+            }
+            if len(candle) > 6 and candle[6] is not None:
+                row["oi"] = float(candle[6])
+            rows.append(row)
+
+        return rows
+
+    def fetch(self, interval: str | None = None) -> dict:
+        """Fetch raw OHLCV data with transparent caching.
+
+        Implements read-through caching:
+        1. Try cache for exact date range
+        2. Try delta fetch for current partition
+        3. Fall back to full API fetch
+        4. Cache errors never break data flow — always fall back to API
 
         Args:
             interval: Interval (e.g., "minute", "5minute", "15minute", "day").
@@ -321,61 +455,66 @@ class ZerodhaDataProvider:
             ZerodhaInvalidParameterError: If request parameters invalid.
             ZerodhaAPIError: Other API errors.
         """
-        # Use provided interval or fall back to configured interval
         effective_interval = interval or self._config.interval
+        provider_name = "zerodha"
+        symbol = self._config.symbol or self._instrument_token
 
-        # Ensure we have a valid token before making requests
-        self._ensure_valid_token()
+        # Parse config dates for cache operations
+        try:
+            start_dt = datetime.strptime(self._config.from_date.split(" ")[0], "%Y-%m-%d")
+            end_dt = datetime.strptime(self._config.to_date.split(" ")[0], "%Y-%m-%d")
+        except Exception:
+            # If date parsing fails, skip cache and go straight to API
+            logger.warning("Failed to parse dates for caching, falling back to API")
+            return self._fetch_from_api(effective_interval)
 
-        logger.info(
-            "Fetching %s data for instrument_token='%s' from %s to %s",
-            effective_interval,
-            self._instrument_token,
-            self._config.from_date,
-            self._config.to_date,
-        )
+        # 1. Try cache for exact date range (closed partition)
+        try:
+            cached = self._cache.load_partition(
+                provider=provider_name,
+                symbol=symbol,
+                timeframe=effective_interval,
+                start=start_dt,
+                end=end_dt,
+            )
+            if cached is not None:
+                logger.info("Cache hit for %s/%s/%s %s-%s", provider_name, symbol, effective_interval, start_dt, end_dt)
+                return self._format_cached_response(cached)
+        except Exception as e:
+            logger.warning("Cache read failed, falling back to API: %s", e)
 
-        # Normalize dates for API
-        api_from_date = self._normalize_date_for_api(self._config.from_date)
-        api_to_date = self._normalize_date_for_api(self._config.to_date)
+        # 2. Check current partition for delta fetch
+        try:
+            last_ts = self._cache.get_last_timestamp(provider_name, symbol, effective_interval)
+            if last_ts and last_ts < end_dt:
+                # Fetch only missing tail
+                delta_from = last_ts.strftime("%Y-%m-%d %H:%M:%S")
+                logger.info("Delta fetch for %s/%s/%s from %s", provider_name, symbol, effective_interval, delta_from)
+                delta_data = self._fetch_from_api(effective_interval, from_date=delta_from)
+                if delta_data and delta_data.get("candles"):
+                    # Convert delta response to rows and append
+                    delta_rows = self._response_to_rows(delta_data, symbol, effective_interval, provider_name)
+                    if delta_rows:
+                        self._cache.append_to_current_partition(provider_name, symbol, effective_interval, delta_rows)
+                        # Return merged cached + delta
+                        full_cached = self._cache.load_current_partition(provider_name, symbol, effective_interval)
+                        if full_cached:
+                            return self._format_cached_response(full_cached)
+        except Exception as e:
+            logger.warning("Delta fetch failed, falling back to full API fetch: %s", e)
 
-        # Chunk date range using the effective interval (not config default)
-        chunks = self._chunk_date_range(api_from_date, api_to_date, effective_interval)
-
-        responses = []
-        for i, (chunk_from, chunk_to) in enumerate(chunks):
-            logger.debug("Fetching chunk %d/%d: %s to %s", i + 1, len(chunks), chunk_from, chunk_to)
-
-            try:
-                response = self._client.get_historical_data(
-                    instrument_token=self._instrument_token,
-                    interval=effective_interval,
-                    from_date=chunk_from,
-                    to_date=chunk_to,
-                    continuous=self._config.continuous,
-                    oi=self._config.oi,
-                )
-                responses.append(response)
-            except ZerodhaAuthenticationError:
-                # Token expired during chunked requests - trigger login flow and retry
-                logger.warning("Authentication error during chunked fetch, re-authenticating...")
-                self._trigger_login_flow()
-                # Retry the same chunk
-                response = self._client.get_historical_data(
-                    instrument_token=self._instrument_token,
-                    interval=effective_interval,
-                    from_date=chunk_from,
-                    to_date=chunk_to,
-                    continuous=self._config.continuous,
-                    oi=self._config.oi,
-                )
-                responses.append(response)
-
-        # Merge all chunked responses
-        merged = self._merge_responses(responses)
-
-        logger.info("Fetched %d candles for instrument_token='%s'", len(merged.get("candles", [])), self._instrument_token)
-        return merged
+        # 3. Full fetch (no cache or cache miss)
+        try:
+            api_data = self._fetch_from_api(effective_interval)
+            if api_data and api_data.get("candles"):
+                # Convert to rows and save to cache
+                rows = self._response_to_rows(api_data, symbol, effective_interval, provider_name)
+                if rows:
+                    self._cache.save_partition(provider_name, symbol, effective_interval, start_dt, end_dt, rows)
+            return api_data
+        except Exception as e:
+            logger.exception("API fetch failed for %s/%s/%s: %s", provider_name, symbol, effective_interval, e)
+            raise
 
     def supported_timeframes(self) -> list[str]:
         """Return list of supported timeframe intervals.

@@ -238,7 +238,18 @@ class TestDhanDataProvider:
             mock.return_value = master_instance
             yield master_instance
 
-    def test_provider_init_with_symbol(self, mock_client, mock_instrument_master):
+    @pytest.fixture
+    def mock_cache(self):
+        """Create a mock ArrowCache."""
+        with patch("quantrex_data.providers.dhan_provider.provider.ArrowCache") as mock:
+            cache_instance = Mock()
+            cache_instance.load_partition.return_value = None
+            cache_instance.get_last_timestamp.return_value = None
+            cache_instance.load_current_partition.return_value = None
+            mock.return_value = cache_instance
+            yield cache_instance
+
+    def test_provider_init_with_symbol(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should initialize with symbol and resolve to security_id."""
         provider = DhanDataProvider(
             symbol="RELIANCE",
@@ -250,7 +261,7 @@ class TestDhanDataProvider:
         assert provider.security_id == "1333"
         mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE_EQ")
 
-    def test_provider_init_with_security_id(self, mock_client, mock_instrument_master):
+    def test_provider_init_with_security_id(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should initialize with security_id directly."""
         provider = DhanDataProvider(
             security_id="1333",
@@ -262,7 +273,7 @@ class TestDhanDataProvider:
         assert provider.security_id == "1333"
         mock_instrument_master.resolve_symbol.assert_not_called()
 
-    def test_provider_init_with_date_objects(self, mock_client, mock_instrument_master):
+    def test_provider_init_with_date_objects(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should accept date and datetime objects."""
         provider = DhanDataProvider(
             security_id="1333",
@@ -274,7 +285,7 @@ class TestDhanDataProvider:
         assert provider.config.from_date == "2024-01-01"
         assert provider.config.to_date == "2024-01-31 15:30:00"
 
-    def test_fetch_daily_data(self, mock_client, mock_instrument_master):
+    def test_fetch_daily_data(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should fetch daily historical data."""
         mock_client.get_daily_historical.return_value = Mock(
             model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
@@ -295,7 +306,7 @@ class TestDhanDataProvider:
         assert data["open"] == MOCK_DAILY_HISTORICAL_RESPONSE["open"]
         mock_client.get_daily_historical.assert_called_once()
 
-    def test_fetch_intraday_data(self, mock_client, mock_instrument_master):
+    def test_fetch_intraday_data(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should fetch intraday historical data."""
         mock_client.get_intraday_historical.return_value = Mock(
             model_dump=lambda **kwargs: MOCK_INTRADAY_HISTORICAL_RESPONSE
@@ -315,7 +326,7 @@ class TestDhanDataProvider:
         assert len(data["timestamp"]) == 5
         mock_client.get_intraday_historical.assert_called_once()
 
-    def test_fetch_with_chunking(self, mock_client, mock_instrument_master):
+    def test_fetch_with_chunking(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should chunk large date ranges."""
         # Create proper mock response objects with attributes
         from quantrex_data.providers.dhan_provider.models import HistoricalDataResponse
@@ -363,7 +374,7 @@ class TestDhanDataProvider:
         assert len(data["timestamp"]) == 7  # 3 + 3 + 1 = 7 candles
         assert mock_client.get_daily_historical.call_count == 3
 
-    def test_fetch_symbol_resolution_error(self, mock_client, mock_instrument_master):
+    def test_fetch_symbol_resolution_error(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should raise DhanSymbolNotFoundError for unknown symbol."""
         mock_instrument_master.resolve_symbol.side_effect = DhanSymbolNotFoundError(
             symbol="UNKNOWN", exchange_segment="NSE_EQ"
@@ -378,7 +389,7 @@ class TestDhanDataProvider:
                 to_date="2024-01-31",
             )
 
-    def test_fetch_auth_error(self, mock_client, mock_instrument_master):
+    def test_fetch_auth_error(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should propagate authentication errors."""
         mock_client.get_daily_historical.side_effect = DhanAuthenticationError("Invalid token")
 
@@ -392,7 +403,7 @@ class TestDhanDataProvider:
         with pytest.raises(DhanAuthenticationError):
             provider.fetch()
 
-    def test_fetch_rate_limit_error(self, mock_client, mock_instrument_master):
+    def test_fetch_rate_limit_error(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should propagate rate limit errors."""
         mock_client.get_daily_historical.side_effect = DhanRateLimitError("Rate limited")
 
@@ -406,7 +417,7 @@ class TestDhanDataProvider:
         with pytest.raises(DhanRateLimitError):
             provider.fetch()
 
-    def test_fetch_data_not_found(self, mock_client, mock_instrument_master):
+    def test_fetch_data_not_found(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should raise DhanDataNotFoundError for empty response."""
         mock_client.get_daily_historical.side_effect = DhanDataNotFoundError("No data")
 
@@ -420,7 +431,7 @@ class TestDhanDataProvider:
         with pytest.raises(DhanDataNotFoundError):
             provider.fetch()
 
-    def test_fetch_invalid_parameter_error(self, mock_client, mock_instrument_master):
+    def test_fetch_invalid_parameter_error(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should propagate invalid parameter errors."""
         mock_client.get_daily_historical.side_effect = DhanInvalidParameterError(
             "Invalid SecurityId", error_code=813
@@ -437,7 +448,7 @@ class TestDhanDataProvider:
             provider.fetch()
         assert exc_info.value.error_code == 813
 
-    def test_close_delegates_to_client(self, mock_client, mock_instrument_master):
+    def test_close_delegates_to_client(self, mock_client, mock_instrument_master, mock_cache):
         """Provider close() should delegate to client.close()."""
         provider = DhanDataProvider(
             security_id="1333",
@@ -449,7 +460,7 @@ class TestDhanDataProvider:
         provider.close()
         mock_client.close.assert_called_once()
 
-    def test_context_manager(self, mock_client, mock_instrument_master):
+    def test_context_manager(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should work as context manager."""
         with DhanDataProvider(
             security_id="1333",
@@ -461,7 +472,7 @@ class TestDhanDataProvider:
             assert provider.security_id == "1333"
         mock_client.close.assert_called_once()
 
-    def test_provider_get_origin_time(self, mock_client, mock_instrument_master):
+    def test_provider_get_origin_time(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should return NSE origin time (09:15)."""
         provider = DhanDataProvider(
             security_id="1333",
@@ -474,7 +485,7 @@ class TestDhanDataProvider:
         from datetime import time
         assert origin_time == time(9, 15)
 
-    def test_credential_loading_from_env(self):
+    def test_credential_loading_from_env(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should load access token from environment when not provided."""
         with patch.dict("os.environ", {"DHAN_ACCESS_TOKEN": "test_token_from_env"}):
             with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client_class, \
@@ -498,7 +509,7 @@ class TestDhanDataProvider:
                 assert provider is not None
                 assert provider._config.access_token is None  # Config stores None, client loads from env
 
-    def test_credential_loading_missing_raises(self):
+    def test_credential_loading_missing_raises(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should raise DhanAuthenticationError when no token available."""
         with patch.dict("os.environ", {}, clear=True):
             with patch("quantrex_data.providers.dhan_provider.provider.DhanAPIClient") as mock_client_class, \
@@ -517,7 +528,7 @@ class TestDhanDataProvider:
                 with pytest.raises(DhanAuthenticationError):
                     provider.fetch()  # Error raised on fetch, not init
 
-    def test_date_normalization_daily(self, mock_client, mock_instrument_master):
+    def test_date_normalization_daily(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should normalize dates for daily API (YYYY-MM-DD)."""
         mock_client.get_daily_historical.return_value = Mock(
             model_dump=lambda **kwargs: MOCK_DAILY_HISTORICAL_RESPONSE
@@ -538,7 +549,7 @@ class TestDhanDataProvider:
         assert call_args.from_date == "2024-01-01"
         assert call_args.to_date == "2024-01-31"
 
-    def test_date_normalization_intraday(self, mock_client, mock_instrument_master):
+    def test_date_normalization_intraday(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should normalize dates for intraday API (YYYY-MM-DD HH:MM:SS)."""
         mock_client.get_intraday_historical.return_value = Mock(
             model_dump=lambda **kwargs: MOCK_INTRADAY_HISTORICAL_RESPONSE
@@ -559,7 +570,7 @@ class TestDhanDataProvider:
         assert " " in call_args.from_date
         assert " " in call_args.to_date
 
-    def test_custom_chunk_sizes(self, mock_client, mock_instrument_master):
+    def test_custom_chunk_sizes(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should use custom chunk sizes when provided.
 
         With ``chunk_size_days["day"]=1`` and a 2-day range
@@ -656,7 +667,18 @@ class TestDhanDailyChunkingRegression:
             mock.return_value = master_instance
             yield master_instance
 
-    def test_default_daily_chunk_size_is_dhan_limit(self, mock_client, mock_instrument_master):
+    @pytest.fixture
+    def mock_cache(self):
+        """Create a mock ArrowCache."""
+        with patch("quantrex_data.providers.dhan_provider.provider.ArrowCache") as mock:
+            cache_instance = Mock()
+            cache_instance.load_partition.return_value = None
+            cache_instance.get_last_timestamp.return_value = None
+            cache_instance.load_current_partition.return_value = None
+            mock.return_value = cache_instance
+            yield cache_instance
+
+    def test_default_daily_chunk_size_is_dhan_limit(self, mock_client, mock_instrument_master, mock_cache):
         """Default daily chunk size must be 89 (stride producing <=90-day inclusive chunks).
 
         Dhan's API enforces a 90-day hard limit per request. Since the
@@ -674,7 +696,7 @@ class TestDhanDailyChunkingRegression:
         assert provider.config.chunk_size_days["day"] == 89
 
     def test_year_long_range_chunks_into_90_day_requests(
-        self, mock_client, mock_instrument_master
+        self, mock_client, mock_instrument_master, mock_cache
     ):
         """A 365-day range must be split into <=90-day sub-requests.
 
@@ -718,7 +740,7 @@ class TestDhanDailyChunkingRegression:
             )
 
     def test_year_long_range_is_chunked_into_multiple_requests(
-        self, mock_client, mock_instrument_master
+        self, mock_client, mock_instrument_master, mock_cache
     ):
         """A 365-day range must produce more than one HTTP request.
 

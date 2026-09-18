@@ -14,10 +14,7 @@ from quantrex_data.operations import (
     validate_data_format,
     validate_completeness,
     check_timestamp_alignment,
-    ParquetCache,
     synchronize_symbols,
-    download_dhan_data,
-    download_zerodha_data,
 )
 
 logger = get_logger(__name__)
@@ -26,7 +23,6 @@ logger = get_logger(__name__)
 @dataclass(frozen=True, slots=True)
 class DataOrchestratorConfig:
     """Configuration for DataOrchestrator."""
-    cache_dir: Path = Path("data/cache")
     exchange_calendar: str = "NSE"
     auto_download: bool = True
     validate_completeness: bool = True
@@ -37,12 +33,12 @@ class DataOrchestratorConfig:
 class DataOrchestrator:
     """Orchestrates data preparation for backtesting.
 
-    Uses quantrex-data operations for validation, download, caching, and alignment.
+    Uses quantrex-data operations for validation and alignment.
+    Caching is handled transparently by DataProviders.
     """
 
     def __init__(self, config: Optional[DataOrchestratorConfig] = None):
         self.config = config or DataOrchestratorConfig()
-        self.cache = ParquetCache(self.config.cache_dir)
 
     def validate_and_prepare(
         self,
@@ -110,18 +106,14 @@ class DataOrchestrator:
         end: Optional[datetime],
         auto_download: bool,
     ) -> List[Dict[str, Any]]:
-        """Prepare data for a single instrument."""
+        """Prepare data for a single instrument.
+
+        Caching is handled transparently by the DataProvider.
+        """
         symbol = spec.symbol
         adapter = spec.adapter
 
-        # Try cache first
-        if start and end:
-            cached = self.cache.load(symbol, "1M", start, end)
-            if cached is not None:
-                logger.info("Using cached data for %s (%d rows)", symbol, len(cached))
-                return cached
-
-        # Read from adapter
+        # Read from adapter (provider handles caching internally)
         logger.info("Reading data from adapter for %s", symbol)
         try:
             data = adapter.read_timeframe("1M")
@@ -131,9 +123,9 @@ class DataOrchestrator:
 
         if not data:
             logger.warning("No data returned from adapter for %s", symbol)
-            return []  # Return empty list instead of continuing
+            return []
 
-        # Filter by date range if specified
+        # Filter by date range if specified (adapter may not filter)
         if start or end:
             data = self._filter_by_date_range(data, start, end)
 
@@ -144,63 +136,7 @@ class DataOrchestrator:
                 logger.error("Data format error for %s: %s", symbol, error)
             raise ValueError(f"Invalid data format for {symbol}: {errors[:5]}")
 
-        # Auto-download if enabled and data is insufficient
-        if auto_download and (not data or len(data) < self.config.min_bars_required):
-            logger.info("Attempting auto-download for %s", symbol)
-            downloaded = self._attempt_download(spec, start, end)
-            if downloaded:
-                data = downloaded
-                # Re-validate
-                is_valid, errors = validate_data_format(data)
-                if not is_valid:
-                    logger.error("Downloaded data also invalid for %s", symbol)
-
-        # Cache the data
-        if start and end and data:
-            self.cache.save(symbol, "1M", start, end, data)
-
         return data
-
-    def _attempt_download(
-        self,
-        spec: InstrumentSpec,
-        start: Optional[datetime],
-        end: Optional[datetime],
-    ) -> Optional[List[Dict[str, Any]]]:
-        """Attempt to download data from provider."""
-        adapter = spec.adapter
-
-        # Check if adapter has a provider we can use for download
-        provider = getattr(adapter, '_provider', None)
-        if provider is None:
-            logger.warning("No provider available for download on %s", spec.symbol)
-            return None
-
-        # Try Dhan
-        if provider.__class__.__name__ == "DhanDataProvider":
-            try:
-                return download_dhan_data(
-                    symbol=spec.symbol,
-                    start=start or datetime(2020, 1, 1),
-                    end=end or datetime.now(),
-                    timeframe="1M",
-                )
-            except Exception as e:
-                logger.warning("Dhan download failed for %s: %s", spec.symbol, e)
-
-        # Try Zerodha
-        if provider.__class__.__name__ == "ZerodhaDataProvider":
-            try:
-                return download_zerodha_data(
-                    symbol=spec.symbol,
-                    start=start or datetime(2020, 1, 1),
-                    end=end or datetime.now(),
-                    timeframe="1M",
-                )
-            except Exception as e:
-                logger.warning("Zerodha download failed for %s: %s", spec.symbol, e)
-
-        return None
 
     def _filter_by_date_range(
         self,

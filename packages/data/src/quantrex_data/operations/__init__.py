@@ -10,9 +10,9 @@ from .download import (
     download_dhan_data,
     download_zerodha_data,
 )
-from .caching import (
-    ParquetCache,
-    get_cache_dir,
+from .arrow_cache import (
+    ArrowCache,
+    get_arrow_cache_dir,
 )
 from .alignment import (
     align_to_exchange_calendar,
@@ -31,8 +31,8 @@ __all__ = [
     "download_dhan_data",
     "download_zerodha_data",
     # Caching
-    "ParquetCache",
-    "get_cache_dir",
+    "ArrowCache",
+    "get_arrow_cache_dir",
     # Alignment
     "align_to_exchange_calendar",
     "resample_to_timeframe",

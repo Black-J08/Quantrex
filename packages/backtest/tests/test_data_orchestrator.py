@@ -12,7 +12,6 @@ from quantrex_data.operations import (
     validate_data_format,
     validate_completeness,
     check_timestamp_alignment,
-    ParquetCache,
     align_to_exchange_calendar,
     resample_to_timeframe,
     synchronize_symbols,
@@ -107,44 +106,6 @@ class TestTimestampAlignment:
         assert any("misalignment" in w for w in warnings)
 
 
-class TestParquetCache:
-    """Tests for ParquetCache."""
-
-    def test_cache_save_and_load(self, tmp_path):
-        """Test saving and loading data from cache."""
-        cache = ParquetCache(tmp_path)
-        data = [
-            {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-        ]
-        start = datetime(2026, 1, 1)
-        end = datetime(2026, 1, 31)
-
-        cache.save("RELIANCE", "1M", start, end, data)
-        loaded = cache.load("RELIANCE", "1M", start, end)
-
-        assert loaded is not None
-        assert len(loaded) == 2
-        assert loaded[0]["open"] == "100"
-
-    def test_cache_miss(self, tmp_path):
-        """Test cache miss returns None."""
-        cache = ParquetCache(tmp_path)
-        loaded = cache.load("RELIANCE", "1M", datetime(2026, 1, 1), datetime(2026, 1, 31))
-        assert loaded is None
-
-    def test_cache_exists(self, tmp_path):
-        """Test cache exists check."""
-        cache = ParquetCache(tmp_path)
-        data = [{"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"}]
-        start = datetime(2026, 1, 1)
-        end = datetime(2026, 1, 31)
-
-        assert cache.exists("RELIANCE", "1M", start, end) is False
-        cache.save("RELIANCE", "1M", start, end, [{"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"}])
-        assert cache.exists("RELIANCE", "1M", start, end) is True
-
-
 class TestAlignment:
     """Tests for timestamp alignment operations."""
 
@@ -186,7 +147,6 @@ class TestDataOrchestrator:
     def test_orchestrator_initialization(self):
         """Test DataOrchestrator initialization."""
         config = DataOrchestratorConfig(
-            cache_dir=Path("/tmp/test_cache"),
             exchange_calendar="NSE",
             auto_download=False,
             validate_completeness=True,
@@ -198,7 +158,6 @@ class TestDataOrchestrator:
     def test_orchestrator_default_config(self):
         """Test DataOrchestrator with default config."""
         orchestrator = DataOrchestrator()
-        assert orchestrator.config.cache_dir == Path("data/cache")
         assert orchestrator.config.exchange_calendar == "NSE"
         assert orchestrator.config.auto_download is True
 

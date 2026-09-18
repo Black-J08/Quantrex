@@ -1,7 +1,7 @@
 """Dhan Data Provider for Quantrex framework.
 
 Fetches raw OHLCV data from DhanHQ REST API with symbol resolution,
-date normalization, and automatic chunking for large date ranges.
+date normalization, automatic chunking, and transparent caching.
 """
 
 from datetime import date, datetime, time
@@ -9,6 +9,7 @@ from typing import Any
 
 from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataProvider
+from quantrex_data.operations import ArrowCache
 
 from .client import DhanAPIClient
 from .config import DhanProviderConfig
@@ -130,6 +131,9 @@ class DhanDataProvider:
         # Initialize components
         self._client = DhanAPIClient(self._config)
         self._instrument_master = InstrumentMaster(self._config)
+
+        # Initialize automatic cache (zero-config, internal)
+        self._cache = ArrowCache()
 
         # Resolve symbol to security_id if needed
         self._security_id = self._config.security_id
@@ -326,45 +330,31 @@ class DhanDataProvider:
         logger.debug("Merged %d chunks into %d candles", len(responses), len(merged["timestamp"]))
         return merged
 
-    def fetch(self, timeframe: str | None = None) -> dict:
-        """Fetch raw OHLCV data from DhanHQ API.
-
-        Handles symbol resolution, date normalization, chunking, and response merging.
+    def _fetch_from_api(self, timeframe: str, from_date: str | None = None, to_date: str | None = None) -> dict:
+        """Internal method to fetch raw data from Dhan API.
 
         Args:
-            timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
-                      None uses the provider's configured timeframe.
+            timeframe: Timeframe in Quantrex format (e.g., "1M", "1D")
+            from_date: Optional override for start date (API format)
+            to_date: Optional override for end date (API format)
 
         Returns:
-            Raw API response as dictionary with keys:
-            open, high, low, close, volume, timestamp (arrays), and optionally open_interest.
-
-        Raises:
-            DhanSymbolNotFoundError: If symbol resolution fails.
-            DhanAuthenticationError: If authentication fails.
-            DhanRateLimitError: If rate limit exceeded.
-            DhanDataNotFoundError: If no data returned.
-            DhanInvalidParameterError: If request parameters invalid.
-            DhanAPIError: Other API errors.
+            Raw API response as dictionary.
         """
-        # Use provided timeframe or fall back to configured timeframe
-        effective_timeframe = timeframe or self._config.timeframe
-        
-        # Map our timeframe format to Dhan's format
-        dhan_timeframe = self._map_timeframe_to_dhan(effective_timeframe)
+        dhan_timeframe = self._map_timeframe_to_dhan(timeframe)
         is_intraday = dhan_timeframe != "day"
 
-        logger.info(
-            "Fetching %s data for security_id='%s' from %s to %s",
-            effective_timeframe,
-            self._security_id,
-            self._config.from_date,
-            self._config.to_date,
-        )
+        # Use provided dates or fall back to config
+        api_from_date = from_date or self._normalize_date_for_api(self._config.from_date, is_intraday)
+        api_to_date = to_date or self._normalize_date_for_api(self._config.to_date, is_intraday)
 
-        # Normalize dates for API
-        api_from_date = self._normalize_date_for_api(self._config.from_date, is_intraday)
-        api_to_date = self._normalize_date_for_api(self._config.to_date, is_intraday)
+        logger.info(
+            "Fetching %s data from API for security_id='%s' from %s to %s",
+            timeframe,
+            self._security_id,
+            api_from_date,
+            api_to_date,
+        )
 
         # Chunk date range
         chunks = self._chunk_date_range(api_from_date, api_to_date, is_intraday)
@@ -401,8 +391,179 @@ class DhanDataProvider:
         # Merge all chunked responses
         merged = self._merge_responses(responses)
 
-        logger.info("Fetched %d candles for security_id='%s'", len(merged.get("timestamp", [])), self._security_id)
+        logger.info("Fetched %d candles from API for security_id='%s'", len(merged.get("timestamp", [])), self._security_id)
         return merged
+
+    def _format_cached_response(self, rows: list[dict]) -> dict:
+        """Convert cached rows back to provider response format."""
+        if not rows:
+            return {"timestamp": [], "open": [], "high": [], "low": [], "close": [], "volume": []}
+
+        # Extract arrays from rows
+        timestamps = []
+        opens = []
+        highs = []
+        lows = []
+        closes = []
+        volumes = []
+        ois = []
+
+        for row in rows:
+            # Parse datetime string to epoch seconds (IST)
+            dt_str = row.get("datetime", "")
+            try:
+                dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                # Convert to epoch seconds assuming IST
+                epoch = int(dt.timestamp())
+            except Exception:
+                epoch = 0
+            timestamps.append(epoch)
+            opens.append(row.get("open", 0))
+            highs.append(row.get("high", 0))
+            lows.append(row.get("low", 0))
+            closes.append(row.get("close", 0))
+            volumes.append(row.get("volume", 0))
+            if "oi" in row and row["oi"] is not None:
+                ois.append(row["oi"])
+
+        result = {
+            "timestamp": timestamps,
+            "open": opens,
+            "high": highs,
+            "low": lows,
+            "close": closes,
+            "volume": volumes,
+        }
+        if ois:
+            result["open_interest"] = ois
+        return result
+
+    def fetch(self, timeframe: str | None = None) -> dict:
+        """Fetch raw OHLCV data with transparent caching.
+
+        Implements read-through caching:
+        1. Try cache for exact date range
+        2. Try delta fetch for current partition
+        3. Fall back to full API fetch
+        4. Cache errors never break data flow — always fall back to API
+
+        Args:
+            timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
+                      None uses the provider's configured timeframe.
+
+        Returns:
+            Raw API response as dictionary with keys:
+            open, high, low, close, volume, timestamp (arrays), and optionally open_interest.
+
+        Raises:
+            DhanSymbolNotFoundError: If symbol resolution fails.
+            DhanAuthenticationError: If authentication fails.
+            DhanRateLimitError: If rate limit exceeded.
+            DhanDataNotFoundError: If no data returned.
+            DhanInvalidParameterError: If request parameters invalid.
+            DhanAPIError: Other API errors.
+        """
+        effective_timeframe = timeframe or self._config.timeframe
+        provider_name = "dhan"
+        symbol = self._config.symbol or self._security_id
+
+        # Parse config dates for cache operations
+        try:
+            start_dt = datetime.strptime(self._config.from_date.split(" ")[0], "%Y-%m-%d")
+            end_dt = datetime.strptime(self._config.to_date.split(" ")[0], "%Y-%m-%d")
+        except Exception:
+            # If date parsing fails, skip cache and go straight to API
+            logger.warning("Failed to parse dates for caching, falling back to API")
+            return self._fetch_from_api(effective_timeframe)
+
+        # 1. Try cache for exact date range (closed partition)
+        try:
+            cached = self._cache.load_partition(
+                provider=provider_name,
+                symbol=symbol,
+                timeframe=effective_timeframe,
+                start=start_dt,
+                end=end_dt,
+            )
+            if cached is not None:
+                logger.info("Cache hit for %s/%s/%s %s-%s", provider_name, symbol, effective_timeframe, start_dt, end_dt)
+                return self._format_cached_response(cached)
+        except Exception as e:
+            logger.warning("Cache read failed, falling back to API: %s", e)
+
+        # 2. Check current partition for delta fetch
+        try:
+            last_ts = self._cache.get_last_timestamp(provider_name, symbol, effective_timeframe)
+            if last_ts and last_ts < end_dt:
+                # Fetch only missing tail
+                delta_from = last_ts.strftime("%Y-%m-%d %H:%M:%S")
+                logger.info("Delta fetch for %s/%s/%s from %s", provider_name, symbol, effective_timeframe, delta_from)
+                delta_data = self._fetch_from_api(effective_timeframe, from_date=delta_from)
+                if delta_data and delta_data.get("timestamp"):
+                    # Convert delta response to rows and append
+                    delta_rows = self._response_to_rows(delta_data, symbol, effective_timeframe, provider_name)
+                    if delta_rows:
+                        self._cache.append_to_current_partition(provider_name, symbol, effective_timeframe, delta_rows)
+                        # Return merged cached + delta
+                        full_cached = self._cache.load_current_partition(provider_name, symbol, effective_timeframe)
+                        if full_cached:
+                            return self._format_cached_response(full_cached)
+        except Exception as e:
+            logger.warning("Delta fetch failed, falling back to full API fetch: %s", e)
+
+        # 3. Full fetch (no cache or cache miss)
+        try:
+            api_data = self._fetch_from_api(effective_timeframe)
+            if api_data and api_data.get("timestamp"):
+                # Convert to rows and save to cache
+                rows = self._response_to_rows(api_data, symbol, effective_timeframe, provider_name)
+                if rows:
+                    self._cache.save_partition(provider_name, symbol, effective_timeframe, start_dt, end_dt, rows)
+            return api_data
+        except Exception as e:
+            logger.exception("API fetch failed for %s/%s/%s: %s", provider_name, symbol, effective_timeframe, e)
+            raise
+
+    def _response_to_rows(self, response: dict, symbol: str, timeframe: str, provider: str) -> list[dict]:
+        """Convert provider response dict to list of row dicts for caching."""
+        if not response or not response.get("timestamp"):
+            return []
+
+        timestamps = response.get("timestamp", [])
+        opens = response.get("open", [])
+        highs = response.get("high", [])
+        lows = response.get("low", [])
+        closes = response.get("close", [])
+        volumes = response.get("volume", [])
+        ois = response.get("open_interest")
+
+        n = len(timestamps)
+        if n == 0:
+            return []
+
+        rows = []
+        for i in range(n):
+            # Convert epoch to datetime string (IST)
+            epoch = timestamps[i]
+            try:
+                dt = datetime.fromtimestamp(epoch)
+                dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                dt_str = ""
+
+            row = {
+                "datetime": dt_str,
+                "open": float(opens[i]) if i < len(opens) else 0.0,
+                "high": float(highs[i]) if i < len(highs) else 0.0,
+                "low": float(lows[i]) if i < len(lows) else 0.0,
+                "close": float(closes[i]) if i < len(closes) else 0.0,
+                "volume": float(volumes[i]) if i < len(volumes) else 0.0,
+            }
+            if ois is not None and i < len(ois):
+                row["oi"] = float(ois[i])
+            rows.append(row)
+
+        return rows
 
     def supported_timeframes(self) -> list[str]:
         """Return list of supported timeframe intervals.
