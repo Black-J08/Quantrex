@@ -177,3 +177,9 @@ class BacktestPortfolioContext(PortfolioContext):
     @property
     def strategy_context(self) -> BacktestStrategyContext:
         return self._strategy_context
+
+    # PortfolioContext is implemented by this class, so portfolio returns self
+    @property
+    def portfolio(self) -> 'PortfolioContext':
+        """Return self as the portfolio context."""
+        return self

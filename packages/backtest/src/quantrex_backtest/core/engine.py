@@ -469,11 +469,21 @@ class BacktestEngine:
                     if symbol_row is None:
                         continue  # Skip if no data for this symbol at this timestamp
 
+                    # Find the adapter for this symbol
+                    symbol_adapter = None
+                    for spec in self._instruments:
+                        if spec.symbol == symbol:
+                            symbol_adapter = spec.adapter
+                            break
+                    
+                    if symbol_adapter is None:
+                        symbol_adapter = self._instruments[0].adapter
+
                     indicators = all_indicators[symbol].get(base_timeframe, [{}])[idx] if idx < len(all_indicators[symbol].get(base_timeframe, [])) else {}
                     candle = Candle.from_row(
                         symbol_row,
                         symbol,
-                        self._instruments[0].adapter.datetime_format,  # Use first adapter's format
+                        symbol_adapter.datetime_format,  # Use this symbol's adapter format
                         indicators=indicators,
                     )
                     candles[symbol] = candle

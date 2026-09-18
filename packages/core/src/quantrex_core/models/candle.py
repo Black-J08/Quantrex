@@ -77,7 +77,12 @@ class Candle:
             ValueError: If required keys are missing or values cannot be parsed.
         """
         try:
-            timestamp = datetime.strptime(row["datetime"], datetime_format)
+            dt_val = row["datetime"]
+            # Handle pandas Timestamp objects (from Parquet cache)
+            if hasattr(dt_val, 'strftime'):
+                timestamp = dt_val.to_pydatetime()
+            else:
+                timestamp = datetime.strptime(dt_val, datetime_format)
             return cls(
                 symbol=symbol,
                 timestamp=timestamp,

@@ -287,8 +287,7 @@ class BacktestStrategyContext(StrategyContext):
         # Fallback to filtering (for backward compatibility)
         return tuple(self._filter_by_timeframe(self._history, interval))
 
-    @staticmethod
-    def _filter_by_timeframe(candles: list[Candle], interval: str) -> list[Candle]:
+    def _filter_by_timeframe(self, candles: list[Candle], interval: str) -> list[Candle]:
         """Filter candles by timeframe interval.
 
         Groups candles into the specified interval and returns the last

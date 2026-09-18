@@ -182,7 +182,7 @@ def synchronize_symbols(
     for symbol, data in symbol_data.items():
         aligned_data[symbol] = align_to_exchange_calendar(data, exchange, timeframe)
 
-    # Find common timestamp index
+    # Find common timestamp index - normalize timestamps to strings for comparison
     all_timestamps = set()
     for data in aligned_data.values():
         timestamps = set()
@@ -190,6 +190,9 @@ def synchronize_symbols(
             dt_val = row.get("datetime")
             if isinstance(dt_val, str):
                 timestamps.add(dt_val)
+            elif isinstance(dt_val, datetime):
+                # Convert datetime to string in standard format
+                timestamps.add(dt_val.strftime("%Y-%m-%d %H:%M:%S"))
         all_timestamps.update(timestamps)
 
     common_timestamps = sorted(all_timestamps)
@@ -197,7 +200,14 @@ def synchronize_symbols(
     # Filter each symbol to common timestamps
     synchronized = {}
     for symbol, data in aligned_data.items():
-        data_by_ts = {row["datetime"]: row for row in data}
+        data_by_ts = {}
+        for row in data:
+            dt_val = row.get("datetime")
+            if isinstance(dt_val, str):
+                data_by_ts[dt_val] = row
+            elif isinstance(dt_val, datetime):
+                data_by_ts[dt_val.strftime("%Y-%m-%d %H:%M:%S")] = row
+        
         synchronized[symbol] = [data_by_ts[ts] for ts in common_timestamps if ts in data_by_ts]
 
     logger.info("Synchronized %d symbols to %d common timestamps", len(symbol_data), len(common_timestamps))

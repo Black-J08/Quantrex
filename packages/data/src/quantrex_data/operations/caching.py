@@ -56,9 +56,7 @@ class ParquetCache:
 
         try:
             df = pd.read_parquet(path)
-            # Convert datetime back to string for consistency
-            if "datetime" in df.columns:
-                df["datetime"] = df["datetime"].dt.strftime("%Y%m%d %H:%M")
+            # Keep datetime as-is (don't convert format) - let the adapter handle parsing
             data = df.to_dict("records")
             logger.info("Loaded %d rows for %s %s from cache", len(data), symbol, timeframe)
             return data
