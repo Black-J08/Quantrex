@@ -216,7 +216,7 @@ class TestDhanDataAdapter:
         # The adapter's property is the single source of truth.
         assert adapter.datetime_format == adapter._datetime_format
         # Engine should be able to initialize without passing datetime_format.
-        from quantrex_backtest import BacktestEngine
+        from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
         from quantrex_core.strategy.base import Strategy
 
         class DummyStrategy(Strategy):
@@ -224,9 +224,9 @@ class TestDhanDataAdapter:
             def on_candle(self, candle): pass
             def on_stop(self): pass
 
-        engine = BacktestEngine(adapter, DummyStrategy(), symbol="RELIANCE")
+        engine = BacktestEngine([InstrumentSpec(symbol="RELIANCE", adapter=adapter)], DummyStrategy(), PortfolioConfig())
         # Engine's internal format must match adapter's property.
-        assert engine._datetime_format == adapter.datetime_format
+        assert engine._symbol_to_adapter["RELIANCE"].datetime_format == adapter.datetime_format
 
 
 class TestDhanAdapterTimezoneRegression:

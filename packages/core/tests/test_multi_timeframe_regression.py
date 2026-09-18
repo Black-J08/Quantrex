@@ -8,8 +8,7 @@ from quantrex_core import Strategy, Candle
 from quantrex_core.strategy.base import on_timeframe
 from quantrex_core.strategy.timeframe import TimeframeRegistry, TimeframeDispatcher
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine
-from quantrex_backtest.core.engine import BacktestEngine as BE
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 
 class DecoratedOnlyStrategy(Strategy):
@@ -71,29 +70,35 @@ def test_declaration_no_registry_when_no_decorators():
 
 def test_engine_base_1m_when_on_candle_overridden():
     mock = Mock(spec=DataAdapter)
-    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0","close":"1","volume":"10"}]
+    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = WithOnCandleStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     assert engine._get_required_timeframes()[0] == "1M"
 
 
 def test_engine_base_1m_when_on_candle_defined():
     mock = Mock(spec=DataAdapter)
-    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0","close":"1","volume":"10"}]
+    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     # DecoratedOnlyStrategy defines on_candle → base is 1M
     assert engine._get_required_timeframes()[0] == "1M"
 
 
 def test_engine_fetches_1m_for_decorated_with_on_candle():
     mock = Mock(spec=DataAdapter)
-    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0","close":"1","volume":"10"}]
+    mock.read_timeframe.return_value = [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     engine.run()
     # Defines on_candle → base 1M fetched + 1H from registry
     calls = [c[0][0] for c in mock.read_timeframe.call_args_list]
@@ -114,7 +119,7 @@ def test_dispatch_called_automatically_by_engine():
                 "datetime": (start + timedelta(minutes=i)).strftime(fmt),
                 "open": "1.0",
                 "high": "2.0",
-                "low": "0.0",
+                "low": "0.5",
                 "close": "1.0",
                 "volume": "10.0",
             }
@@ -126,7 +131,7 @@ def test_dispatch_called_automatically_by_engine():
             "datetime": start_str,
             "open": "1.0",
             "high": "2.0",
-            "low": "0.0",
+            "low": "0.5",
             "close": "1.0",
             "volume": "10.0",
         }]
@@ -135,8 +140,10 @@ def test_dispatch_called_automatically_by_engine():
     # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
     mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = WithOnCandleStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     engine.run()
     # After processing 1M bar at 10:59, execution time is 11:00
     # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
@@ -154,7 +161,7 @@ def test_on_candle_not_called_when_not_overridden():
                 "datetime": (start + timedelta(minutes=i)).strftime(fmt),
                 "open": "1.0",
                 "high": "2.0",
-                "low": "0.0",
+                "low": "0.5",
                 "close": "1.0",
                 "volume": "10.0",
             }
@@ -166,7 +173,7 @@ def test_on_candle_not_called_when_not_overridden():
             "datetime": start_str,
             "open": "1.0",
             "high": "2.0",
-            "low": "0.0",
+            "low": "0.5",
             "close": "1.0",
             "volume": "10.0",
         }]
@@ -175,8 +182,10 @@ def test_on_candle_not_called_when_not_overridden():
     # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
     mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     engine.run()
     # After processing 1M bar at 10:59, execution time is 11:00
     # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
@@ -241,8 +250,10 @@ def test_engine_raises_on_unavailable_timeframe_no_1m():
     mock = Mock(spec=DataAdapter)
     mock.read_timeframe.side_effect = ValueError("1-minute data unavailable")
     mock.datetime_format = "%Y%m%d %H:%M"
+    mock.supported_timeframes = ["1M"]
+    mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine(mock, s, symbol="X")
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     with pytest.raises(Exception):
         engine.run()
 

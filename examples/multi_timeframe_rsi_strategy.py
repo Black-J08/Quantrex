@@ -6,7 +6,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import on_timeframe
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
-from quantrex_backtest import BacktestEngine
+from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
 import pandas as pd
 import pandas_ta_classic as ta

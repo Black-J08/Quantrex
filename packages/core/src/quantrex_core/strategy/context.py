@@ -19,6 +19,7 @@ from ..models.candle import Candle
 from ..models.enums import OrderSide, OrderType
 from ..models.order import Order
 from ..models.position import Position
+from ..portfolio.context import PortfolioContext
 
 
 class StrategyContext(ABC):
@@ -150,7 +151,7 @@ class StrategyContext(ABC):
     # with single-instrument backtests and live trading without portfolio support.
 
     @property
-    def portfolio(self) -> 'PortfolioContext':
+    def portfolio(self) -> PortfolioContext:
         """Portfolio-level view: cash, equity, positions dict, margin used.
 
         Returns an EmptyPortfolioContext by default. Execution environments
