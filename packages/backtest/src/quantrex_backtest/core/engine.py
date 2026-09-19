@@ -19,6 +19,7 @@ from .timeframe import calculate_close_time
 from ..exceptions.backtest_error import ProviderError
 from ..data import DataOrchestrator, DataOrchestratorConfig
 from ..portfolio import BacktestPortfolioContext
+from .parallel import run_parallel_backtest
 
 logger = get_logger(__name__)
 
@@ -111,9 +112,10 @@ class BacktestEngine:
         in timestamp order, then strategy.on_stop().
         After completion, exports closed trades to CSV and returns PortfolioResult.
 
-        Args:
-            parallel: If True, run independent instruments in parallel (experimental).
-            max_workers: Maximum number of worker processes for parallel execution.
+        Automatically detects if instruments can run in parallel based on
+        strategy bytecode analysis. If safe, uses process-based parallelism
+        with half the available CPU cores. Falls back to sequential execution
+        if cross-symbol dependencies are detected.
 
         Returns:
             PortfolioResult with portfolio-level and per-symbol metrics.
@@ -136,7 +138,8 @@ class BacktestEngine:
         self._strategy.on_start()
 
         # Portfolio mode: use DataOrchestrator and synchronized execution
-        return self._run_portfolio(staging_dir, backtest_start_utc)
+        # with automatic parallelism detection
+        return run_parallel_backtest(self, staging_dir, backtest_start_utc)
 
     def _run_portfolio(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
         """Run backtest in portfolio mode (new logic)."""
