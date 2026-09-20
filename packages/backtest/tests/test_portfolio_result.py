@@ -1,4 +1,4 @@
-"""Tests for PortfolioResult and SymbolResult."""
+"""Tests for PortfolioResult, SymbolResult, and SingleInstrumentResult."""
 
 from datetime import datetime
 from unittest.mock import Mock
@@ -7,7 +7,7 @@ import pytest
 
 from quantrex_core.models.position import Position
 from quantrex_core.models.trade import TradeRecord
-from quantrex_backtest.portfolio import PortfolioResult, SymbolResult
+from quantrex_backtest.portfolio import PortfolioResult, SymbolResult, SingleInstrumentResult
 
 
 class TestSymbolResult:
@@ -237,3 +237,231 @@ class TestPortfolioResult:
         assert combined.losing_trades == 3  # 2 + 1
         assert "RELIANCE" in combined.symbols
         assert "TCS" in combined.symbols
+
+
+class TestSingleInstrumentResult:
+    """Tests for SingleInstrumentResult."""
+
+    def test_single_instrument_result_creation(self):
+        """Test creating a SingleInstrumentResult."""
+        pos = Position(
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=100.0,
+            symbol="RELIANCE",
+            quantity=10.0,
+        )
+
+        equity_curve = [
+            (datetime(2026, 1, 1), 1_000_000.0),
+            (datetime(2026, 1, 2), 1_000_050.0),
+        ]
+
+        result = SingleInstrumentResult(
+            symbol="RELIANCE",
+            trades=[],
+            equity_curve=equity_curve,
+            final_equity=1_000_050.0,
+            total_return=50.0,
+            total_return_pct=0.005,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            total_trades=0,
+            winning_trades=0,
+            losing_trades=0,
+            win_rate=0.0,
+            profit_factor=None,
+            final_position=pos,
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 2),
+        )
+
+        assert result.symbol == "RELIANCE"
+        assert result.trades == []
+        assert result.equity_curve == equity_curve
+        assert result.final_equity == 1_000_050.0
+        assert result.total_return == 50.0
+        assert result.total_return_pct == 0.005
+        assert result.max_drawdown == 0.0
+        assert result.max_drawdown_pct == 0.0
+        assert result.total_trades == 0
+        assert result.winning_trades == 0
+        assert result.losing_trades == 0
+        assert result.win_rate == 0.0
+        assert result.profit_factor is None
+        assert result.final_position == pos
+        assert result.start_date == datetime(2026, 1, 1)
+        assert result.end_date == datetime(2026, 1, 2)
+
+    def test_single_instrument_result_to_portfolio_result(self):
+        """Test converting SingleInstrumentResult to PortfolioResult."""
+        from quantrex_core.models.trade import TradeRecord
+        from quantrex_core.models.enums import PositionSide
+
+        trade = TradeRecord(
+            symbol="RELIANCE",
+            side=PositionSide.LONG,
+            quantity=10.0,
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=100.0,
+            exit_timestamp=datetime(2026, 1, 2),
+            exit_price=105.0,
+            pnl=50.0,
+        )
+
+        pos = Position(
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=100.0,
+            symbol="RELIANCE",
+            quantity=0.0,
+        )
+
+        equity_curve = [
+            (datetime(2026, 1, 1), 1_000_000.0),
+            (datetime(2026, 1, 2), 1_000_050.0),
+        ]
+
+        single_result = SingleInstrumentResult(
+            symbol="RELIANCE",
+            trades=[trade],
+            equity_curve=equity_curve,
+            final_equity=1_000_050.0,
+            total_return=50.0,
+            total_return_pct=0.005,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            total_trades=1,
+            winning_trades=1,
+            losing_trades=0,
+            win_rate=100.0,
+            profit_factor=None,
+            final_position=pos,
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 2),
+        )
+
+        portfolio_result = single_result.to_portfolio_result(initial_cash=1_000_000.0)
+
+        assert portfolio_result.initial_cash == 1_000_000.0
+        assert portfolio_result.final_equity == 1_000_050.0
+        assert portfolio_result.total_return == 50.0
+        assert portfolio_result.total_return_pct == 0.005
+        assert portfolio_result.max_drawdown == 0.0
+        assert portfolio_result.max_drawdown_pct == 0.0
+        assert portfolio_result.total_trades == 1
+        assert portfolio_result.winning_trades == 1
+        assert portfolio_result.losing_trades == 0
+        assert portfolio_result.win_rate == 100.0
+        assert "RELIANCE" in portfolio_result.per_symbol
+        assert len(portfolio_result.equity_curve) == 2
+        assert portfolio_result.symbols == ["RELIANCE"]
+
+    def test_portfolio_result_from_single_results(self):
+        """Test aggregating multiple SingleInstrumentResults into PortfolioResult."""
+        from quantrex_core.models.trade import TradeRecord
+        from quantrex_core.models.enums import PositionSide
+
+        trade1 = TradeRecord(
+            symbol="RELIANCE",
+            side=PositionSide.LONG,
+            quantity=10.0,
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=100.0,
+            exit_timestamp=datetime(2026, 1, 2),
+            exit_price=105.0,
+            pnl=50.0,
+        )
+
+        trade2 = TradeRecord(
+            symbol="TCS",
+            side=PositionSide.LONG,
+            quantity=5.0,
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=200.0,
+            exit_timestamp=datetime(2026, 1, 2),
+            exit_price=210.0,
+            pnl=50.0,
+        )
+
+        pos1 = Position(
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=100.0,
+            symbol="RELIANCE",
+            quantity=0.0,
+        )
+
+        pos2 = Position(
+            entry_timestamp=datetime(2026, 1, 1),
+            entry_price=200.0,
+            symbol="TCS",
+            quantity=0.0,
+        )
+
+        equity_curve1 = [
+            (datetime(2026, 1, 1), 1_000_000.0),
+            (datetime(2026, 1, 2), 1_000_050.0),
+        ]
+
+        equity_curve2 = [
+            (datetime(2026, 1, 1), 1_000_000.0),
+            (datetime(2026, 1, 2), 1_000_050.0),
+        ]
+
+        result1 = SingleInstrumentResult(
+            symbol="RELIANCE",
+            trades=[trade1],
+            equity_curve=equity_curve1,
+            final_equity=1_000_050.0,
+            total_return=50.0,
+            total_return_pct=0.005,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            total_trades=1,
+            winning_trades=1,
+            losing_trades=0,
+            win_rate=100.0,
+            profit_factor=None,
+            final_position=pos1,
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 2),
+        )
+
+        result2 = SingleInstrumentResult(
+            symbol="TCS",
+            trades=[trade2],
+            equity_curve=equity_curve2,
+            final_equity=1_000_050.0,
+            total_return=50.0,
+            total_return_pct=0.005,
+            max_drawdown=0.0,
+            max_drawdown_pct=0.0,
+            total_trades=1,
+            winning_trades=1,
+            losing_trades=0,
+            win_rate=100.0,
+            profit_factor=None,
+            final_position=pos2,
+            start_date=datetime(2026, 1, 1),
+            end_date=datetime(2026, 1, 2),
+        )
+
+        portfolio_result = PortfolioResult.from_single_results(
+            [result1, result2], initial_cash=1_000_000.0
+        )
+
+        assert portfolio_result.initial_cash == 1_000_000.0
+        # Combined equity: 50 + 50 = 100, initial is 1_000_000
+        # So final_equity = 1_000_000 + 50 + 50 = 1_000_100
+        assert portfolio_result.final_equity == 1_000_100.0
+        assert portfolio_result.total_return == 100.0
+        assert portfolio_result.total_trades == 2
+        assert portfolio_result.winning_trades == 2
+        assert portfolio_result.losing_trades == 0
+        assert portfolio_result.win_rate == 100.0
+        assert "RELIANCE" in portfolio_result.per_symbol
+        assert "TCS" in portfolio_result.per_symbol
+        assert set(portfolio_result.symbols) == {"RELIANCE", "TCS"}
+        # Equity curve should be merged (sum of P&L at each timestamp, plus initial_cash)
+        assert len(portfolio_result.equity_curve) == 2
+        # At each timestamp, equity = initial_cash + sum of P&L from all instruments
+        assert portfolio_result.equity_curve[0][1] == 1_000_000.0  # initial_cash + 0 + 0
+        assert portfolio_result.equity_curve[1][1] == 1_000_100.0  # initial_cash + 50 + 50

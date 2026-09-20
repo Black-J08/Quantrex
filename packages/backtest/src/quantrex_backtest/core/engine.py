@@ -1,11 +1,15 @@
 """Backtest engine core orchestration."""
 
+import dis
 import logging
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 import csv
-from typing import List, Optional
+import pickle
+from typing import List, Optional, Dict, Any, Set
 
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
@@ -14,16 +18,24 @@ from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core import InstrumentSpec, PortfolioConfig
-from quantrex_backtest.portfolio import PortfolioResult, SymbolResult
+from quantrex_backtest.portfolio import PortfolioResult, SymbolResult, SingleInstrumentResult
 from .timeframe import calculate_close_time
 from ..exceptions.backtest_error import ProviderError
 from ..data import DataOrchestrator, DataOrchestratorConfig
 from ..portfolio import BacktestPortfolioContext
-from .parallel import run_parallel_backtest
 
 logger = get_logger(__name__)
 
 _RUN_LOG_FILENAME = "execution.log"
+
+
+@dataclass(frozen=True, slots=True)
+class ParallelismReport:
+    """Report from parallelism detection analysis."""
+    safe: bool
+    reason: str
+    independent_groups: List[List[str]]  # Groups of symbols that can run together
+    warnings: List[str]
 
 
 class BacktestEngine:
@@ -105,6 +117,175 @@ class BacktestEngine:
         # Inject context into Strategy (will be updated in run())
         self._strategy.set_context(self._context)  # Will be set properly in run()
 
+    def _detect_parallelism(self) -> ParallelismReport:
+        """Analyze strategy bytecode to determine if parallel execution is safe.
+        
+        Detection is fully automatic - no decorator or manual opt-in required.
+        Checks for cross-symbol access patterns that would make parallelism unsafe.
+        
+        Returns:
+            ParallelismReport with safety determination and grouping
+        """
+        warnings = []
+        symbol_names = {spec.symbol for spec in self._instruments}
+        
+        # Get all methods to analyze
+        methods_to_check = [
+            'on_candle', 'on_start', 'on_stop', 'compute_indicators', '__init__'
+        ]
+        
+        unsafe_reasons = []
+        
+        for method_name in methods_to_check:
+            method = getattr(self._strategy.__class__, method_name, None)
+            if method is None:
+                continue
+                
+            # Skip base class implementations
+            if method.__qualname__.startswith('Strategy.'):
+                continue
+                
+            try:
+                reason = self._analyze_method(method, method_name, symbol_names)
+                if reason:
+                    unsafe_reasons.append(f"{method_name}: {reason}")
+            except Exception as e:
+                warnings.append(f"Could not analyze {method_name}: {e}")
+        
+        # Check for symbol-keyed instance variables in __init__
+        init_reason = self._check_init_symbol_state()
+        if init_reason:
+            unsafe_reasons.append(f"__init__: {init_reason}")
+        
+        if unsafe_reasons:
+            return ParallelismReport(
+                safe=False,
+                reason="; ".join(unsafe_reasons),
+                independent_groups=[],
+                warnings=warnings,
+            )
+        
+        # All instruments can run independently
+        all_symbols = [spec.symbol for spec in self._instruments]
+        return ParallelismReport(
+            safe=True,
+            reason="No cross-symbol dependencies detected",
+            independent_groups=[all_symbols],  # Single group with all symbols
+            warnings=warnings,
+        )
+    
+    def _analyze_method(
+        self, 
+        method: Any, 
+        method_name: str, 
+        symbol_names: Set[str]
+    ) -> Optional[str]:
+        """Analyze a single method's bytecode for unsafe patterns."""
+        try:
+            bytecode = dis.Bytecode(method)
+        except Exception:
+            return None
+        
+        instructions = list(bytecode)
+        
+        # Attributes/methods that indicate portfolio-level access
+        PORTFOLIO_ATTRS = {'portfolio', 'positions'}
+        CROSS_SYMBOL_METHODS = {'get_position', 'submit_order'}
+        
+        # Check for attribute access: ctx.portfolio, ctx.positions, self.ctx.portfolio, etc.
+        for i, instr in enumerate(instructions):
+            if instr.opname == 'LOAD_ATTR' and instr.argval in PORTFOLIO_ATTRS:
+                # Verify it's accessed via ctx or self.ctx
+                if i > 0 and instructions[i-1].opname in ('LOAD_FAST', 'LOAD_DEREF'):
+                    var_name = instructions[i-1].argval
+                    if var_name in ('ctx', 'self'):
+                        return f"accesses ctx.{instr.argval}"
+                elif i > 1 and instructions[i-1].opname == 'LOAD_ATTR' and instructions[i-2].opname in ('LOAD_FAST', 'LOAD_DEREF'):
+                    # self.ctx.portfolio pattern
+                    if instructions[i-2].argval == 'self' and instructions[i-1].argval == 'ctx':
+                        return f"accesses self.ctx.{instr.argval}"
+        
+        # Check for calls to get_position/submit_order with cross-symbol arguments
+        CALL_OPNAMES = {'CALL_METHOD', 'CALL', 'CALL_KW'}
+        
+        for i, instr in enumerate(instructions):
+            if instr.opname in CALL_OPNAMES:
+                # Check if this is a call to get_position or submit_order
+                method_name_called = None
+                
+                # Look backwards to find the method being called
+                for j in range(i-1, max(-1, i-10), -1):
+                    prev = instructions[j]
+                    if prev.opname == 'LOAD_METHOD' and prev.argval in CROSS_SYMBOL_METHODS:
+                        method_name_called = prev.argval
+                        break
+                    elif prev.opname == 'LOAD_ATTR' and prev.argval in CROSS_SYMBOL_METHODS:
+                        method_name_called = prev.argval
+                        break
+                
+                if method_name_called is None:
+                    continue
+                
+                # Look for literal symbol arguments
+                for j in range(i-1, max(-1, i-15), -1):
+                    arg_instr = instructions[j]
+                    
+                    # Case 1: Literal symbol string (LOAD_CONST)
+                    if arg_instr.opname == 'LOAD_CONST' and isinstance(arg_instr.argval, str):
+                        if arg_instr.argval in symbol_names:
+                            # Check if this literal is actually candle.symbol
+                            is_candle_symbol = False
+                            if j > 1:
+                                if (instructions[j-1].opname == 'LOAD_ATTR' and 
+                                    instructions[j-1].argval == 'symbol' and
+                                    instructions[j-2].opname in ('LOAD_FAST', 'LOAD_DEREF') and
+                                    instructions[j-2].argval == 'candle'):
+                                    is_candle_symbol = True
+                            
+                            if not is_candle_symbol:
+                                return f"calls {method_name_called} with literal symbol '{arg_instr.argval}'"
+                    
+                    # Case 2: candle.symbol access (LOAD_ATTR 'symbol' from 'candle')
+                    elif arg_instr.opname == 'LOAD_ATTR' and arg_instr.argval == 'symbol':
+                        if j > 0:
+                            prev_instr = instructions[j-1]
+                            if prev_instr.opname in ('LOAD_FAST', 'LOAD_DEREF') and prev_instr.argval == 'candle':
+                                # This is the safe pattern: candle.symbol
+                                pass
+                            else:
+                                # symbol attribute from something other than candle - suspicious
+                                return f"calls {method_name_called} with non-candle symbol attribute"
+        
+        return None
+    
+    def _check_init_symbol_state(self) -> Optional[str]:
+        """Check __init__ for symbol-keyed instance variables."""
+        init_method = getattr(self._strategy.__class__, '__init__', None)
+        if init_method is None or init_method.__qualname__.startswith('Strategy.'):
+            return None
+        
+        try:
+            bytecode = dis.Bytecode(init_method)
+        except Exception:
+            return None
+        
+        # Look for patterns like: self.by_symbol = {} or self.positions = {}
+        # where the dict is later keyed by symbol
+        for instr in bytecode:
+            if instr.opname == 'STORE_ATTR':
+                attr_name = instr.argval
+                # Heuristic: attribute names suggesting symbol-keyed storage
+                if any(keyword in attr_name.lower() for keyword in 
+                       ['by_symbol', 'per_symbol', 'symbol_', '_by_symbol', '_per_symbol']):
+                    return f"creates symbol-keyed attribute '{attr_name}'"
+        
+        return None
+
+    def _get_default_max_workers(self) -> int:
+        """Get default worker count: half of available CPUs."""
+        cpu_count = os.cpu_count() or 1
+        return max(1, cpu_count // 2)
+
     def run(self) -> PortfolioResult:
         """Run the backtest, invoking the strategy's lifecycle methods.
 
@@ -112,10 +293,9 @@ class BacktestEngine:
         in timestamp order, then strategy.on_stop().
         After completion, exports closed trades to CSV and returns PortfolioResult.
 
-        Automatically detects if instruments can run in parallel based on
-        strategy bytecode analysis. If safe, uses process-based parallelism
-        with half the available CPU cores. Falls back to sequential execution
-        if cross-symbol dependencies are detected.
+        For single instrument: runs directly in current process.
+        For multiple instruments: detects parallelism safety, runs parallel if safe,
+        otherwise falls back to sequential execution.
 
         Returns:
             PortfolioResult with portfolio-level and per-symbol metrics.
@@ -137,18 +317,55 @@ class BacktestEngine:
 
         self._strategy.on_start()
 
-        # Portfolio mode: use DataOrchestrator and synchronized execution
-        # with automatic parallelism detection
-        return run_parallel_backtest(self, staging_dir, backtest_start_utc)
+        # Single instrument: run directly
+        if len(self._instruments) == 1:
+            logger.info("Single instrument, running sequentially.")
+            single_result = self._run_single_instrument(staging_dir, backtest_start_utc)
+            return single_result.to_portfolio_result(self._config.initial_cash)
+        
+        # Multiple instruments: detect parallelism
+        report = self._detect_parallelism()
+        
+        if not report.safe:
+            logger.info("Parallel execution not safe: %s. Running sequentially.", report.reason)
+            return self._run_sequential_multi(staging_dir, backtest_start_utc)
+        
+        if not report.independent_groups:
+            logger.info("No independent groups found. Running sequentially.")
+            return self._run_sequential_multi(staging_dir, backtest_start_utc)
+        
+        # Check if adapters are picklable (mock adapters in tests are not)
+        try:
+            for spec in self._instruments:
+                pickle.dumps(spec.adapter)
+        except (pickle.PicklingError, TypeError, AttributeError):
+            logger.info("Adapters not picklable (likely test mocks). Running sequentially.")
+            return self._run_sequential_multi(staging_dir, backtest_start_utc)
+        
+        # Run in parallel
+        logger.info("Running parallel backtest with %d workers for %d instruments", 
+                    self._get_default_max_workers(), len(self._instruments))
+        return self._run_parallel(staging_dir, backtest_start_utc)
 
-    def _run_portfolio(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
-        """Run backtest in portfolio mode (new logic)."""
+    def _run_single_instrument(self, staging_dir: Path, backtest_start_utc: datetime) -> SingleInstrumentResult:
+        """Run backtest for a single instrument (core sequential logic).
+        
+        This method handles the complete backtest execution for one instrument,
+        including data preparation, indicator computation, event loop, and result building.
+        
+        Args:
+            staging_dir: Directory for log files
+            backtest_start_utc: Backtest start timestamp
+            
+        Returns:
+            SingleInstrumentResult with all metrics for this instrument
+        """
         # Step 1: Get required timeframes
         required_timeframes = self._get_required_timeframes()
         base_timeframe = required_timeframes[0]
         
         # Step 2: Use DataOrchestrator to prepare validated, synchronized base timeframe data
-        logger.info("Preparing data for %d instruments using DataOrchestrator", len(self._instruments))
+        logger.info("Preparing data for %d instrument(s) using DataOrchestrator", len(self._instruments))
         try:
             synchronized_base_data = self._data_orchestrator.validate_and_prepare(
                 self._instruments,
@@ -163,7 +380,26 @@ class BacktestEngine:
             self._strategy.on_stop()
             self._export_trades_csv(staging_dir)
             logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
-            return PortfolioResult.empty(self._config.initial_cash)
+            # Return empty SingleInstrumentResult
+            symbol = self._instruments[0].symbol
+            return SingleInstrumentResult(
+                symbol=symbol,
+                trades=[],
+                equity_curve=[],
+                final_equity=self._config.initial_cash,
+                total_return=0.0,
+                total_return_pct=0.0,
+                max_drawdown=0.0,
+                max_drawdown_pct=0.0,
+                total_trades=0,
+                winning_trades=0,
+                losing_trades=0,
+                win_rate=0.0,
+                profit_factor=None,
+                final_position=self._position_manager.get_position(symbol),
+                start_date=None,
+                end_date=None,
+            )
 
         # Step 3: Read additional timeframes directly from adapters (non-base timeframes)
         additional_timeframes = [tf for tf in required_timeframes if tf != base_timeframe]
@@ -193,7 +429,7 @@ class BacktestEngine:
                         f"Failed to read data for {symbol} timeframe {tf}: {e}"
                     ) from e
 
-        # Step 4: Create unified PortfolioContext
+        # Step 4: Create unified PortfolioContext (single instrument mode)
         symbols = list(all_raw_data.keys())
         origin_time = self._instruments[0].adapter.get_origin_time()
         
@@ -225,7 +461,25 @@ class BacktestEngine:
             self._strategy.on_stop()
             self._export_trades_csv(staging_dir)
             logger.info("Run log: %s", staging_dir / _RUN_LOG_FILENAME)
-            return PortfolioResult.empty(self._config.initial_cash)
+            symbol = symbols[0]
+            return SingleInstrumentResult(
+                symbol=symbol,
+                trades=[],
+                equity_curve=[],
+                final_equity=self._config.initial_cash,
+                total_return=0.0,
+                total_return_pct=0.0,
+                max_drawdown=0.0,
+                max_drawdown_pct=0.0,
+                total_trades=0,
+                winning_trades=0,
+                losing_trades=0,
+                win_rate=0.0,
+                profit_factor=None,
+                final_position=self._position_manager.get_position(symbol),
+                start_date=None,
+                end_date=None,
+            )
 
         # Sort base data by datetime
         base_data.sort(key=lambda row: row.get("datetime", ""))
@@ -390,12 +644,180 @@ class BacktestEngine:
         self._export_trades_csv(run_dir)
         logger.info("Run log: %s", run_dir / _RUN_LOG_FILENAME)
 
-        # Build PortfolioResult
-        return self._build_portfolio_result(
+        # Build SingleInstrumentResult for this instrument
+        symbol = symbols[0]
+        trades = self._position_manager.get_closed_trades()
+        symbol_trades = [t for t in trades if t.symbol == symbol]
+        
+        initial_cash = self._config.initial_cash
+        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
+        total_return = final_equity - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
+
+        # Calculate max drawdown
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        peak = initial_cash
+        for _, equity in equity_curve:
+            if equity > peak:
+                peak = equity
+            drawdown = peak - equity
+            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+            if drawdown_pct > max_drawdown_pct:
+                max_drawdown_pct = drawdown_pct
+
+        # Calculate trade statistics
+        total_trades = len(symbol_trades)
+        winning_trades = sum(1 for t in symbol_trades if t.pnl > 0)
+        losing_trades = sum(1 for t in symbol_trades if t.pnl < 0)
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # Profit factor
+        gross_profit = sum(t.pnl for t in symbol_trades if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in symbol_trades if t.pnl < 0))
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+
+        symbol_position = self._position_manager.get_position(symbol)
+
+        return SingleInstrumentResult(
+            symbol=symbol,
+            trades=symbol_trades,
             equity_curve=equity_curve,
-            data_start=data_start,
-            data_end=data_end,
-            symbols=symbols,
+            final_equity=final_equity,
+            total_return=total_return,
+            total_return_pct=total_return_pct,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_drawdown_pct,
+            total_trades=total_trades,
+            winning_trades=winning_trades,
+            losing_trades=losing_trades,
+            win_rate=win_rate,
+            profit_factor=profit_factor,
+            final_position=symbol_position,
+            start_date=datetime.strptime(data_start, "%Y%m%d_%H%M%S") if data_start else None,
+            end_date=datetime.strptime(data_end, "%Y%m%d_%H%M%S") if data_end else None,
+        )
+        # For single instrument, symbols list has only one element
+        symbol = symbols[0]
+        trades = self._position_manager.get_closed_trades()
+        symbol_trades = [t for t in trades if t.symbol == symbol]
+        
+        initial_cash = self._config.initial_cash
+        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
+        total_return = final_equity - initial_cash
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
+
+        # Calculate max drawdown
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        peak = initial_cash
+        for _, equity in equity_curve:
+            if equity > peak:
+                peak = equity
+            drawdown = peak - equity
+            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+            if drawdown_pct > max_drawdown_pct:
+                max_drawdown_pct = drawdown_pct
+
+        # Calculate trade statistics
+        total_trades = len(symbol_trades)
+        winning_trades = sum(1 for t in symbol_trades if t.pnl > 0)
+        losing_trades = sum(1 for t in symbol_trades if t.pnl < 0)
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+
+        # Profit factor
+        gross_profit = sum(t.pnl for t in symbol_trades if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in symbol_trades if t.pnl < 0))
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+
+        symbol_position = self._position_manager.get_position(symbol)
+
+        return SingleInstrumentResult(
+            symbol=symbol,
+            trades=symbol_trades,
+            equity_curve=equity_curve,
+            final_equity=final_equity,
+            total_return=total_return,
+            total_return_pct=total_return_pct,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_drawdown_pct,
+            total_trades=total_trades,
+            winning_trades=winning_trades,
+            losing_trades=losing_trades,
+            win_rate=win_rate,
+            profit_factor=profit_factor,
+            final_position=symbol_position,
+            start_date=datetime.strptime(data_start, "%Y%m%d_%H%M%S") if data_start else None,
+            end_date=datetime.strptime(data_end, "%Y%m%d_%H%M%S") if data_end else None,
+        )
+
+    def _run_sequential_multi(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
+        """Run multiple instruments sequentially (fallback when parallel unsafe).
+        
+        Uses the original strategy instance for all instruments to maintain
+        state across instruments (e.g., portfolio snapshots).
+        """
+        results: List[SingleInstrumentResult] = []
+        
+        for spec in self._instruments:
+            logger.info("Running sequential backtest for %s", spec.symbol)
+            # Create a new engine for this single instrument but reuse the original strategy
+            single_engine = BacktestEngine(
+                instruments=[spec],
+                strategy=self._strategy,  # Reuse original strategy instance
+                config=self._config,
+            )
+            single_result = single_engine._run_single_instrument(staging_dir, backtest_start_utc)
+            results.append(single_result)
+        
+        return PortfolioResult.from_single_results(results, self._config.initial_cash)
+
+    def _run_parallel(self, staging_dir: Path, backtest_start_utc: datetime) -> PortfolioResult:
+        """Run multiple instruments in parallel using ProcessPoolExecutor."""
+        max_workers = self._get_default_max_workers()
+        
+        # Extract strategy init kwargs (assume default constructor for now)
+        strategy_init_kwargs = {}
+        
+        results: List[SingleInstrumentResult] = []
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit tasks for each instrument
+            future_to_symbol = {}
+            for spec in self._instruments:
+                future = executor.submit(
+                    _run_single_instrument_worker,
+                    spec,
+                    self._strategy.__class__,
+                    strategy_init_kwargs,
+                    self._config,
+                    backtest_start_utc,
+                )
+                future_to_symbol[future] = spec.symbol
+            
+            # Collect results
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    logger.info("Completed backtest for %s", symbol)
+                except Exception as e:
+                    logger.exception("Worker failed for %s: %s", symbol, e)
+                    raise
+        
+        return PortfolioResult.from_single_results(results, self._config.initial_cash)
+
+    def _create_worker_engine(self, instruments: List[InstrumentSpec]) -> 'BacktestEngine':
+        """Create a new BacktestEngine instance for a worker process."""
+        return BacktestEngine(
+            instruments=instruments,
+            strategy=self._strategy.__class__(**{}),
+            config=self._config,
         )
 
     def _promote_run_dir(self, staging_dir: Path, final_run_dir: Path) -> Path:
@@ -618,89 +1040,6 @@ class BacktestEngine:
         all_timeframes = [base_timeframe] + [tf for tf in strategy_timeframes if tf != base_timeframe]
         return all_timeframes
 
-    def _build_portfolio_result(
-        self,
-        equity_curve: List[tuple[datetime, float]],
-        data_start: Optional[str],
-        data_end: Optional[str],
-        symbols: List[str],
-    ) -> PortfolioResult:
-        """Build PortfolioResult from backtest execution."""
-        # Get all closed trades
-        trades = self._position_manager.get_closed_trades()
-
-        # Calculate portfolio metrics
-        initial_cash = self._config.initial_cash
-        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
-        total_return = final_equity - initial_cash
-        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
-
-        # Calculate max drawdown
-        max_drawdown = 0.0
-        max_drawdown_pct = 0.0
-        peak = initial_cash
-        for _, equity in equity_curve:
-            if equity > peak:
-                peak = equity
-            drawdown = peak - equity
-            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-            if drawdown_pct > max_drawdown_pct:
-                max_drawdown_pct = drawdown_pct
-
-        # Calculate trade statistics
-        total_trades = len(trades)
-        winning_trades = sum(1 for t in trades if t.pnl > 0)
-        losing_trades = sum(1 for t in trades if t.pnl < 0)
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-
-        # Profit factor
-        gross_profit = sum(t.pnl for t in trades if t.pnl > 0)
-        gross_loss = abs(sum(t.pnl for t in trades if t.pnl < 0))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
-
-        # Per-symbol results
-        per_symbol = {}
-        for symbol in symbols:
-            symbol_trades = [t for t in trades if t.symbol == symbol]
-            symbol_total = len(symbol_trades)
-            symbol_winning = sum(1 for t in symbol_trades if t.pnl > 0)
-            symbol_losing = sum(1 for t in symbol_trades if t.pnl < 0)
-            symbol_pnl = sum(t.pnl for t in symbol_trades)
-            symbol_position = self._position_manager.get_position(symbol)
-
-            per_symbol[symbol] = SymbolResult(
-                symbol=symbol,
-                trades=symbol_trades,
-                final_position=symbol_position,
-                total_trades=symbol_total,
-                winning_trades=symbol_winning,
-                losing_trades=symbol_losing,
-                total_pnl=symbol_pnl,
-                max_drawdown=0.0,  # Would need per-symbol equity curve
-            )
-
-        return PortfolioResult(
-            initial_cash=initial_cash,
-            final_equity=final_equity,
-            total_return=total_return,
-            total_return_pct=total_return_pct,
-            max_drawdown=max_drawdown,
-            max_drawdown_pct=max_drawdown_pct,
-            sharpe_ratio=None,  # Would need returns series
-            total_trades=total_trades,
-            winning_trades=winning_trades,
-            losing_trades=losing_trades,
-            win_rate=win_rate,
-            profit_factor=profit_factor,
-            per_symbol=per_symbol,
-            equity_curve=equity_curve,
-            start_date=datetime.strptime(data_start, "%Y%m%d_%H%M%S") if data_start else None,
-            end_date=datetime.strptime(data_end, "%Y%m%d_%H%M%S") if data_end else None,
-            symbols=symbols,
-        )
-
     def _build_run_dir(
         self,
         backtest_start_utc: datetime,
@@ -725,4 +1064,41 @@ class BacktestEngine:
             / strategy_name
             / f"{backtest_start_str}_{symbol_str}_{data_start}_{data_end}_short"
         )
+
+
+def _run_single_instrument_worker(
+    instrument: InstrumentSpec,
+    strategy_class: type[Strategy],
+    strategy_init_kwargs: Dict[str, Any],
+    config: PortfolioConfig,
+    backtest_start_utc: datetime,
+) -> SingleInstrumentResult:
+    """Run backtest for a single instrument in a worker process.
+    
+    This function must be at module level for multiprocessing pickling.
+    Runs sequentially (no parallel) to avoid recursive parallelism.
+    
+    Args:
+        instrument: Single instrument to backtest
+        strategy_class: Strategy class (not instance) to instantiate
+        strategy_init_kwargs: Keyword arguments for strategy __init__
+        config: Portfolio configuration
+        backtest_start_utc: Backtest start timestamp
+        
+    Returns:
+        SingleInstrumentResult for this single instrument
+    """
+    # Create a new engine with just this instrument
+    engine = BacktestEngine(
+        instruments=[instrument],
+        strategy=strategy_class(**strategy_init_kwargs),
+        config=config,
+    )
+    
+    # Build staging dir
+    staging_dir = engine._build_run_dir(backtest_start_utc, data_start=None, data_end=None)
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    engine._ensure_run_log_file(staging_dir)
+    
+    return engine._run_single_instrument(staging_dir, backtest_start_utc)
 

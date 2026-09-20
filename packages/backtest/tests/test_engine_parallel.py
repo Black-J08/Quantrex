@@ -9,7 +9,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, PortfolioConfig, PortfolioResult
 from quantrex_core import InstrumentSpec
-from quantrex_backtest.core.parallel import ParallelismDetector, ParallelismReport
+from quantrex_backtest.core.engine import ParallelismReport
 
 
 class IndependentStrategy(Strategy):
@@ -99,7 +99,7 @@ class SymbolKeyedStateStrategy(Strategy):
 
 
 class TestParallelismDetector:
-    """Tests for ParallelismDetector static analysis."""
+    """Tests for BacktestEngine._detect_parallelism() method."""
     
     def test_independent_strategy_detected_safe(self):
         """Independent strategy should be detected as safe."""
@@ -113,8 +113,9 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = IndependentStrategy()
+        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
         
-        report = ParallelismDetector.analyze(strategy, instruments)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
         assert "No cross-symbol dependencies detected" in report.reason
@@ -130,8 +131,9 @@ class TestParallelismDetector:
         
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = PortfolioAccessStrategy()
+        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
         
-        report = ParallelismDetector.analyze(strategy, instruments)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "portfolio" in report.reason.lower()
@@ -148,8 +150,9 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolOrderStrategy()
+        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
         
-        report = ParallelismDetector.analyze(strategy, instruments)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "submit_order" in report.reason
@@ -166,8 +169,9 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolPositionStrategy()
+        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
         
-        report = ParallelismDetector.analyze(strategy, instruments)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "get_position" in report.reason
@@ -181,8 +185,9 @@ class TestParallelismDetector:
         
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = SymbolKeyedStateStrategy()
+        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
         
-        report = ParallelismDetector.analyze(strategy, instruments)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "symbol-keyed" in report.reason.lower() or "by_symbol" in report.reason.lower()

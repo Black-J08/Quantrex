@@ -1,11 +1,11 @@
-"""Unit tests for ParallelismDetector static analysis."""
+"""Unit tests for BacktestEngine._detect_parallelism() method."""
 
-import dis
 from unittest.mock import Mock
 
 import pytest
 
-from quantrex_backtest.core.parallel import ParallelismDetector, ParallelismReport
+from quantrex_backtest import BacktestEngine, PortfolioConfig
+from quantrex_backtest.core.engine import ParallelismReport
 from quantrex_core import InstrumentSpec
 from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
@@ -14,7 +14,7 @@ from quantrex_core.models.enums import OrderSide
 
 
 class TestParallelismDetectorUnit:
-    """Unit tests for ParallelismDetector static analysis methods."""
+    """Unit tests for BacktestEngine._detect_parallelism() method."""
     
     def setup_method(self):
         """Set up test fixtures."""
@@ -28,7 +28,10 @@ class TestParallelismDetectorUnit:
             InstrumentSpec(symbol="TCS", adapter=self.mock_adapter),
             InstrumentSpec(symbol="INFY", adapter=self.mock_adapter),
         ]
-        self.symbol_names = {"RELIANCE", "TCS", "INFY"}
+    
+    def _make_engine(self, strategy: Strategy) -> BacktestEngine:
+        """Create a BacktestEngine for testing."""
+        return BacktestEngine(self.instruments, strategy, PortfolioConfig())
     
     def test_analyze_method_detects_portfolio_access(self):
         """Test detection of ctx.portfolio access."""
@@ -37,7 +40,8 @@ class TestParallelismDetectorUnit:
                 _ = self.ctx.portfolio
         
         strategy = PortfolioStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "portfolio" in report.reason.lower()
@@ -49,7 +53,8 @@ class TestParallelismDetectorUnit:
                 _ = self.ctx.positions
         
         strategy = PositionsStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "positions" in report.reason.lower()
@@ -61,7 +66,8 @@ class TestParallelismDetectorUnit:
                 _ = self.ctx.portfolio.cash
         
         strategy = SelfCtxStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "portfolio" in report.reason.lower()
@@ -74,7 +80,8 @@ class TestParallelismDetectorUnit:
                 pos = self.ctx.get_position(symbol)
         
         strategy = CandleSymbolStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
     
@@ -85,7 +92,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.submit_order(symbol=candle.symbol, side=OrderSide.BUY, quantity=10.0)
         
         strategy = SubmitOrderStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
     
@@ -96,7 +104,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.submit_order(symbol="TCS", side=OrderSide.BUY, quantity=10.0)
         
         strategy = LiteralSymbolStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "submit_order" in report.reason
@@ -109,7 +118,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.get_position("TCS")
         
         strategy = LiteralPositionStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "get_position" in report.reason
@@ -127,7 +137,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = SymbolKeyedStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "symbol-keyed" in report.reason.lower() or "by_symbol" in report.reason.lower()
@@ -144,7 +155,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = NormalDictStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
     
@@ -155,7 +167,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.submit_order(symbol="INFY", side=OrderSide.BUY, quantity=10.0)
         
         strategy = CallKwStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "submit_order" in report.reason
@@ -167,7 +180,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.get_position("INFY")
         
         strategy = CallStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "get_position" in report.reason
@@ -186,7 +200,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.get_position("INFY")
         
         strategy = MultiUnsafeStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         # Should mention at least one issue (detector stops at first found)
@@ -205,7 +220,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = LifecycleStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "on_start" in report.reason or "on_stop" in report.reason
@@ -221,7 +237,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = IndicatorsStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is False
         assert "compute_indicators" in report.reason
@@ -240,7 +257,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = TimeframeStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
     
@@ -254,7 +272,8 @@ class TestParallelismDetectorUnit:
                 self.ctx.get_position(symbol)
         
         strategy = NonCandleSymbolStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         # This might be flagged as suspicious since it's not directly candle.symbol
         # The detector should be conservative
@@ -268,7 +287,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = MinimalStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         assert report.safe is True
     
@@ -281,7 +301,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = SimpleStrategy()
-        report = ParallelismDetector.analyze(strategy, single_instrument)
+        engine = BacktestEngine(single_instrument, strategy, PortfolioConfig())
+        report = engine._detect_parallelism()
         
         assert report.safe is True
         assert report.independent_groups == [["RELIANCE"]]
@@ -293,7 +314,8 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = DerivedStrategy()
-        report = ParallelismDetector.analyze(strategy, self.instruments)
+        engine = self._make_engine(strategy)
+        report = engine._detect_parallelism()
         
         # Should not crash and should analyze the derived method
         assert isinstance(report, ParallelismReport)
@@ -305,22 +327,23 @@ class TestParallelismDetectorUnit:
                 pass
         
         # Monkey-patch to cause an exception in bytecode analysis
-        original_analyze = ParallelismDetector._analyze_method
+        original_analyze = BacktestEngine._analyze_method
         
-        def broken_analyze(method, method_name, symbol_names):
+        def broken_analyze(self, method, method_name, symbol_names):
             raise ValueError("Test exception")
         
-        ParallelismDetector._analyze_method = staticmethod(broken_analyze)
+        BacktestEngine._analyze_method = broken_analyze
         
         try:
             strategy = BrokenStrategy()
-            report = ParallelismDetector.analyze(strategy, self.instruments)
+            engine = self._make_engine(strategy)
+            report = engine._detect_parallelism()
             
             # Should have warning but not crash
             assert len(report.warnings) > 0
             assert "Could not analyze" in report.warnings[0]
         finally:
-            ParallelismDetector._analyze_method = staticmethod(original_analyze)
+            BacktestEngine._analyze_method = original_analyze
 
 
 if __name__ == "__main__":

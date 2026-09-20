@@ -23,6 +23,73 @@ class SymbolResult:
 
 
 @dataclass(frozen=True, slots=True)
+class SingleInstrumentResult:
+    """Backtest result for a single instrument.
+    
+    This is the atomic result unit produced by a single-instrument backtest.
+    Multiple SingleInstrumentResults are aggregated into a PortfolioResult.
+    """
+    symbol: str
+    trades: List[TradeRecord]
+    equity_curve: List[tuple[datetime, float]]
+    final_equity: float
+    total_return: float
+    total_return_pct: float
+    max_drawdown: float
+    max_drawdown_pct: float
+    total_trades: int
+    winning_trades: int
+    losing_trades: int
+    win_rate: float
+    profit_factor: Optional[float]
+    final_position: Position
+    start_date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
+
+    def to_portfolio_result(self, initial_cash: float) -> 'PortfolioResult':
+        """Convert this single-instrument result to a PortfolioResult.
+        
+        Args:
+            initial_cash: Initial cash for the portfolio (used for return calculations)
+            
+        Returns:
+            PortfolioResult with this instrument's data in per_symbol
+        """
+        # Create SymbolResult for this instrument
+        symbol_result = SymbolResult(
+            symbol=self.symbol,
+            trades=self.trades,
+            final_position=self.final_position,
+            total_trades=self.total_trades,
+            winning_trades=self.winning_trades,
+            losing_trades=self.losing_trades,
+            total_pnl=self.total_return,  # total_return equals total_pnl for single instrument
+            max_drawdown=self.max_drawdown,
+            sharpe_ratio=None,
+        )
+        
+        return PortfolioResult(
+            initial_cash=initial_cash,
+            final_equity=self.final_equity,
+            total_return=self.total_return,
+            total_return_pct=self.total_return_pct,
+            max_drawdown=self.max_drawdown,
+            max_drawdown_pct=self.max_drawdown_pct,
+            sharpe_ratio=None,
+            total_trades=self.total_trades,
+            winning_trades=self.winning_trades,
+            losing_trades=self.losing_trades,
+            win_rate=self.win_rate,
+            profit_factor=self.profit_factor,
+            per_symbol={self.symbol: symbol_result},
+            equity_curve=self.equity_curve,
+            start_date=self.start_date,
+            end_date=self.end_date,
+            symbols=[self.symbol],
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PortfolioResult:
     """Aggregated portfolio backtest result.
 
@@ -69,6 +136,123 @@ class PortfolioResult:
             losing_trades=0,
             win_rate=0.0,
             profit_factor=None,
+        )
+
+    @classmethod
+    def from_single_results(
+        cls, 
+        results: List['SingleInstrumentResult'], 
+        initial_cash: float
+    ) -> 'PortfolioResult':
+        """Aggregate multiple single-instrument results into a portfolio result.
+        
+        Args:
+            results: List of SingleInstrumentResult from independent backtests
+            initial_cash: Initial cash for the portfolio
+            
+        Returns:
+            Aggregated PortfolioResult with combined metrics
+        """
+        if not results:
+            return cls.empty(initial_cash)
+        
+        # Combine per-symbol results
+        combined_symbols = {}
+        all_trades = []
+        all_equity_curves = []
+        
+        for result in results:
+            symbol_result = SymbolResult(
+                symbol=result.symbol,
+                trades=result.trades,
+                final_position=result.final_position,
+                total_trades=result.total_trades,
+                winning_trades=result.winning_trades,
+                losing_trades=result.losing_trades,
+                total_pnl=result.total_return,
+                max_drawdown=result.max_drawdown,
+                sharpe_ratio=None,
+            )
+            combined_symbols[result.symbol] = symbol_result
+            all_trades.extend(result.trades)
+            all_equity_curves.append(result.equity_curve)
+        
+        # Merge all equity curves
+        # Each single-instrument equity curve starts at initial_cash (absolute equity).
+        # For portfolio, we need incremental equity (P&L) per instrument, then sum.
+        # Convert each curve to incremental by subtracting initial_cash, merge, then add initial_cash back.
+        incremental_curves = []
+        for curve in all_equity_curves:
+            incremental = [(ts, equity - initial_cash) for ts, equity in curve]
+            incremental_curves.append(incremental)
+        
+        combined_incremental = incremental_curves[0]
+        for curve in incremental_curves[1:]:
+            combined_incremental = cls._merge_equity_curves(combined_incremental, curve)
+        
+        # Convert back to absolute portfolio equity
+        combined_equity_curve = [(ts, equity + initial_cash) for ts, equity in combined_incremental]
+        
+        # Calculate portfolio metrics from combined equity curve
+        if combined_equity_curve:
+            final_equity = combined_equity_curve[-1][1]
+            total_return = final_equity - initial_cash
+        else:
+            total_return = sum(r.total_return for r in results)
+            final_equity = initial_cash + total_return
+        
+        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
+        
+        # Calculate max drawdown from combined equity curve
+        max_drawdown = 0.0
+        max_drawdown_pct = 0.0
+        if combined_equity_curve:
+            peak = initial_cash
+            for _, equity in combined_equity_curve:
+                if equity > peak:
+                    peak = equity
+                drawdown = peak - equity
+                drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
+                if drawdown > max_drawdown:
+                    max_drawdown = drawdown
+                if drawdown_pct > max_drawdown_pct:
+                    max_drawdown_pct = drawdown_pct
+        
+        # Combine trade statistics
+        total_trades = sum(r.total_trades for r in results)
+        winning_trades = sum(r.winning_trades for r in results)
+        losing_trades = sum(r.losing_trades for r in results)
+        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
+        
+        # Profit factor from combined trades
+        gross_profit = sum(t.pnl for t in all_trades if t.pnl > 0)
+        gross_loss = abs(sum(t.pnl for t in all_trades if t.pnl < 0))
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
+        
+        # Determine date range
+        start_dates = [r.start_date for r in results if r.start_date is not None]
+        end_dates = [r.end_date for r in results if r.end_date is not None]
+        start_date = min(start_dates) if start_dates else None
+        end_date = max(end_dates) if end_dates else None
+        
+        return cls(
+            initial_cash=initial_cash,
+            final_equity=final_equity,
+            total_return=total_return,
+            total_return_pct=total_return_pct,
+            max_drawdown=max_drawdown,
+            max_drawdown_pct=max_drawdown_pct,
+            sharpe_ratio=None,
+            total_trades=total_trades,
+            winning_trades=winning_trades,
+            losing_trades=losing_trades,
+            win_rate=win_rate,
+            profit_factor=profit_factor,
+            per_symbol=combined_symbols,
+            equity_curve=combined_equity_curve,
+            start_date=start_date,
+            end_date=end_date,
+            symbols=[r.symbol for r in results],
         )
 
     def combine(self, other: 'PortfolioResult') -> 'PortfolioResult':
