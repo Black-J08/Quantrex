@@ -113,20 +113,38 @@ class TestBacktestEnginePortfolioMode:
 
     def test_portfolio_mode_multiple_instruments(self):
         """Test portfolio mode with multiple instruments."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        # Use a strategy that accesses portfolio context to force sequential execution
+        # (mock adapters can't be pickled for parallel execution)
+        mock_adapter_reliance = Mock(spec=DataAdapter)
+        mock_adapter_reliance.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter_reliance.supported_timeframes = ["1M"]
+        mock_adapter_reliance.get_origin_time.return_value = None
+        mock_adapter_reliance.read_timeframe.return_value = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
 
-        instruments = [
-            InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter),
-            InstrumentSpec(symbol="TCS", adapter=mock_adapter),
+        mock_adapter_tcs = Mock(spec=DataAdapter)
+        mock_adapter_tcs.datetime_format = "%Y%m%d %H:%M"
+        mock_adapter_tcs.supported_timeframes = ["1M"]
+        mock_adapter_tcs.get_origin_time.return_value = None
+        mock_adapter_tcs.read_timeframe.return_value = [
+            {"datetime": "20260101 09:15", "open": "3000", "high": "3001", "low": "2999", "close": "3000", "volume": "1000"},
+            {"datetime": "20260101 09:16", "open": "3000", "high": "3001", "low": "2999", "close": "3000", "volume": "1000"},
         ]
-        strategy = TestStrategy()
+
+        instruments = [
+            InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter_reliance),
+            InstrumentSpec(symbol="TCS", adapter=mock_adapter_tcs),
+        ]
+        
+        # Use a strategy that accesses portfolio context (forces sequential)
+        class PortfolioAwareStrategy(Strategy):
+            def on_candle(self, candle: Candle) -> None:
+                # Access portfolio to trigger sequential fallback
+                _ = self.ctx.portfolio
+        
+        strategy = PortfolioAwareStrategy()
         config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
 
         engine = BacktestEngine(instruments, strategy, config)

@@ -680,7 +680,7 @@ class TestBacktestEngine:
 
     def test_engine_logs_ohlc_per_candle_to_execution_log(self):
         """Regression: each candle must be logged with its backtest timestamp
-        and full OHLCV to execution.log, without researcher code changes.
+        and full OHLCV to execution_log/{SYMBOL}_execution.log, without researcher code changes.
         """
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.read_timeframe.return_value = [
@@ -699,12 +699,12 @@ class TestBacktestEngine:
 
         engine.run()
 
-        # Locate the most recent execution.log written by this run.
-        run_dirs = list(Path("output/backtest/TestStrategy").glob("*"))
+        # Locate the most recent run directory written by this run.
+        run_dirs = list(Path("output/TestStrategy").glob("*"))
         assert run_dirs, "no run directory was created"
         latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
-        log_path = latest_dir / "execution.log"
-        assert log_path.exists(), f"execution.log not found at {log_path}"
+        log_path = latest_dir / "execution_log" / "COPPER_execution.log"
+        assert log_path.exists(), f"COPPER_execution.log not found at {log_path}"
 
         contents = log_path.read_text(encoding="utf-8")
 
