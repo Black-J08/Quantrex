@@ -4,6 +4,7 @@ import base64
 import json
 import os
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -66,6 +67,24 @@ def _resolve_client_id(explicit: str | None, access_token: str | None) -> str | 
     return None
 
 
+def _normalize_date_input(value: date | datetime | str) -> str:
+    """Normalize date/datetime/str input to string for config storage.
+
+    Args:
+        value: Date input in various formats.
+
+    Returns:
+        String representation (YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(value, date):
+        return value.strftime("%Y-%m-%d")
+    raise ValueError(f"Unsupported date type: {type(value)}. Use date, datetime, or str.")
+
+
 @dataclass(frozen=True, slots=True)
 class DhanProviderConfig:
     """Configuration for DhanDataProvider.
@@ -83,8 +102,10 @@ class DhanProviderConfig:
         exchange_segment: Exchange segment (NSE_EQ, NSE_FNO, NSE_CURRENCY, BSE_EQ, BSE_FNO, BSE_CURRENCY, MCX_COMM).
         instrument: Instrument type (EQUITY, FUTSTK, OPTSTK, FUTIDX, OPTIDX, FUTCOM, OPTFUT, FUTCUR, OPTCUR, INDEX).
         expiry_code: Expiry code for derivatives (0 for equity/index).
-        from_date: Start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
-        to_date: End date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS). Non-inclusive for daily.
+        from_date: Optional start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                  If not provided, must be passed to fetch() at runtime.
+        to_date: Optional end date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                If not provided, must be passed to fetch() at runtime.
         timeframe: Data timeframe (day, 1minute, 5minute, 15minute, 30minute, 60minute).
         include_oi: Include open interest data (F&O only).
         base_url: API base URL. The Dhan v2 endpoints are served under the
@@ -109,8 +130,8 @@ class DhanProviderConfig:
     exchange_segment: str = ""
     instrument: str = ""
     expiry_code: int = 0
-    from_date: str = ""
-    to_date: str = ""
+    from_date: str | None = None
+    to_date: str | None = None
     timeframe: Literal["day", "1minute", "5minute", "15minute", "30minute", "60minute"] = "day"
     include_oi: bool = False
     base_url: str = "https://api.dhan.co/v2"
@@ -142,10 +163,12 @@ class DhanProviderConfig:
             raise ValueError("exchange_segment is required")
         if not self.instrument:
             raise ValueError("instrument is required")
-        if not self.from_date:
-            raise ValueError("from_date is required")
-        if not self.to_date:
-            raise ValueError("to_date is required")
+
+        # Normalize dates if provided
+        if self.from_date is not None:
+            object.__setattr__(self, "from_date", _normalize_date_input(self.from_date))
+        if self.to_date is not None:
+            object.__setattr__(self, "to_date", _normalize_date_input(self.to_date))
 
         # Validate exchange_segment
         valid_segments = {

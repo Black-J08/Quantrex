@@ -74,8 +74,8 @@ class ZerodhaDataProvider:
         symbol: str | None = None,
         instrument_token: str | None = None,
         exchange_segment: str = "",
-        from_date: date | datetime | str,
-        to_date: date | datetime | str,
+        from_date: date | datetime | str | None = None,
+        to_date: date | datetime | str | None = None,
         interval: str = "day",
         continuous: bool = False,
         oi: bool = False,
@@ -96,8 +96,10 @@ class ZerodhaDataProvider:
             symbol: User-friendly trading symbol (e.g., "RELIANCE"). Mutually exclusive with instrument_token.
             instrument_token: Zerodha's numeric instrument token (e.g., "408065"). Mutually exclusive with symbol.
             exchange: Exchange segment (NSE, NFO, BSE, BFO, CDS, MCX, BCD, MF).
-            from_date: Start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
-            to_date: End date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+            from_date: Optional start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                      If not provided, must be passed to fetch() at runtime.
+            to_date: Optional end date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                    If not provided, must be passed to fetch() at runtime.
             interval: Data interval (minute, 3minute, 5minute, 10minute, 15minute, 30minute, 60minute, day).
             continuous: Whether to get continuous data for futures (default: False).
             oi: Include open interest data (default: False).
@@ -430,7 +432,12 @@ class ZerodhaDataProvider:
 
         return rows
 
-    def fetch(self, interval: str | None = None) -> dict:
+    def fetch(
+        self,
+        interval: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict:
         """Fetch raw OHLCV data with transparent caching.
 
         Implements read-through caching:
@@ -442,6 +449,10 @@ class ZerodhaDataProvider:
         Args:
             interval: Interval (e.g., "minute", "5minute", "15minute", "day").
                       None uses the provider's configured interval.
+            from_date: Optional start date override (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides the provider's configured from_date.
+            to_date: Optional end date override (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides the provider's configured to_date.
 
         Returns:
             Raw API response as dictionary with key 'candles' containing
@@ -459,14 +470,23 @@ class ZerodhaDataProvider:
         provider_name = "zerodha"
         symbol = self._config.symbol or self._instrument_token
 
+        # Determine effective dates: use overrides if provided, else config
+        effective_from_date = from_date or self._config.from_date
+        effective_to_date = to_date or self._config.to_date
+
+        # If dates are not configured and not overridden, we can't use cache
+        if effective_from_date is None or effective_to_date is None:
+            logger.warning("Date range not configured; skipping cache and fetching from API")
+            return self._fetch_from_api(effective_interval, from_date, to_date)
+
         # Parse config dates for cache operations
         try:
-            start_dt = datetime.strptime(self._config.from_date.split(" ")[0], "%Y-%m-%d")
-            end_dt = datetime.strptime(self._config.to_date.split(" ")[0], "%Y-%m-%d")
+            start_dt = datetime.strptime(effective_from_date.split(" ")[0], "%Y-%m-%d")
+            end_dt = datetime.strptime(effective_to_date.split(" ")[0], "%Y-%m-%d")
         except Exception:
             # If date parsing fails, skip cache and go straight to API
             logger.warning("Failed to parse dates for caching, falling back to API")
-            return self._fetch_from_api(effective_interval)
+            return self._fetch_from_api(effective_interval, from_date, to_date)
 
         # 1. Try cache for exact date range (closed partition)
         try:
@@ -490,7 +510,7 @@ class ZerodhaDataProvider:
                 # Fetch only missing tail
                 delta_from = last_ts.strftime("%Y-%m-%d %H:%M:%S")
                 logger.info("Delta fetch for %s/%s/%s from %s", provider_name, symbol, effective_interval, delta_from)
-                delta_data = self._fetch_from_api(effective_interval, from_date=delta_from)
+                delta_data = self._fetch_from_api(effective_interval, from_date=delta_from, to_date=to_date)
                 if delta_data and delta_data.get("candles"):
                     # Convert delta response to rows and append
                     delta_rows = self._response_to_rows(delta_data, symbol, effective_interval, provider_name)
@@ -505,7 +525,7 @@ class ZerodhaDataProvider:
 
         # 3. Full fetch (no cache or cache miss)
         try:
-            api_data = self._fetch_from_api(effective_interval)
+            api_data = self._fetch_from_api(effective_interval, from_date, to_date)
             if api_data and api_data.get("candles"):
                 # Convert to rows and save to cache
                 rows = self._response_to_rows(api_data, symbol, effective_interval, provider_name)

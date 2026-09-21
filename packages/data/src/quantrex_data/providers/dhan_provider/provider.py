@@ -52,8 +52,8 @@ class DhanDataProvider:
         exchange_segment: str,
         instrument: str,
         expiry_code: int = 0,
-        from_date: date | datetime | str,
-        to_date: date | datetime | str,
+        from_date: date | datetime | str | None = None,
+        to_date: date | datetime | str | None = None,
         timeframe: str = "day",
         include_oi: bool = False,
         base_url: str = "https://api.dhan.co/v2",
@@ -74,8 +74,10 @@ class DhanDataProvider:
             exchange_segment: Exchange segment (NSE_EQ, NSE_FNO, NSE_CURRENCY, BSE_EQ, BSE_FNO, BSE_CURRENCY, MCX_COMM).
             instrument: Instrument type (EQUITY, FUTSTK, OPTSTK, FUTIDX, OPTIDX, FUTCOM, OPTFUT, FUTCUR, OPTCUR, INDEX).
             expiry_code: Expiry code for derivatives (0 for equity/index).
-            from_date: Start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
-            to_date: End date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS). Non-inclusive for daily.
+            from_date: Optional start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                      If not provided, must be passed to fetch() at runtime.
+            to_date: Optional end date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                    If not provided, must be passed to fetch() at runtime.
             timeframe: Data timeframe (day, 1minute, 5minute, 15minute, 30minute, 60minute).
             include_oi: Include open interest data (F&O only).
             base_url: API base URL. The Dhan v2 endpoints are served under the
@@ -118,8 +120,8 @@ class DhanDataProvider:
             exchange_segment=exchange_segment,
             instrument=instrument,
             expiry_code=expiry_code,
-            from_date=self._normalize_date_input(from_date),
-            to_date=self._normalize_date_input(to_date),
+            from_date=from_date,
+            to_date=to_date,
             timeframe=timeframe,  # type: ignore[arg-type]
             include_oi=include_oi,
             base_url=base_url,
@@ -438,7 +440,12 @@ class DhanDataProvider:
             result["open_interest"] = ois
         return result
 
-    def fetch(self, timeframe: str | None = None) -> dict:
+    def fetch(
+        self,
+        timeframe: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict:
         """Fetch raw OHLCV data with transparent caching.
 
         Implements read-through caching:
@@ -450,6 +457,10 @@ class DhanDataProvider:
         Args:
             timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
                       None uses the provider's configured timeframe.
+            from_date: Optional start date override (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides the provider's configured from_date.
+            to_date: Optional end date override (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides the provider's configured to_date.
 
         Returns:
             Raw API response as dictionary with keys:
@@ -467,14 +478,23 @@ class DhanDataProvider:
         provider_name = "dhan"
         symbol = self._config.symbol or self._security_id
 
+        # Determine effective dates: use overrides if provided, else config
+        effective_from_date = from_date or self._config.from_date
+        effective_to_date = to_date or self._config.to_date
+
+        # If dates are not configured and not overridden, we can't use cache
+        if effective_from_date is None or effective_to_date is None:
+            logger.warning("Date range not configured; skipping cache and fetching from API")
+            return self._fetch_from_api(effective_timeframe, from_date, to_date)
+
         # Parse config dates for cache operations
         try:
-            start_dt = datetime.strptime(self._config.from_date.split(" ")[0], "%Y-%m-%d")
-            end_dt = datetime.strptime(self._config.to_date.split(" ")[0], "%Y-%m-%d")
+            start_dt = datetime.strptime(effective_from_date.split(" ")[0], "%Y-%m-%d")
+            end_dt = datetime.strptime(effective_to_date.split(" ")[0], "%Y-%m-%d")
         except Exception:
             # If date parsing fails, skip cache and go straight to API
             logger.warning("Failed to parse dates for caching, falling back to API")
-            return self._fetch_from_api(effective_timeframe)
+            return self._fetch_from_api(effective_timeframe, from_date, to_date)
 
         # 1. Try cache for exact date range (closed partition)
         try:
@@ -498,7 +518,7 @@ class DhanDataProvider:
                 # Fetch only missing tail
                 delta_from = last_ts.strftime("%Y-%m-%d %H:%M:%S")
                 logger.info("Delta fetch for %s/%s/%s from %s", provider_name, symbol, effective_timeframe, delta_from)
-                delta_data = self._fetch_from_api(effective_timeframe, from_date=delta_from)
+                delta_data = self._fetch_from_api(effective_timeframe, from_date=delta_from, to_date=to_date)
                 if delta_data and delta_data.get("timestamp"):
                     # Convert delta response to rows and append
                     delta_rows = self._response_to_rows(delta_data, symbol, effective_timeframe, provider_name)
@@ -513,7 +533,7 @@ class DhanDataProvider:
 
         # 3. Full fetch (no cache or cache miss)
         try:
-            api_data = self._fetch_from_api(effective_timeframe)
+            api_data = self._fetch_from_api(effective_timeframe, from_date, to_date)
             if api_data and api_data.get("timestamp"):
                 # Convert to rows and save to cache
                 rows = self._response_to_rows(api_data, symbol, effective_timeframe, provider_name)

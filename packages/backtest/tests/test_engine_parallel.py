@@ -30,7 +30,7 @@ class PicklableMockAdapter:
     def get_origin_time(self):
         return self._origin_time
     
-    def read_timeframe(self, tf):
+    def read_timeframe(self, tf, from_date=None, to_date=None):
         return self._read_timeframe_data
 
 

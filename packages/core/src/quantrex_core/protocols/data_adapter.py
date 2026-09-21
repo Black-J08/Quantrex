@@ -25,8 +25,18 @@ class DataAdapter(Protocol):
         """
         ...
     
-    def read(self) -> list[dict]:
+    def read(
+        self,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data ready for the engine (base timeframe).
+        
+        Args:
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
         
         Returns:
             List of dictionaries with standardized keys:
@@ -35,7 +45,12 @@ class DataAdapter(Protocol):
         """
         ...
     
-    def read_timeframe(self, timeframe: str) -> list[dict]:
+    def read_timeframe(
+        self,
+        timeframe: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data for a specific timeframe.
         
         If the adapter natively supports the requested timeframe, returns
@@ -48,6 +63,10 @@ class DataAdapter(Protocol):
         
         Args:
             timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
         
         Returns:
             List of dictionaries with standardized keys for the given timeframe.

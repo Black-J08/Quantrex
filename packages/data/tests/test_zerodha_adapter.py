@@ -35,7 +35,7 @@ class TestZerodhaDataAdapter:
         
         # Make fetch return appropriate data based on interval
         # The provider's fetch() returns {"candles": [...]} format (merged response)
-        def fetch_side_effect(*args, interval=None, **kwargs):
+        def fetch_side_effect(*args, interval=None, from_date=None, to_date=None, **kwargs):
             if interval in ("minute", "3minute", "5minute", "10minute", "15minute", "30minute", "60minute"):
                 return {"candles": MOCK_HISTORICAL_RESPONSE_MINUTE["data"]["candles"]}
             return {"candles": MOCK_HISTORICAL_RESPONSE_DAY["data"]["candles"]}
@@ -166,7 +166,7 @@ class TestZerodhaDataAdapter:
 
         assert len(result) == 5
         assert result[0]["datetime"] == "2024-01-01 09:15:00"
-        mock_provider.fetch.assert_called_once_with(interval="minute")
+        mock_provider.fetch.assert_called_once_with(interval="minute", from_date=None, to_date=None)
 
     def test_adapter_read_timeframe_day(self, mock_provider):
         """Adapter should fetch and normalize day timeframe."""
@@ -177,4 +177,4 @@ class TestZerodhaDataAdapter:
 
         assert len(result) == 5
         assert result[0]["datetime"] == "2024-01-01 00:00:00"
-        mock_provider.fetch.assert_called_once_with(interval="day")
+        mock_provider.fetch.assert_called_once_with(interval="day", from_date=None, to_date=None)

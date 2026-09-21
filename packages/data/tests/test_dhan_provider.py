@@ -34,8 +34,6 @@ class TestDhanProviderConfig:
             symbol="RELIANCE",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.symbol == "RELIANCE"
         assert config.security_id is None
@@ -46,8 +44,6 @@ class TestDhanProviderConfig:
             security_id="1333",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.security_id == "1333"
         assert config.symbol is None
@@ -60,8 +56,6 @@ class TestDhanProviderConfig:
                 security_id="1333",
                 exchange_segment="NSE_EQ",
                 instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
             )
 
     def test_invalid_neither_symbol_nor_security_id(self):
@@ -70,8 +64,6 @@ class TestDhanProviderConfig:
             DhanProviderConfig(
                 exchange_segment="NSE_EQ",
                 instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
             )
 
     def test_invalid_exchange_segment(self):
@@ -81,8 +73,6 @@ class TestDhanProviderConfig:
                 symbol="RELIANCE",
                 exchange_segment="INVALID",
                 instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
             )
 
     def test_invalid_instrument(self):
@@ -92,8 +82,6 @@ class TestDhanProviderConfig:
                 symbol="RELIANCE",
                 exchange_segment="NSE_EQ",
                 instrument="INVALID",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
             )
 
     def test_invalid_timeframe(self):
@@ -103,8 +91,6 @@ class TestDhanProviderConfig:
                 symbol="RELIANCE",
                 exchange_segment="NSE_EQ",
                 instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
                 timeframe="invalid",
             )
 
@@ -115,8 +101,6 @@ class TestDhanProviderConfig:
                 symbol="RELIANCE",
                 exchange_segment="NSE_EQ",
                 instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
                 chunk_size_days={"day": 2000},  # Missing other timeframes
             )
 
@@ -127,8 +111,6 @@ class TestDhanProviderConfig:
             client_id="1112625384",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.client_id == "1112625384"
 
@@ -139,8 +121,6 @@ class TestDhanProviderConfig:
             security_id="1333",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.client_id == "9999999999"
 
@@ -166,8 +146,6 @@ class TestDhanProviderConfig:
             security_id="1333",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.client_id == "1112625384"
 
@@ -179,8 +157,6 @@ class TestDhanProviderConfig:
             client_id="1112625384",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.client_id == "1112625384"
 
@@ -197,8 +173,6 @@ class TestDhanProviderConfig:
             client_id="1112625384",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert config.base_url == "https://api.dhan.co/v2"
 
@@ -255,8 +229,6 @@ class TestDhanDataProvider:
             symbol="RELIANCE",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert provider.security_id == "1333"
         mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE_EQ")
@@ -267,8 +239,6 @@ class TestDhanDataProvider:
             security_id="1333",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
-            from_date="2024-01-01",
-            to_date="2024-01-31",
         )
         assert provider.security_id == "1333"
         mock_instrument_master.resolve_symbol.assert_not_called()

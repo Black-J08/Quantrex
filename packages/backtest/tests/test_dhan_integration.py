@@ -38,7 +38,7 @@ class TestDhanIntegration:
     def mock_provider(self):
         """Create a mock DhanDataProvider."""
         provider = Mock(spec=DhanDataProvider)
-        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.fetch = Mock(side_effect=lambda timeframe=None, from_date=None, to_date=None: MOCK_DAILY_HISTORICAL_RESPONSE)
         provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
         provider.close = Mock()
         yield provider
@@ -156,7 +156,7 @@ class TestDhanExampleStrategyDatetimeFormat:
     def mock_provider(self):
         """Local copy of the mock-provider fixture for this class."""
         provider = Mock(spec=DhanDataProvider)
-        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.fetch = Mock(side_effect=lambda timeframe=None, from_date=None, to_date=None: MOCK_DAILY_HISTORICAL_RESPONSE)
         provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
         provider.close = Mock()
         yield provider
@@ -227,7 +227,7 @@ class TestDhanClosedTradesTimestampRegression:
     @pytest.fixture
     def mock_provider(self):
         provider = Mock(spec=DhanDataProvider)
-        provider.fetch = Mock(side_effect=lambda timeframe=None: MOCK_DAILY_HISTORICAL_RESPONSE)
+        provider.fetch = Mock(side_effect=lambda timeframe=None, from_date=None, to_date=None: MOCK_DAILY_HISTORICAL_RESPONSE)
         provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
         provider.close = Mock()
         yield provider

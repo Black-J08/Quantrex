@@ -74,6 +74,8 @@ def test_engine_base_1m_when_on_candle_overridden():
     mock.datetime_format = "%Y%m%d %H:%M"
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
+    # Accept new optional parameters
+    mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     s = WithOnCandleStrategy()
     engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     assert engine._get_required_timeframes()[0] == "1M"
@@ -85,6 +87,8 @@ def test_engine_base_1m_when_on_candle_defined():
     mock.datetime_format = "%Y%m%d %H:%M"
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
+    # Accept new optional parameters
+    mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     s = DecoratedOnlyStrategy()
     engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
     # DecoratedOnlyStrategy defines on_candle → base is 1M
@@ -138,7 +142,7 @@ def test_dispatch_called_automatically_by_engine():
 
     mock = Mock(spec=DataAdapter)
     # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
-    mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
+    mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
@@ -180,7 +184,7 @@ def test_on_candle_not_called_when_not_overridden():
 
     mock = Mock(spec=DataAdapter)
     # Side effect: return 1M data for "1M" requests, 1H data for "1H" requests
-    mock.read_timeframe.side_effect = lambda tf: make_1m_rows() if tf == "1M" else make_1h_row()
+    mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: make_1m_rows() if tf == "1M" else make_1h_row()
     mock.datetime_format = "%Y%m%d %H:%M"
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None

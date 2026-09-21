@@ -82,8 +82,18 @@ class CSVDataAdapter:
         from datetime import time
         return self._provider.get_origin_time()
     
-    def read(self) -> list[dict]:
+    def read(
+        self,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data from the CSV provider (base timeframe).
+        
+        Args:
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
         
         Returns:
             List of dictionaries with standardized keys:
@@ -91,9 +101,14 @@ class CSVDataAdapter:
             (and any additional mapped fields)
         """
         timeframes = self.supported_timeframes
-        return self.read_timeframe(timeframes[0] if timeframes else "1M")
+        return self.read_timeframe(timeframes[0] if timeframes else "1M", from_date, to_date)
     
-    def read_timeframe(self, timeframe: str) -> list[dict]:
+    def read_timeframe(
+        self,
+        timeframe: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data for a specific timeframe.
         
         If the timeframe is natively supported by the provider, returns
@@ -102,6 +117,10 @@ class CSVDataAdapter:
         
         Args:
             timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
             
         Returns:
             List of dictionaries with standardized keys for the given timeframe.
@@ -115,7 +134,7 @@ class CSVDataAdapter:
         
         if timeframe in native_timeframes:
             # Native support - use provider directly
-            return self._read_native_timeframe(timeframe)
+            return self._read_native_timeframe(timeframe, from_date, to_date)
         
         # Not natively supported - try to aggregate from 1M
         if "1M" not in native_timeframes:
@@ -126,7 +145,7 @@ class CSVDataAdapter:
         
         # Fetch 1M data and aggregate
         logger.debug("Aggregating timeframe %s from 1M data", timeframe)
-        raw_1m = self._read_native_timeframe("1M")
+        raw_1m = self._read_native_timeframe("1M", from_date, to_date)
         if not raw_1m:
             return []
         
@@ -134,12 +153,17 @@ class CSVDataAdapter:
         logger.debug("CSVDataAdapter: aggregated %d rows for timeframe %s from 1M", len(aggregated), timeframe)
         return aggregated
     
-    def _read_native_timeframe(self, timeframe: str) -> list[dict]:
+    def _read_native_timeframe(
+        self,
+        timeframe: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized data for a natively supported timeframe."""
         self._validate_mapping()
         
         # Fetch raw data from provider with timeframe
-        raw_data = self._provider.fetch(timeframe=timeframe)
+        raw_data = self._provider.fetch(timeframe=timeframe, from_date=from_date, to_date=to_date)
         
         if not raw_data:
             return []

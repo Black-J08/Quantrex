@@ -131,8 +131,18 @@ class ZerodhaDataAdapter:
         """
         return self._provider.get_origin_time()
 
-    def read(self) -> list[dict]:
+    def read(
+        self,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data from the Zerodha provider (base timeframe).
+
+        Args:
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
 
         Returns:
             List of dictionaries with standardized keys:
@@ -141,13 +151,22 @@ class ZerodhaDataAdapter:
         """
         # Use the provider's default timeframe
         timeframes = self.supported_timeframes
-        return self.read_timeframe(timeframes[0] if timeframes else "1M")
+        return self.read_timeframe(timeframes[0] if timeframes else "1M", from_date, to_date)
 
-    def read_timeframe(self, timeframe: str) -> list[dict]:
+    def read_timeframe(
+        self,
+        timeframe: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict]:
         """Read normalized OHLCV data for a specific timeframe.
 
         Args:
             timeframe: Timeframe interval (e.g., "1M", "5M", "15M", "30M", "1H", "1D").
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the underlying provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the underlying provider.
 
         Returns:
             List of dictionaries with standardized keys for the given timeframe.
@@ -160,7 +179,7 @@ class ZerodhaDataAdapter:
 
         # Map timeframe to Zerodha interval and fetch raw data
         zerodha_interval = self._provider._map_timeframe_to_zerodha(timeframe)
-        raw_data = self._provider.fetch(interval=zerodha_interval)
+        raw_data = self._provider.fetch(interval=zerodha_interval, from_date=from_date, to_date=to_date)
 
         if not raw_data or not raw_data.get("candles"):
             logger.warning("No data returned from ZerodhaDataProvider for timeframe %s", timeframe)

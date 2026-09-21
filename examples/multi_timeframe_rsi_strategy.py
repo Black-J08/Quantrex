@@ -87,8 +87,6 @@ if __name__ == "__main__":
         symbol=symbol,
         exchange_segment="NSE_EQ",
         instrument="EQUITY",
-        from_date="2026-01-01",
-        to_date="2026-01-30",
     )
     adapter = DhanDataAdapter(provider)
     
@@ -97,7 +95,12 @@ if __name__ == "__main__":
     instruments = [
         InstrumentSpec(symbol=symbol, adapter=adapter),
     ]
-    config = PortfolioConfig(initial_cash=1_000_000.0)
+    # Backtest period is specified ONCE in PortfolioConfig
+    config = PortfolioConfig(
+        initial_cash=1_000_000.0,
+        data_start="2026-01-01",
+        data_end="2026-01-30",
+    )
     
     engine = BacktestEngine(instruments=instruments, strategy=strategy, config=config)
     engine.run()

@@ -134,8 +134,6 @@ if __name__ == "__main__":
                 ZerodhaDataProvider(
                     symbol="RELIANCE",
                     exchange_segment="NSE",
-                    from_date="2026-01-01",
-                    to_date="2026-01-31",
                 )
             ),
         ),
@@ -145,8 +143,6 @@ if __name__ == "__main__":
                 ZerodhaDataProvider(
                     symbol="TCS",
                     exchange_segment="NSE",
-                    from_date="2026-01-01",
-                    to_date="2026-01-31",
                 )
             ),
         ),
@@ -156,14 +152,13 @@ if __name__ == "__main__":
                 ZerodhaDataProvider(
                     symbol="INFY",
                     exchange_segment="NSE",
-                    from_date="2026-01-01",
-                    to_date="2026-01-31",
                 )
             ),
         ),
     ]
 
     # Portfolio configuration (NEW FEATURE)
+    # Backtest period is specified ONCE here in PortfolioConfig
     config = PortfolioConfig(
         initial_cash=1_000_000.0,      # Starting capital
         margin_requirement=1.0,         # 1.0 = no leverage, 2.0 = 2x leverage

@@ -160,7 +160,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -234,7 +239,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -293,7 +303,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -327,7 +342,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -365,7 +385,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y-%m-%d %H:%M:%S",
+                datetime_column=0,
+            )
             adapter = CSVDataAdapter(
                 provider,
                 column_mapping={
@@ -426,7 +451,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -489,7 +519,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -560,7 +595,12 @@ class TestBacktestEngine:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -636,7 +676,12 @@ class TestBacktestEngine:
                 pass
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,
@@ -790,7 +835,12 @@ class TestFifoLotAccounting:
         csv_content = csv_rows_to_string(rows)
 
         with create_temp_csv(csv_content) as temp_path:
-            provider = CSVDataProvider(temp_path, has_header=False)
+            provider = CSVDataProvider(
+                temp_path,
+                has_header=False,
+                datetime_format="%Y%m%d %H:%M",
+                datetime_column=[0, 1],
+            )
             adapter = CSVDataAdapter(provider, column_mapping={
                 "datetime": [0, 1],
                 "open": 2,

@@ -51,7 +51,12 @@ if __name__ == "__main__":
 
     # 2. Create temporary CSV file and configure data source using new pattern
     with create_temp_csv(csv_content) as temp_path:
-        provider = CSVDataProvider(temp_path, has_header=False)
+        provider = CSVDataProvider(
+            temp_path,
+            has_header=False,
+            datetime_format="%Y%m%d %H:%M",
+            datetime_column=[0, 1],
+        )
         adapter = CSVDataAdapter(
             provider,
             column_mapping={
@@ -69,7 +74,12 @@ if __name__ == "__main__":
         instruments = [
             InstrumentSpec(symbol="COPPER", adapter=adapter),
         ]
-        config = PortfolioConfig(initial_cash=1_000_000.0)
+        # Backtest period is specified ONCE in PortfolioConfig
+        config = PortfolioConfig(
+            initial_cash=1_000_000.0,
+            data_start="2023-01-01",
+            data_end="2023-01-10",
+        )
         engine = BacktestEngine(instruments, strategy, config)
 
         # 4. Run backtest - engine will call strategy.on_start(), on_candle(), on_stop()

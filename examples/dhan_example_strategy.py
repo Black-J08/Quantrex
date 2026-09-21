@@ -91,12 +91,11 @@ def main():
 
     # Create provider with symbol resolution
     # Using RELIANCE (NSE_EQ) as example - replace with your desired symbol
+    # Backtest period is specified ONCE in PortfolioConfig
     provider = DhanDataProvider(
         symbol="RELIANCE",
         exchange_segment="NSE_EQ",
         instrument="EQUITY",
-        from_date="2024-01-01",
-        to_date="2024-01-10",
         timeframe="day",
         include_oi=False,
     )
@@ -117,7 +116,11 @@ def main():
     instruments = [
         InstrumentSpec(symbol="RELIANCE", adapter=adapter),
     ]
-    config = PortfolioConfig(initial_cash=1_000_000.0)
+    config = PortfolioConfig(
+        initial_cash=1_000_000.0,
+        data_start="2024-01-01",
+        data_end="2024-01-10",
+    )
     engine = BacktestEngine(instruments, strategy, config)
 
     try:

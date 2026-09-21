@@ -214,7 +214,11 @@ class BacktestEngine:
                 all_raw_data[symbol] = {}
             for tf in additional_timeframes:
                 try:
-                    all_raw_data[symbol][tf] = spec.adapter.read_timeframe(tf)
+                    all_raw_data[symbol][tf] = spec.adapter.read_timeframe(
+                        tf,
+                        from_date=self._config.data_start,
+                        to_date=self._config.data_end,
+                    )
                 except ValueError as e:
                     logger.exception("Adapter read_timeframe failed for %s timeframe %s", symbol, tf)
                     raise ProviderError(

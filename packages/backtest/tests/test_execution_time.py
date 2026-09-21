@@ -94,7 +94,7 @@ class _OrderTimeRecordingStrategy(Strategy):
 
 def _mock_adapter(rows: list[dict]) -> Mock:
     adapter = Mock(spec=DataAdapter)
-    adapter.read_timeframe.return_value = rows
+    adapter.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: rows
     adapter.datetime_format = "%Y%m%d %H:%M"
     adapter.supported_timeframes = ["1M"]
     adapter.get_origin_time.return_value = None
@@ -246,7 +246,7 @@ class TestMultiTimeframeExecutionTime:
             for i in range(3)
         ]
         adapter = _mock_adapter(rows_1m)
-        adapter.read_timeframe.side_effect = lambda tf: rows_5m if tf == "5M" else rows_1m
+        adapter.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: rows_5m if tf == "5M" else rows_1m
         adapter.supported_timeframes = ["1M", "5M"]
         strategy = _TimeframeTimeRecordingStrategy()
         engine = BacktestEngine(

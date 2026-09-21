@@ -112,8 +112,10 @@ class ZerodhaProviderConfig:
         symbol: User-friendly trading symbol (e.g., "RELIANCE"). Mutually exclusive with instrument_token.
         instrument_token: Zerodha's numeric instrument token (e.g., "408065"). Mutually exclusive with symbol.
         exchange: Exchange segment (NSE, NFO, BSE, BFO, CDS, MCX, BCD, MF).
-        from_date: Start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
-        to_date: End date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+        from_date: Optional start date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                  If not provided, must be passed to fetch() at runtime.
+        to_date: Optional end date (date, datetime, or str in YYYY-MM-DD or YYYY-MM-DD HH:MM:SS).
+                If not provided, must be passed to fetch() at runtime.
         interval: Data interval (minute, 3minute, 5minute, 10minute, 15minute, 30minute, 60minute, day).
         continuous: Whether to get continuous data for futures (default: False).
         oi: Include open interest data (default: False).
@@ -132,8 +134,8 @@ class ZerodhaProviderConfig:
     symbol: str | None = None
     instrument_token: str | None = None
     exchange: str = ""
-    from_date: str = ""
-    to_date: str = ""
+    from_date: str | None = None
+    to_date: str | None = None
     interval: Literal[
         "minute",
         "3minute",
@@ -180,10 +182,6 @@ class ZerodhaProviderConfig:
         # Validate required fields
         if not self.exchange:
             raise ValueError("exchange is required")
-        if not self.from_date:
-            raise ValueError("from_date is required")
-        if not self.to_date:
-            raise ValueError("to_date is required")
 
         # Validate exchange
         _validate_exchange(self.exchange)
@@ -191,9 +189,11 @@ class ZerodhaProviderConfig:
         # Validate interval
         _validate_interval(self.interval)
 
-        # Normalize dates
-        object.__setattr__(self, "from_date", _normalize_date_input(self.from_date))
-        object.__setattr__(self, "to_date", _normalize_date_input(self.to_date))
+        # Normalize dates if provided
+        if self.from_date is not None:
+            object.__setattr__(self, "from_date", _normalize_date_input(self.from_date))
+        if self.to_date is not None:
+            object.__setattr__(self, "to_date", _normalize_date_input(self.to_date))
 
         # Validate chunk_size_days has all required intervals (only if explicitly provided)
         if self.chunk_size_days:

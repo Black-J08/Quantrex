@@ -16,12 +16,21 @@ class DataProvider(Protocol):
     They do NOT perform normalization or conversion to engine format.
     """
     
-    def fetch(self, timeframe: str | None = None) -> Any:
+    def fetch(
+        self,
+        timeframe: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> Any:
         """Fetch raw data from the source in its native format.
         
         Args:
             timeframe: Timeframe interval (e.g., "1M", "1H", "1D").
                       None returns the provider's default/base timeframe.
+            from_date: Optional start date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                      If provided, overrides any date range configured in the provider.
+            to_date: Optional end date for data filtering (ISO format "YYYY-MM-DD" or "YYYY-MM-DD HH:MM:SS").
+                    If provided, overrides any date range configured in the provider.
         
         Returns:
             Raw data as returned by the source (e.g., list of CSV rows, 

@@ -59,14 +59,14 @@ class DataOrchestrator:
         """
         logger.info("Starting data preparation for %d instruments", len(instruments))
 
-        # Parse date range
+        # Parse date range for validation
         start = self._parse_date(config.data_start) if config.data_start else None
         end = self._parse_date(config.data_end) if config.data_end else None
 
         # Step 1: Load/Download data for each instrument
         symbol_data = {}
         for spec in instruments:
-            data = self._prepare_instrument_data(spec, start, end, config.auto_download)
+            data = self._prepare_instrument_data(spec, config)
             symbol_data[spec.symbol] = data
 
         # Step 2: Validate each instrument's data
@@ -102,9 +102,7 @@ class DataOrchestrator:
     def _prepare_instrument_data(
         self,
         spec: InstrumentSpec,
-        start: Optional[datetime],
-        end: Optional[datetime],
-        auto_download: bool,
+        config: PortfolioConfig,
     ) -> List[Dict[str, Any]]:
         """Prepare data for a single instrument.
 
@@ -114,9 +112,10 @@ class DataOrchestrator:
         adapter = spec.adapter
 
         # Read from adapter (provider handles caching internally)
+        # Pass date range to adapter for provider-level filtering
         logger.info("Reading data from adapter for %s", symbol)
         try:
-            data = adapter.read_timeframe("1M")
+            data = adapter.read_timeframe("1M", from_date=config.data_start, to_date=config.data_end)
         except Exception as e:
             logger.exception("Failed to read data from adapter for %s: %s", symbol, e)
             raise ValueError(f"Failed to read data for {symbol}: {e}")
@@ -124,10 +123,6 @@ class DataOrchestrator:
         if not data:
             logger.warning("No data returned from adapter for %s", symbol)
             return []
-
-        # Filter by date range if specified (adapter may not filter)
-        if start or end:
-            data = self._filter_by_date_range(data, start, end)
 
         # Validate format
         is_valid, errors = validate_data_format(data)
@@ -137,39 +132,6 @@ class DataOrchestrator:
             raise ValueError(f"Invalid data format for {symbol}: {errors[:5]}")
 
         return data
-
-    def _filter_by_date_range(
-        self,
-        data: List[Dict[str, Any]],
-        start: Optional[datetime],
-        end: Optional[datetime],
-    ) -> List[Dict[str, Any]]:
-        """Filter data by date range."""
-        if not start and not end:
-            return data
-
-        filtered = []
-        for row in data:
-            dt_val = row.get("datetime")
-            if isinstance(dt_val, str):
-                for fmt in ("%Y%m%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
-                    try:
-                        dt = datetime.strptime(dt_val, fmt)
-                        break
-                    except ValueError:
-                        continue
-            elif isinstance(dt_val, datetime):
-                dt = dt_val
-            else:
-                continue
-
-            if start and dt < start:
-                continue
-            if end and dt > end:
-                continue
-            filtered.append(row)
-
-        return filtered
 
     def _validate_all_data(
         self,

@@ -158,12 +158,11 @@ def main() -> None:
     logger.info("=" * 60)
 
     # Pick a window long enough that slow SMA + crossover signal can form.
+    # Backtest period is specified ONCE in PortfolioConfig
     provider = DhanDataProvider(
         symbol="TCS",
         exchange_segment="NSE_EQ",
         instrument="EQUITY",
-        from_date="2023-02-01",
-        to_date="2024-02-01",
         timeframe="day",
     )
 
@@ -178,7 +177,11 @@ def main() -> None:
     instruments = [
         InstrumentSpec(symbol="RELIANCE", adapter=adapter),
     ]
-    config = PortfolioConfig(initial_cash=1_000_000.0)
+    config = PortfolioConfig(
+        initial_cash=1_000_000.0,
+        data_start="2023-02-01",
+        data_end="2024-02-01",
+    )
     engine = BacktestEngine(instruments, strategy, config)
 
     try:

@@ -17,8 +17,13 @@ class TestDhanDataAdapter:
     def mock_provider(self):
         """Create a mock DhanDataProvider."""
         provider = Mock(spec=DhanDataProvider)
-        provider.fetch.return_value = MOCK_DAILY_HISTORICAL_RESPONSE
         provider.supported_timeframes_property = ["1M", "5M", "15M", "30M", "1H", "1D"]
+        # Accept new optional parameters and return appropriate mock data based on timeframe
+        def fetch_side_effect(*args, timeframe=None, from_date=None, to_date=None, **kwargs):
+            if timeframe in ("1M", "5M", "15M", "30M", "1H"):
+                return MOCK_INTRADAY_HISTORICAL_RESPONSE
+            return MOCK_DAILY_HISTORICAL_RESPONSE
+        provider.fetch.side_effect = fetch_side_effect
         return provider
 
     def test_adapter_init_valid_provider(self, mock_provider):
@@ -36,9 +41,9 @@ class TestDhanDataAdapter:
             DhanDataAdapter(FakeProvider())
 
     def test_adapter_read_daily_data(self, mock_provider):
-        """Adapter should normalize daily data correctly."""
+        """Adapter should normalize daily data correctly when explicitly requested."""
         adapter = DhanDataAdapter(mock_provider)
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         assert len(result) == 5
         assert all(key in result[0] for key in ["datetime", "open", "high", "low", "close", "volume"])
@@ -59,10 +64,8 @@ class TestDhanDataAdapter:
 
     def test_adapter_read_intraday_data(self, mock_provider):
         """Adapter should normalize intraday data correctly."""
-        mock_provider.fetch.return_value = MOCK_INTRADAY_HISTORICAL_RESPONSE
-
         adapter = DhanDataAdapter(mock_provider)
-        result = adapter.read()
+        result = adapter.read_timeframe("1M")
 
         assert len(result) == 5
         assert result[0]["open"] == 2500.0
@@ -71,6 +74,8 @@ class TestDhanDataAdapter:
 
     def test_adapter_read_without_oi(self, mock_provider):
         """Adapter should handle missing open interest."""
+        # Override the mock's side_effect for this test
+        mock_provider.fetch.side_effect = None
         mock_provider.fetch.return_value = {
             "open": [2500.0],
             "high": [2520.0],
@@ -81,7 +86,7 @@ class TestDhanDataAdapter:
         }
 
         adapter = DhanDataAdapter(mock_provider)
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         assert len(result) == 1
         assert "oi" not in result[0]
@@ -89,36 +94,38 @@ class TestDhanDataAdapter:
 
     def test_adapter_read_empty_data(self, mock_provider):
         """Adapter should return empty list for empty data."""
+        mock_provider.fetch.side_effect = None
         mock_provider.fetch.return_value = {}
 
         adapter = DhanDataAdapter(mock_provider)
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         assert result == []
 
     def test_adapter_read_empty_arrays(self, mock_provider):
         """Adapter should return empty list for empty arrays."""
+        mock_provider.fetch.side_effect = None
         mock_provider.fetch.return_value = {
             "open": [], "high": [], "low": [], "close": [],
             "volume": [], "timestamp": [], "open_interest": [],
         }
 
         adapter = DhanDataAdapter(mock_provider)
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         assert result == []
 
     def test_adapter_custom_datetime_format(self, mock_provider):
         """Adapter should use custom datetime format."""
         adapter = DhanDataAdapter(mock_provider, datetime_format="%Y/%m/%d %H:%M")
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         assert result[0]["datetime"] == "2024/01/01 00:00"
 
     def test_adapter_explicit_ist_timezone(self, mock_provider):
         """Adapter should honour an explicit IST output timezone."""
         adapter = DhanDataAdapter(mock_provider, timezone="Asia/Kolkata")
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         # Mock epoch 1704047400 == 2024-01-01 00:00:00 IST.
         assert result[0]["datetime"] == "2024-01-01 00:00:00"
@@ -126,7 +133,7 @@ class TestDhanDataAdapter:
     def test_adapter_utc_output_timezone(self, mock_provider):
         """Adapter should project to UTC when explicitly requested."""
         adapter = DhanDataAdapter(mock_provider, timezone="UTC")
-        result = adapter.read()
+        result = adapter.read_timeframe("1D")
 
         # Mock epoch 1704047400 is 2023-12-31 18:30:00 UTC
         # (= 2024-01-01 00:00:00 IST). Output wall clock in UTC is
@@ -165,6 +172,7 @@ class TestDhanDataAdapter:
 
     def test_adapter_array_length_mismatch_raises(self, mock_provider):
         """Adapter should raise ValueError for mismatched array lengths."""
+        mock_provider.fetch.side_effect = None
         mock_provider.fetch.return_value = {
             "open": [2500.0, 2510.0],
             "high": [2520.0],  # Only 1 element
@@ -176,10 +184,11 @@ class TestDhanDataAdapter:
 
         adapter = DhanDataAdapter(mock_provider)
         with pytest.raises(ValueError, match="Response array lengths mismatch"):
-            adapter.read()
+            adapter.read_timeframe("1D")
 
     def test_adapter_oi_length_mismatch_raises(self, mock_provider):
         """Adapter should raise ValueError for OI array length mismatch."""
+        mock_provider.fetch.side_effect = None
         mock_provider.fetch.return_value = {
             "open": [2500.0],
             "high": [2520.0],
@@ -192,7 +201,7 @@ class TestDhanDataAdapter:
 
         adapter = DhanDataAdapter(mock_provider)
         with pytest.raises(ValueError, match="Open interest array length mismatch"):
-            adapter.read()
+            adapter.read_timeframe("1D")
 
     def test_adapter_datetime_format_property(self, mock_provider):
         """Adapter should expose datetime_format property (single source of truth)."""
