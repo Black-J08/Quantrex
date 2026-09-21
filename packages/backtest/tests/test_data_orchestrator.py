@@ -17,6 +17,8 @@ from quantrex_data.operations import (
     resample_to_timeframe,
     synchronize_symbols,
 )
+from quantrex_data.adapters.csv_adapter import CSVDataAdapter
+from quantrex_data.providers.csv_provider import CSVDataProvider
 
 
 class TestDataValidation:
@@ -195,3 +197,4 @@ class TestDataOrchestrator:
 
         assert "RELIANCE" in result
         assert len(result["RELIANCE"]) == 1
+

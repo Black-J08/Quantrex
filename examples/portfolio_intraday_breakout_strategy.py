@@ -176,25 +176,3 @@ if __name__ == "__main__":
 
     # Run portfolio backtest
     result = engine.run()
-
-    # PortfolioResult contains aggregated metrics (NEW FEATURE)
-    logger.info("=" * 60)
-    logger.info("PORTFOLIO BACKTEST RESULTS")
-    logger.info("=" * 60)
-    logger.info(f"Initial Cash:      {result.initial_cash:,.2f}")
-    logger.info(f"Final Equity:      {result.final_equity:,.2f}")
-    logger.info(f"Total Return:      {result.total_return:,.2f} ({result.total_return_pct:.2f}%)")
-    logger.info(f"Max Drawdown:      {result.max_drawdown:,.2f} ({result.max_drawdown_pct:.2f}%)")
-    logger.info(f"Total Trades:      {result.total_trades}")
-    logger.info(f"Win Rate:          {result.win_rate:.2f}%")
-    logger.info(f"Profit Factor:     {result.profit_factor:.2f}" if result.profit_factor else "Profit Factor:     N/A")
-    logger.info(f"Sharpe Ratio:      {result.sharpe_ratio:.2f}" if result.sharpe_ratio else "Sharpe Ratio:      N/A")
-    logger.info("-" * 60)
-
-    # Per-symbol results (NEW FEATURE)
-    for symbol, sym_result in result.per_symbol.items():
-        logger.info(f"[{symbol}] Trades: {sym_result.total_trades}, "
-                    f"PnL: {sym_result.total_pnl:,.2f}, "
-                    f"Win Rate: {(sym_result.winning_trades/sym_result.total_trades*100) if sym_result.total_trades > 0 else 0:.2f}%")
-
-    logger.info("=" * 60)

@@ -148,6 +148,7 @@ class DataOrchestrator:
                 expected_end=end,
                 expected_freq="1M",
                 min_bars=self.config.min_bars_required,
+                exchange_calendar=self.config.exchange_calendar,
             )
             for warning in warnings:
                 logger.warning("Completeness check for %s: %s", symbol, warning)
