@@ -28,7 +28,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 logger = get_logger(__name__)
 
@@ -158,7 +158,7 @@ def main() -> None:
     logger.info("=" * 60)
 
     # Pick a window long enough that slow SMA + crossover signal can form.
-    # Backtest period is specified ONCE in PortfolioConfig
+    # Backtest period is specified ONCE in BacktestConfig
     provider = DhanDataProvider(
         symbol="TCS",
         exchange_segment="NSE_EQ",
@@ -177,7 +177,7 @@ def main() -> None:
     instruments = [
         InstrumentSpec(symbol="RELIANCE", adapter=adapter),
     ]
-    config = PortfolioConfig(
+    config = BacktestConfig(
         initial_cash=1_000_000.0,
         data_start="2023-02-01",
         data_end="2024-02-01",

@@ -5,7 +5,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.models.position import Position
 from quantrex_core.strategy.timeframe import on_timeframe
 
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 from quantrex_data.providers.zerodha_provider import ZerodhaDataProvider
 from quantrex_data.adapters.zerodha_adapter import ZerodhaDataAdapter
@@ -153,8 +153,8 @@ if __name__ == "__main__":
     instruments = [
         InstrumentSpec(symbol=symbol, adapter=adapter),
     ]
-    # Backtest period is specified ONCE in PortfolioConfig
-    config = PortfolioConfig(
+    # Backtest period is specified ONCE in BacktestConfig
+    config = BacktestConfig(
         initial_cash=1_000_000.0,
         data_start="2025-07-01",
         data_end="2026-06-30",

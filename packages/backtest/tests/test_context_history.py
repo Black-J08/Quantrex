@@ -23,7 +23,7 @@ import pytest
 
 from quantrex_core import Candle, Strategy
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
@@ -162,7 +162,7 @@ def test_engine_history_grows_one_per_bar():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig()
+        BacktestConfig()
     )
     engine.run()
 
@@ -185,7 +185,7 @@ def test_engine_history_includes_current_candle_as_last_element():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig()
+        BacktestConfig()
     )
     engine.run()
 
@@ -208,7 +208,7 @@ def test_engine_history_is_chronological():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig()
+        BacktestConfig()
     )
     engine.run()
 
@@ -240,7 +240,7 @@ def test_engine_history_warmup_yields_shorter_tuple():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         _WarmupStrategy(),
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 
@@ -266,7 +266,7 @@ def test_engine_history_supports_lookback_slicing():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         _LookbackStrategy(),
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 
@@ -327,7 +327,7 @@ def test_engine_history_preserves_candle_indicators():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         strat,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 
@@ -356,7 +356,7 @@ def test_engine_history_is_per_run_not_shared_across_runs():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="X", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
     first_run_final_len = len(strategy.history_per_bar[-1])

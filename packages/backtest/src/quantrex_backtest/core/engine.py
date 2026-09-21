@@ -9,8 +9,8 @@ from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
-from quantrex_core import InstrumentSpec, PortfolioConfig
-from quantrex_backtest.config import EngineConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_backtest.data import DataOrchestrator, DataOrchestratorConfig
 from quantrex_backtest.core import BacktestPortfolioContext, calculate_close_time
 from quantrex_backtest.execution import (
@@ -37,7 +37,7 @@ class BacktestEngine:
     Supports portfolio backtesting through a unified API.
 
     Example (portfolio):
-        >>> from quantrex_backtest import InstrumentSpec, PortfolioConfig
+        >>> from quantrex_backtest import InstrumentSpec, BacktestConfig
         >>> from quantrex_data.providers.csv_provider import CSVDataProvider
         >>> from quantrex_data.adapters.csv_adapter import CSVDataAdapter
         >>> from quantrex_core import Strategy, Candle
@@ -51,7 +51,7 @@ class BacktestEngine:
         >>> instruments = [
         ...     InstrumentSpec(symbol="COPPER", adapter=adapter),
         ... ]
-        >>> config = PortfolioConfig(initial_cash=1_000_000)
+        >>> config = BacktestConfig(initial_cash=1_000_000)
         >>> strategy = MyStrategy()
         >>> engine = BacktestEngine(instruments, strategy, config)
         >>> result = engine.run()
@@ -61,16 +61,14 @@ class BacktestEngine:
         self,
         instruments: List[InstrumentSpec],
         strategy: Strategy,
-        config: PortfolioConfig,
-        engine_config: EngineConfig | None = None,
+        config: BacktestConfig,
     ) -> None:
         """Initialize the backtest engine in portfolio mode.
 
         Args:
             instruments: List of InstrumentSpec defining symbols and their data adapters
             strategy: Strategy instance to execute
-            config: PortfolioConfig with portfolio-level settings
-            engine_config: Optional EngineConfig for engine-specific settings
+            config: BacktestConfig with portfolio and engine settings
 
         Raises:
             ProviderError: If required arguments are None or invalid.
@@ -89,7 +87,6 @@ class BacktestEngine:
         self._instruments = instruments
         self._strategy = strategy
         self._config = config
-        self._engine_config = engine_config or EngineConfig()
 
         # Create PositionManager, OMS
         self._position_manager = PositionManager()
@@ -194,7 +191,7 @@ class BacktestEngine:
         if not synchronized_base_data:
             logger.warning("No data available for any instrument; backtest completed with zero candles")
             self._strategy.on_stop()
-            if self._engine_config.export_trades:
+            if self._config.export_trades:
                 self._result_exporter.export_trades_csv([], staging_dir)
             logger.info("Run log: %s", staging_dir / "execution_log")
             return PortfolioResult.empty(self._config.initial_cash)
@@ -276,7 +273,6 @@ class BacktestEngine:
                     instruments=self._instruments,
                     strategy=self._strategy,
                     config=self._config,
-                    engine_config=self._engine_config,
                     context=None,  # Will be created inside
                     raw_data=all_raw_data,
                     indicators=all_indicators,
@@ -287,7 +283,7 @@ class BacktestEngine:
                 )
 
             # Multiple instruments: detect parallelism
-            if self._engine_config.parallelism_enabled:
+            if self._config.parallelism_enabled:
                 report = self._parallelism_detector.analyze(self._strategy, self._instruments)
 
                 if report.safe and report.independent_groups:
@@ -302,7 +298,6 @@ class BacktestEngine:
                             instruments=self._instruments,
                             strategy=self._strategy,
                             config=self._config,
-                            engine_config=self._engine_config,
                             context=None,
                             raw_data=all_raw_data,
                             indicators=all_indicators,
@@ -313,13 +308,12 @@ class BacktestEngine:
                         )
 
                     logger.info("Running parallel backtest with %d workers for %d instruments",
-                                self._engine_config.effective_max_workers, len(self._instruments))
+                                self._config.effective_max_workers, len(self._instruments))
                     try:
                         return self._parallel_execution.execute(
                             instruments=self._instruments,
                             strategy=self._strategy,
                             config=self._config,
-                            engine_config=self._engine_config,
                             context=None,
                             raw_data=all_raw_data,
                             indicators=all_indicators,
@@ -337,7 +331,6 @@ class BacktestEngine:
                 instruments=self._instruments,
                 strategy=self._strategy,
                 config=self._config,
-                engine_config=self._engine_config,
                 context=None,
                 raw_data=all_raw_data,
                 indicators=all_indicators,

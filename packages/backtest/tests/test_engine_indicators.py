@@ -18,7 +18,7 @@ from unittest.mock import Mock
 
 from quantrex_core import Candle, Strategy
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 
 
@@ -98,7 +98,7 @@ def test_engine_attaches_indicators_from_compute_indicators_hook():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
 
     engine.run()
@@ -133,7 +133,7 @@ def test_engine_passes_raw_rows_in_timestamp_order():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
 
     engine.run()
@@ -165,7 +165,7 @@ def test_engine_wraps_compute_indicators_exception_as_provider_error():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
         _BoomStrategy(),
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
 
     try:
@@ -199,7 +199,7 @@ def test_engine_raises_provider_error_on_length_mismatch():
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=_mock_adapter(rows))],
         _BadLengthStrategy(),
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
 
     try:
@@ -246,7 +246,7 @@ def test_per_candle_audit_log_includes_indicator_values(
     engine = BacktestEngine(
         [InstrumentSpec(symbol="GOLD", adapter=_mock_adapter(rows))],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
 
     # Capture INFO-level log records.

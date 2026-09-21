@@ -26,7 +26,7 @@ from quantrex_core import Candle, Strategy
 from quantrex_core.strategy.timeframe import on_timeframe
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_backtest.core.timeframe import (
     calculate_close_time,
@@ -142,7 +142,7 @@ class TestOpenTimeVsExecutionTime:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=_mock_adapter(rows))],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         engine.run()
 
@@ -159,7 +159,7 @@ class TestOpenTimeVsExecutionTime:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=_mock_adapter(rows))],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         engine.run()
 
@@ -176,7 +176,7 @@ class TestOpenTimeVsExecutionTime:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=_mock_adapter(rows))],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         engine.run()
 
@@ -191,7 +191,7 @@ class TestOpenTimeVsExecutionTime:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=_mock_adapter(rows))],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         engine.run()
 
@@ -218,7 +218,7 @@ class TestOrderTiming:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=_mock_adapter(rows))],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         engine.run()
 
@@ -252,7 +252,7 @@ class TestMultiTimeframeExecutionTime:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="TEST", adapter=adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
         engine.run()
 

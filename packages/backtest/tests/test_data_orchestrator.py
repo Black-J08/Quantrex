@@ -6,7 +6,8 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest import BacktestConfig
 from quantrex_backtest.data import DataOrchestrator, DataOrchestratorConfig
 from quantrex_data.operations import (
     validate_data_format,
@@ -164,12 +165,13 @@ class TestDataOrchestrator:
     def test_validate_and_prepare_no_instruments(self):
         """Test validate_and_prepare with no instruments."""
         orchestrator = DataOrchestrator()
-        result = orchestrator.validate_and_prepare([], PortfolioConfig())
+        result = orchestrator.validate_and_prepare([], BacktestConfig())
         assert result == {}
 
     def test_validate_and_prepare_with_mock_adapter(self):
         """Test validate_and_prepare with mock adapter."""
-        from quantrex_core import InstrumentSpec, PortfolioConfig
+        from quantrex_core import InstrumentSpec
+        from quantrex_backtest import BacktestConfig
         from quantrex_core.protocols import DataAdapter
 
         mock_adapter = Mock(spec=DataAdapter)
@@ -181,7 +183,7 @@ class TestDataOrchestrator:
         mock_adapter.get_origin_time.return_value = None
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
-        config = PortfolioConfig(auto_download=False)
+        config = BacktestConfig(auto_download=False)
 
         orchestrator = DataOrchestrator(DataOrchestratorConfig(
             auto_download=False,

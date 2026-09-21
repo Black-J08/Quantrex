@@ -10,7 +10,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_test_support.csv import make_ohlc_series, csv_rows_to_string, create_temp_csv
 
 logger = get_logger(__name__)
@@ -74,8 +74,8 @@ if __name__ == "__main__":
         instruments = [
             InstrumentSpec(symbol="COPPER", adapter=adapter),
         ]
-        # Backtest period is specified ONCE in PortfolioConfig
-        config = PortfolioConfig(
+        # Backtest period is specified ONCE in BacktestConfig
+        config = BacktestConfig(
             initial_cash=1_000_000.0,
             data_start="2023-01-01",
             data_end="2023-01-10",

@@ -17,7 +17,7 @@ from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 # Logger name used by the backtest execution module; the per-bar audit
 # log line is emitted on this logger.
@@ -76,7 +76,7 @@ def test_engine_logs_ohlc_per_candle_to_logger(caplog: pytest.LogCaptureFixture)
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=adapter)],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 
@@ -135,7 +135,7 @@ def test_engine_log_uses_candle_timestamp_not_wall_clock(
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=adapter)],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 
@@ -224,7 +224,7 @@ def test_engine_logs_orders_with_candle_timestamp(
     engine = BacktestEngine(
         [InstrumentSpec(symbol="COPPER", adapter=adapter)],
         strategy,
-        PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+        BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
     )
     engine.run()
 

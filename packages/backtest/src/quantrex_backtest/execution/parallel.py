@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from quantrex_core.logging import get_logger
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_core.strategy.base import Strategy
 from quantrex_backtest.results import PortfolioResult, SingleInstrumentResult
 from quantrex_backtest.execution.base import ExecutionMode
@@ -22,7 +23,7 @@ def _run_single_instrument_worker(
     instrument: InstrumentSpec,
     strategy_class: type[Strategy],
     strategy_init_kwargs: Dict[str, Any],
-    config: PortfolioConfig,
+    config: BacktestConfig,
     backtest_start_local: datetime,
     staging_dir_path: str,
     raw_data: Dict[str, Dict[str, List[Dict]]],
@@ -38,7 +39,7 @@ def _run_single_instrument_worker(
         instrument: Single instrument to backtest
         strategy_class: Strategy class (not instance) to instantiate
         strategy_init_kwargs: Keyword arguments for strategy __init__
-        config: Portfolio configuration
+        config: Backtest configuration
         backtest_start_local: Backtest start timestamp (local timezone)
         staging_dir_path: Path to shared staging directory for log files
         raw_data: Raw data for this instrument
@@ -367,8 +368,7 @@ class ParallelMultiExecution(ExecutionMode):
         self,
         instruments: List[InstrumentSpec],
         strategy: Strategy,
-        config: PortfolioConfig,
-        engine_config: Any,
+        config: BacktestConfig,
         context: Any,
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
@@ -397,7 +397,7 @@ class ParallelMultiExecution(ExecutionMode):
             logger.info("Adapters not picklable (likely test mocks). Falling back to sequential.")
             raise RuntimeError("Adapters not picklable")
 
-        max_workers = engine_config.effective_max_workers
+        max_workers = config.effective_max_workers
         logger.info("Running parallel backtest with %d workers for %d instruments", max_workers, len(instruments))
 
         # Create the execution_log directory upfront

@@ -125,49 +125,6 @@ class TestInstrumentSpec:
         assert spec.timeframe_overrides is None
 
 
-class TestPortfolioConfig:
-    """Tests for PortfolioConfig."""
-
-    def test_portfolio_config_defaults(self):
-        """Test PortfolioConfig with default values."""
-        from quantrex_core import PortfolioConfig
-
-        config = PortfolioConfig()
-
-        assert config.initial_cash == 1_000_000.0
-        assert config.margin_requirement == 1.0
-        assert config.position_sizer is None
-        assert config.data_start is None
-        assert config.data_end is None
-        assert config.auto_download is True
-
-    def test_portfolio_config_custom(self):
-        """Test PortfolioConfig with custom values."""
-        from quantrex_core import PortfolioConfig, PositionSizer
-        from quantrex_core.models import PortfolioState
-
-        class TestSizer:
-            def compute_target_weights(self, portfolio, signals):
-                return {}
-
-        sizer = TestSizer()
-        config = PortfolioConfig(
-            initial_cash=500000.0,
-            margin_requirement=2.0,
-            position_sizer=sizer,
-            data_start="2026-01-01",
-            data_end="2026-12-31",
-            auto_download=False,
-        )
-
-        assert config.initial_cash == 500000.0
-        assert config.margin_requirement == 2.0
-        assert config.position_sizer == sizer
-        assert config.data_start == "2026-01-01"
-        assert config.data_end == "2026-12-31"
-        assert config.auto_download is False
-
-
 class TestPortfolioContext:
     """Tests for PortfolioContext ABC and EmptyPortfolioContext."""
 

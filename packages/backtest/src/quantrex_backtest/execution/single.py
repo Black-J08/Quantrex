@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_backtest.results import SingleInstrumentResult, PortfolioResult
 from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_backtest.data import DataOrchestrator
@@ -40,8 +41,7 @@ class SingleInstrumentExecution(ExecutionMode):
         self,
         instruments: List[InstrumentSpec],
         strategy: Strategy,
-        config: PortfolioConfig,
-        engine_config: Any,
+        config: BacktestConfig,
         context: Any,
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
@@ -78,7 +78,7 @@ class SingleInstrumentExecution(ExecutionMode):
         if not base_data:
             logger.warning("No base timeframe data; backtest completed with zero candles")
             strategy.on_stop()
-            if engine_config.export_trades:
+            if config.export_trades:
                 self._result_exporter.export_trades_csv([], staging_dir)
             return PortfolioResult.empty(config.initial_cash)
 
@@ -188,7 +188,7 @@ class SingleInstrumentExecution(ExecutionMode):
             run_dir = staging_dir
 
         # Export trades
-        if engine_config.export_trades:
+        if config.export_trades:
             self._result_exporter.export_trades_csv(
                 self._position_manager.get_closed_trades(), run_dir
             )
@@ -255,7 +255,7 @@ class SingleInstrumentExecution(ExecutionMode):
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
         base_timeframe: str,
-        config: PortfolioConfig,
+        config: BacktestConfig,
     ) -> Any:
         """Create portfolio context."""
         from quantrex_backtest.core.portfolio_context import BacktestPortfolioContext

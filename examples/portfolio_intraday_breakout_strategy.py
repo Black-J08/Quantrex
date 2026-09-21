@@ -2,7 +2,7 @@
 
 This example demonstrates the new portfolio backtesting features:
 - Multiple instruments via InstrumentSpec
-- PortfolioConfig for initial cash, margin, auto-download
+- BacktestConfig for initial cash, margin, auto-download
 - PortfolioContext via ctx.portfolio (cash, equity, margin, positions)
 - ctx.positions for all open positions
 - Unified BacktestEngine API for both single and portfolio backtests
@@ -16,7 +16,7 @@ from quantrex_core.logging import get_logger
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.timeframe import on_timeframe
 
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 from quantrex_data.providers.zerodha_provider import ZerodhaDataProvider
 from quantrex_data.adapters.zerodha_adapter import ZerodhaDataAdapter
@@ -158,8 +158,8 @@ if __name__ == "__main__":
     ]
 
     # Portfolio configuration (NEW FEATURE)
-    # Backtest period is specified ONCE here in PortfolioConfig
-    config = PortfolioConfig(
+    # Backtest period is specified ONCE here in BacktestConfig
+    config = BacktestConfig(
         initial_cash=1_000_000.0,      # Starting capital
         margin_requirement=1.0,         # 1.0 = no leverage, 2.0 = 2x leverage
         auto_download=True,             # Auto-download missing data

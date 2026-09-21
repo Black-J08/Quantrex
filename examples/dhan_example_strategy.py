@@ -23,7 +23,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.strategy.base import Strategy
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 logger = get_logger(__name__)
 
@@ -91,7 +91,7 @@ def main():
 
     # Create provider with symbol resolution
     # Using RELIANCE (NSE_EQ) as example - replace with your desired symbol
-    # Backtest period is specified ONCE in PortfolioConfig
+    # Backtest period is specified ONCE in BacktestConfig
     provider = DhanDataProvider(
         symbol="RELIANCE",
         exchange_segment="NSE_EQ",
@@ -116,7 +116,7 @@ def main():
     instruments = [
         InstrumentSpec(symbol="RELIANCE", adapter=adapter),
     ]
-    config = PortfolioConfig(
+    config = BacktestConfig(
         initial_cash=1_000_000.0,
         data_start="2024-01-01",
         data_end="2024-01-10",

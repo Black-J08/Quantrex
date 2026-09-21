@@ -4,7 +4,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_data.providers.dhan_provider import DhanDataProvider
 from quantrex_data.adapters.dhan_adapter import DhanDataAdapter
 
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 import pandas as pd
 import pandas_ta_classic as ta
@@ -51,8 +51,8 @@ if __name__ == "__main__":
     instruments = [
         InstrumentSpec(symbol=symbol, adapter=adapter),
     ]
-    # Backtest period is specified ONCE in PortfolioConfig
-    config = PortfolioConfig(
+    # Backtest period is specified ONCE in BacktestConfig
+    config = BacktestConfig(
         initial_cash=1_000_000.0,
         data_start="2026-01-01",
         data_end="2026-01-30",

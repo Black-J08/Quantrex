@@ -11,7 +11,7 @@ from quantrex_core.strategy.timeframe import on_timeframe
 from quantrex_core.models.enums import OrderSide
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 from quantrex_core.protocols import DataAdapter
 from quantrex_test_support.csv import (
@@ -115,7 +115,7 @@ class TestBacktestEngine:
         """Engine should raise ProviderError when instruments list is empty."""
         strategy = TestStrategy()
         try:
-            BacktestEngine([], strategy, PortfolioConfig())
+            BacktestEngine([], strategy, BacktestConfig())
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
             assert "At least one instrument required" in str(e)
@@ -128,7 +128,7 @@ class TestBacktestEngine:
         mock_adapter.supported_timeframes = ["1M"]
         mock_adapter.get_origin_time.return_value = None
         try:
-            BacktestEngine([InstrumentSpec(symbol="COPPER", adapter=mock_adapter)], None, PortfolioConfig())
+            BacktestEngine([InstrumentSpec(symbol="COPPER", adapter=mock_adapter)], None, BacktestConfig())
             assert False, "Should have raised ProviderError"
         except ProviderError as e:
             assert "Strategy is required" in str(e)
@@ -145,7 +145,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig()
+            BacktestConfig()
         )
         assert engine is not None
 
@@ -178,7 +178,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -201,7 +201,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
         engine.run()
@@ -222,7 +222,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
         engine.run()
@@ -257,7 +257,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -284,7 +284,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
         try:
@@ -321,7 +321,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             try:
@@ -361,7 +361,7 @@ class TestBacktestEngine:
             engine1 = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy1,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
             engine1.run()
             run1_timestamps = [c.timestamp for c in strategy1.candles]
@@ -369,7 +369,7 @@ class TestBacktestEngine:
             engine2 = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy2,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
             engine2.run()
             run2_timestamps = [c.timestamp for c in strategy2.candles]
@@ -407,7 +407,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -429,7 +429,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
         engine.run()
@@ -469,7 +469,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -537,7 +537,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -613,7 +613,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -694,7 +694,7 @@ class TestBacktestEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -739,7 +739,7 @@ class TestBacktestEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
         engine.run()
@@ -853,7 +853,7 @@ class TestFifoLotAccounting:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
             engine.run()
@@ -935,7 +935,7 @@ class TestMultiTimeframeEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
         
         required = engine._get_required_timeframes()
@@ -956,7 +956,7 @@ class TestMultiTimeframeEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
         
         engine.run()
@@ -993,7 +993,7 @@ class TestMultiTimeframeEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
             
             engine.run()
@@ -1021,7 +1021,7 @@ class TestMultiTimeframeEngine:
             engine = BacktestEngine(
                 [InstrumentSpec(symbol="COPPER", adapter=adapter)],
                 strategy,
-                PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+                BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
             
             try:
@@ -1056,7 +1056,7 @@ class TestMultiTimeframeEngine:
         engine = BacktestEngine(
             [InstrumentSpec(symbol="COPPER", adapter=mock_adapter)],
             strategy,
-            PortfolioConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
+            BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
         
         engine.run()

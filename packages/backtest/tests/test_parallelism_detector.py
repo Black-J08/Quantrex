@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from quantrex_backtest import BacktestEngine, PortfolioConfig
+from quantrex_backtest import BacktestEngine, BacktestConfig
 from quantrex_backtest.execution import ParallelismReport
 from quantrex_core import InstrumentSpec
 from quantrex_core.protocols import DataAdapter
@@ -31,7 +31,7 @@ class TestParallelismDetectorUnit:
     
     def _make_engine(self, strategy: Strategy) -> BacktestEngine:
         """Create a BacktestEngine for testing."""
-        return BacktestEngine(self.instruments, strategy, PortfolioConfig())
+        return BacktestEngine(self.instruments, strategy, BacktestConfig())
     
     def test_analyze_method_detects_portfolio_access(self):
         """Test detection of ctx.portfolio access."""
@@ -301,7 +301,7 @@ class TestParallelismDetectorUnit:
                 pass
         
         strategy = SimpleStrategy()
-        engine = BacktestEngine(single_instrument, strategy, PortfolioConfig())
+        engine = BacktestEngine(single_instrument, strategy, BacktestConfig())
         report = engine._detect_parallelism()
         
         assert report.safe is True

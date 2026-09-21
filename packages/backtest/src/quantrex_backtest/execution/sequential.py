@@ -7,7 +7,8 @@ from typing import Any, Dict, List
 from quantrex_core.logging import get_logger
 from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_backtest.results import PortfolioResult, SymbolResult
 from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_backtest.data import DataOrchestrator
@@ -40,8 +41,7 @@ class SequentialMultiExecution(ExecutionMode):
         self,
         instruments: List[InstrumentSpec],
         strategy: Strategy,
-        config: PortfolioConfig,
-        engine_config: Any,
+        config: BacktestConfig,
         context: Any,
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
@@ -216,7 +216,7 @@ class SequentialMultiExecution(ExecutionMode):
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
         base_timeframe: str,
-        config: PortfolioConfig,
+        config: BacktestConfig,
     ) -> Any:
         """Create portfolio context."""
         from quantrex_backtest.core.portfolio_context import BacktestPortfolioContext

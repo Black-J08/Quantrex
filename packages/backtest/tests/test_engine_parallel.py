@@ -8,7 +8,7 @@ from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, PortfolioConfig, PortfolioResult
+from quantrex_backtest import BacktestEngine, BacktestConfig, PortfolioResult
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.execution import ParallelismReport
 
@@ -140,7 +140,7 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = IndependentStrategy()
-        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
+        engine = BacktestEngine(instruments, strategy, BacktestConfig())
         
         report = engine._detect_parallelism()
         
@@ -158,7 +158,7 @@ class TestParallelismDetector:
         
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = PortfolioAccessStrategy()
-        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
+        engine = BacktestEngine(instruments, strategy, BacktestConfig())
         
         report = engine._detect_parallelism()
         
@@ -177,7 +177,7 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolOrderStrategy()
-        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
+        engine = BacktestEngine(instruments, strategy, BacktestConfig())
         
         report = engine._detect_parallelism()
         
@@ -196,7 +196,7 @@ class TestParallelismDetector:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolPositionStrategy()
-        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
+        engine = BacktestEngine(instruments, strategy, BacktestConfig())
         
         report = engine._detect_parallelism()
         
@@ -212,7 +212,7 @@ class TestParallelismDetector:
         
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = SymbolKeyedStateStrategy()
-        engine = BacktestEngine(instruments, strategy, PortfolioConfig())
+        engine = BacktestEngine(instruments, strategy, BacktestConfig())
         
         report = engine._detect_parallelism()
         
@@ -232,7 +232,7 @@ class TestParallelExecution:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = IndependentStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -254,7 +254,7 @@ class TestParallelExecution:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = PortfolioAccessStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -277,7 +277,7 @@ class TestParallelExecution:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolOrderStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -298,7 +298,7 @@ class TestParallelExecution:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = CrossSymbolPositionStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -319,7 +319,7 @@ class TestParallelExecution:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = SymbolKeyedStateStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -337,7 +337,7 @@ class TestParallelExecution:
         
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = IndependentStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -356,7 +356,7 @@ class TestParallelExecution:
         
         # Run with independent strategy (should auto-parallelize)
         strategy1 = IndependentStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
         engine1 = BacktestEngine(instruments, strategy1, config)
         result1 = engine1.run()
         

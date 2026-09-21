@@ -8,7 +8,7 @@ from quantrex_core import Strategy, Candle
 from quantrex_core.strategy.base import on_timeframe
 from quantrex_core.strategy.timeframe import TimeframeRegistry, TimeframeDispatcher
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
+from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 
 
 class DecoratedOnlyStrategy(Strategy):
@@ -77,7 +77,7 @@ def test_engine_base_1m_when_on_candle_overridden():
     # Accept new optional parameters
     mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     s = WithOnCandleStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     assert engine._get_required_timeframes()[0] == "1M"
 
 
@@ -90,7 +90,7 @@ def test_engine_base_1m_when_on_candle_defined():
     # Accept new optional parameters
     mock.read_timeframe.side_effect = lambda tf, from_date=None, to_date=None: [{"datetime":"20230101 10:00","open":"1","high":"2","low":"0.5","close":"1","volume":"10"}]
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     # DecoratedOnlyStrategy defines on_candle → base is 1M
     assert engine._get_required_timeframes()[0] == "1M"
 
@@ -102,7 +102,7 @@ def test_engine_fetches_1m_for_decorated_with_on_candle():
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     engine.run()
     # Defines on_candle → base 1M fetched + 1H from registry
     calls = [c[0][0] for c in mock.read_timeframe.call_args_list]
@@ -147,7 +147,7 @@ def test_dispatch_called_automatically_by_engine():
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
     s = WithOnCandleStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     engine.run()
     # After processing 1M bar at 10:59, execution time is 11:00
     # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
@@ -189,7 +189,7 @@ def test_on_candle_not_called_when_not_overridden():
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     engine.run()
     # After processing 1M bar at 10:59, execution time is 11:00
     # The 1H bar (10:00-11:00) completes at 11:00, so it should be dispatched
@@ -257,7 +257,7 @@ def test_engine_raises_on_unavailable_timeframe_no_1m():
     mock.supported_timeframes = ["1M"]
     mock.get_origin_time.return_value = None
     s = DecoratedOnlyStrategy()
-    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, PortfolioConfig())
+    engine = BacktestEngine([InstrumentSpec(symbol="X", adapter=mock)], s, BacktestConfig())
     with pytest.raises(Exception):
         engine.run()
 

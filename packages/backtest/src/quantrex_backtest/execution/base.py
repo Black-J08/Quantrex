@@ -3,7 +3,8 @@
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional
 
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_core.strategy.base import Strategy
 from quantrex_backtest.results import SingleInstrumentResult, PortfolioResult
 
@@ -16,8 +17,7 @@ class ExecutionMode(ABC):
         self,
         instruments: List[InstrumentSpec],
         strategy: Strategy,
-        config: PortfolioConfig,
-        engine_config: Any,  # EngineConfig
+        config: BacktestConfig,
         context: Any,  # BacktestPortfolioContext
         raw_data: Dict[str, Dict[str, List[Dict]]],
         indicators: Dict[str, Dict[str, List[Dict]]],
@@ -31,8 +31,7 @@ class ExecutionMode(ABC):
         Args:
             instruments: List of instrument specifications
             strategy: Strategy instance to execute
-            config: Portfolio configuration
-            engine_config: Engine-specific configuration
+            config: Backtest configuration
             context: Portfolio context (shared across instruments)
             raw_data: Raw data by symbol and timeframe
             indicators: Computed indicators by symbol and timeframe

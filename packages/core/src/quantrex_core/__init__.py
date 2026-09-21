@@ -7,7 +7,7 @@ from .models.order import Order
 from .models.position import Position
 from .models.portfolio import PortfolioState
 from .order import OrderManagementSystem
-from .portfolio import InstrumentSpec, PortfolioConfig, PositionSizer
+from .portfolio import InstrumentSpec, PositionSizer
 from .portfolio.context import PortfolioContext, EmptyPortfolioContext
 from .protocols import DataProvider, DataAdapter
 from .strategy.base import Strategy
@@ -29,7 +29,6 @@ __all__ = [
     "PortfolioState",
     # Portfolio
     "InstrumentSpec",
-    "PortfolioConfig",
     "PositionSizer",
     "PortfolioContext",
     "EmptyPortfolioContext",

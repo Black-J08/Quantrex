@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from quantrex_core import InstrumentSpec, PortfolioConfig
+from quantrex_core import InstrumentSpec
+from quantrex_backtest.config import BacktestConfig
 from quantrex_core.logging import get_logger
 from quantrex_data.operations import (
     validate_data_format,
@@ -43,13 +44,13 @@ class DataOrchestrator:
     def validate_and_prepare(
         self,
         instruments: List[InstrumentSpec],
-        config: PortfolioConfig,
+        config: BacktestConfig,
     ) -> Dict[str, List[Dict[str, Any]]]:
         """Validate and prepare data for all instruments.
 
         Args:
             instruments: List of instrument specifications.
-            config: Portfolio configuration with date range and download settings.
+            config: Backtest configuration with date range and download settings.
 
         Returns:
             Dictionary mapping symbol to synchronized data rows.
@@ -102,7 +103,7 @@ class DataOrchestrator:
     def _prepare_instrument_data(
         self,
         spec: InstrumentSpec,
-        config: PortfolioConfig,
+        config: BacktestConfig,
     ) -> List[Dict[str, Any]]:
         """Prepare data for a single instrument.
 

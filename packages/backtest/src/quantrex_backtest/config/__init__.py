@@ -1,5 +1,5 @@
 """Quantrex Backtest Configuration."""
 
-from .config import EngineConfig
+from .config import BacktestConfig
 
-__all__ = ["EngineConfig"]
+__all__ = ["BacktestConfig"]

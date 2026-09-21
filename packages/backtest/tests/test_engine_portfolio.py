@@ -7,7 +7,7 @@ import pytest
 from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, PortfolioConfig, PortfolioResult
+from quantrex_backtest import BacktestEngine, BacktestConfig, PortfolioResult
 from quantrex_core import InstrumentSpec
 
 
@@ -45,7 +45,7 @@ class TestBacktestEnginePortfolioMode:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter),
         ]
         strategy = TestStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0)
+        config = BacktestConfig(initial_cash=1_000_000.0)
 
         engine = BacktestEngine(instruments, strategy, config)
 
@@ -61,7 +61,7 @@ class TestBacktestEnginePortfolioMode:
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = TestStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0)
+        config = BacktestConfig(initial_cash=1_000_000.0)
 
         engine = BacktestEngine(instruments, strategy, config)
 
@@ -71,7 +71,7 @@ class TestBacktestEnginePortfolioMode:
         """Test portfolio mode requires at least one instrument."""
         mock_adapter = Mock(spec=DataAdapter)
         strategy = TestStrategy()
-        config = PortfolioConfig()
+        config = BacktestConfig()
 
         with pytest.raises(Exception) as exc_info:
             BacktestEngine([], strategy, config)
@@ -83,7 +83,7 @@ class TestBacktestEnginePortfolioMode:
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=None)]
         strategy = TestStrategy()
-        config = PortfolioConfig()
+        config = BacktestConfig()
 
         with pytest.raises(Exception) as exc_info:
             BacktestEngine(instruments, strategy, config)
@@ -102,7 +102,7 @@ class TestBacktestEnginePortfolioMode:
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = TestStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
 
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -145,7 +145,7 @@ class TestBacktestEnginePortfolioMode:
                 _ = self.ctx.portfolio
         
         strategy = PortfolioAwareStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
 
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
@@ -180,7 +180,7 @@ class TestBacktestEnginePortfolioMode:
                 })
 
         strategy = PortfolioAwareStrategy()
-        config = PortfolioConfig(initial_cash=1_000_000.0, auto_download=False)
+        config = BacktestConfig(initial_cash=1_000_000.0, auto_download=False)
 
         engine = BacktestEngine(
             [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)],
@@ -210,7 +210,7 @@ class TestBacktestEnginePortfolioModeEdgeCases:
 
         instruments = [InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter)]
         strategy = TestStrategy()
-        config = PortfolioConfig(auto_download=False)
+        config = BacktestConfig(auto_download=False)
 
         engine = BacktestEngine(instruments, strategy, config)
         
@@ -245,7 +245,7 @@ class TestBacktestEnginePortfolioModeEdgeCases:
             InstrumentSpec(symbol="TCS", adapter=mock_adapter2),
         ]
         strategy = TestStrategy()
-        config = PortfolioConfig(auto_download=False)
+        config = BacktestConfig(auto_download=False)
 
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
