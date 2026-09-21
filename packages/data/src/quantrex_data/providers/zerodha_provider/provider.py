@@ -11,6 +11,7 @@ from typing import Any
 
 from quantrex_core.logging import get_logger
 from quantrex_core.protocols import DataProvider
+from quantrex_core.timeframe.provider_mapping import ZERODHA_MAPPER
 from quantrex_data.operations import ArrowCache
 
 from .auth import ZerodhaAuth
@@ -542,7 +543,7 @@ class ZerodhaDataProvider:
         Returns:
             List of timeframe strings supported by Zerodha API (Quantrex format).
         """
-        return ["1M", "3M", "5M", "10M", "15M", "30M", "1H", "1D"]
+        return ZERODHA_MAPPER.get_supported_quantrex_intervals()
 
     def get_origin_time(self) -> dt_time:
         """Return the origin time for this provider's market.
@@ -572,28 +573,7 @@ class ZerodhaDataProvider:
         Raises:
             ValueError: If timeframe is not supported.
         """
-        mapping = {
-            "1M": "minute",
-            "3M": "3minute",
-            "5M": "5minute",
-            "10M": "10minute",
-            "15M": "15minute",
-            "30M": "30minute",
-            "1H": "60minute",
-            "1D": "day",
-            # Backward compatibility
-            "minute": "minute",
-            "3minute": "3minute",
-            "5minute": "5minute",
-            "10minute": "10minute",
-            "15minute": "15minute",
-            "30minute": "30minute",
-            "60minute": "60minute",
-            "day": "day",
-        }
-        if timeframe not in mapping:
-            raise ValueError(f"Unsupported timeframe: {timeframe}. Supported: {list(mapping.keys())}")
-        return mapping[timeframe]
+        return ZERODHA_MAPPER.to_provider(timeframe)
 
     def close(self) -> None:
         """Close the underlying HTTP client and release resources."""

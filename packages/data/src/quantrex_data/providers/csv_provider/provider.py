@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from quantrex_core.logging import get_logger
+from quantrex_core.timeframe.constants import TF_1M
 
 logger = get_logger(__name__)
 
@@ -177,7 +178,7 @@ class CSVDataProvider:
         Returns empty list when minute_data_available=False.
         """
         if self._minute_data_available:
-            return ["1M"]
+            return [str(TF_1M)]
         return []
     
     def get_origin_time(self) -> time:

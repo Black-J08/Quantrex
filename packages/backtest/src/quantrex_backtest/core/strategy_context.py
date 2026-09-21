@@ -7,6 +7,7 @@ from quantrex_core.models.position import Position
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
+from quantrex_core.timeframe import filter_candles_by_timeframe
 from quantrex_backtest.core.timeframe import calculate_close_time
 from collections.abc import Mapping
 
@@ -288,11 +289,9 @@ class BacktestStrategyContext(StrategyContext):
         return tuple(self._filter_by_timeframe(self._history, interval))
 
     def _filter_by_timeframe(self, candles: list[Candle], interval: str) -> list[Candle]:
-        """Filter candles by timeframe interval.
+        """Filter candles by timeframe interval using shared implementation.
 
-        Groups candles into the specified interval and returns the last
-        candle of each completed interval (i.e., the "closed" candles
-        for that timeframe).
+        Delegates to quantrex_core.timeframe.filter_candles_by_timeframe.
 
         Args:
             candles: List of candles in chronological order.
@@ -304,63 +303,11 @@ class BacktestStrategyContext(StrategyContext):
         if not candles:
             return []
 
-        # Parse interval string (e.g., "1H" -> 1 hour, "4H" -> 4 hours, "1D" -> 1 day)
-        import re
-        match = re.match(r'^(\d+)([MHDW])$', interval.upper())
-        if not match:
-            raise ValueError(f"Invalid interval format: {interval}. Expected format like '1H', '4H', '1D'")
-
-        value = int(match.group(1))
-        unit = match.group(2)
-
-        # Convert to minutes
-        if unit == 'M':
-            interval_minutes = value
-        elif unit == 'H':
-            interval_minutes = value * 60
-        elif unit == 'D':
-            interval_minutes = value * 60 * 24
-        elif unit == 'W':
-            interval_minutes = value * 60 * 24 * 7
-        else:
-            raise ValueError(f"Unknown interval unit: {unit}")
-
         # Use origin time for correct interval alignment
         # If origin_time is not set, default to midnight (00:00)
-        origin_minutes = 0
-        if self._origin_time is not None:
-            origin_minutes = self._origin_time.hour * 60 + self._origin_time.minute
+        origin_time = self._origin_time
+        if origin_time is None:
+            from datetime import time
+            origin_time = time(0, 0)
 
-        # Group candles by interval
-        result = []
-        current_interval_start = None
-        current_interval_candles = []
-
-        for candle in candles:
-            # Calculate the interval start for this candle using origin time
-            candle_minutes = candle.timestamp.hour * 60 + candle.timestamp.minute
-            # Add days
-            candle_minutes += candle.timestamp.day * 24 * 60
-            # Calculate interval start relative to origin time
-            # For example, with origin 09:15 (555 minutes) and interval 60 minutes:
-            # - 10:15 candle (615 minutes): (615 - 555) // 60 = 1, interval start = 09:15 + 1*60 = 10:15
-            # - 11:15 candle (675 minutes): (675 - 555) // 60 = 2, interval start = 09:15 + 2*60 = 11:15
-            interval_start_minutes = origin_minutes + ((candle_minutes - origin_minutes) // interval_minutes) * interval_minutes
-
-            if current_interval_start is None:
-                current_interval_start = interval_start_minutes
-                current_interval_candles = [candle]
-            elif interval_start_minutes == current_interval_start:
-                current_interval_candles.append(candle)
-            else:
-                # Interval changed - add the last candle of the previous interval
-                if current_interval_candles:
-                    result.append(current_interval_candles[-1])
-                current_interval_start = interval_start_minutes
-                current_interval_candles = [candle]
-
-        # Add the last interval's last candle if it has candles
-        if current_interval_candles:
-            result.append(current_interval_candles[-1])
-
-        return result
+        return list(filter_candles_by_timeframe(candles, interval, origin_time))

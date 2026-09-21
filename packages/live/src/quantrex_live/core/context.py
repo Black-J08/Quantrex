@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from quantrex_core import StrategyContext
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
+from quantrex_core.timeframe import filter_candles_by_timeframe
 
 if TYPE_CHECKING:
     from quantrex_core.position.manager import PositionManager
@@ -177,83 +178,28 @@ class LiveStrategyContext(StrategyContext):
             return tuple(self._derived_histories[interval])
         
         # Fallback: filter from base history (for backward compatibility)
-        return tuple(self._filter_by_timeframe(list(self._history_buffer), interval))
+        return tuple(self._filter_by_timeframe(list(self._history_buffer), interval, self._origin_time))
 
     @staticmethod
-    def _filter_by_timeframe(candles: list[Candle], interval: str) -> list[Candle]:
-        """Filter candles by timeframe interval.
-        
-        Groups candles into the specified interval and returns the last
-        candle of each completed interval (i.e., the "closed" candles
-        for that timeframe).
-        
+    def _filter_by_timeframe(candles: list[Candle], interval: str, origin_time: time | None = None) -> list[Candle]:
+        """Filter candles by timeframe interval using shared implementation.
+
+        Delegates to quantrex_core.timeframe.filter_candles_by_timeframe.
+
         Args:
             candles: List of candles in chronological order.
             interval: Timeframe interval string (e.g., "1H", "1D", "4H").
-            
+            origin_time: Market origin time for interval alignment.
+
         Returns:
             List of candles representing the last candle of each interval.
         """
         if not candles:
             return []
 
-        # Parse interval string (e.g., "1H" -> 1 hour, "4H" -> 4 hours, "1D" -> 1 day)
-        import re
-        match = re.match(r'^(\d+)([MHDW])$', interval.upper())
-        if not match:
-            raise ValueError(f"Invalid interval format: {interval}. Expected format like '1H', '4H', '1D'")
-
-        value = int(match.group(1))
-        unit = match.group(2)
-
-        # Convert to minutes
-        if unit == 'M':
-            interval_minutes = value
-        elif unit == 'H':
-            interval_minutes = value * 60
-        elif unit == 'D':
-            interval_minutes = value * 60 * 24
-        elif unit == 'W':
-            interval_minutes = value * 60 * 24 * 7
-        else:
-            raise ValueError(f"Unknown interval unit: {unit}")
-
-        # Group candles by interval
-        result = []
-        current_interval_start = None
-        current_interval_candles = []
-
         # Use origin time for correct interval alignment
         # If origin_time is not set, default to midnight (00:00)
-        origin_minutes = 0
-        if self._origin_time is not None:
-            origin_minutes = self._origin_time.hour * 60 + self._origin_time.minute
+        if origin_time is None:
+            origin_time = time(0, 0)
 
-        for candle in candles:
-            # Calculate the interval start for this candle using origin time
-            candle_minutes = candle.timestamp.hour * 60 + candle.timestamp.minute
-            # Add days
-            candle_minutes += candle.timestamp.day * 24 * 60
-            # Calculate interval start relative to origin time
-            # For example, with origin 09:15 (555 minutes) and interval 60 minutes:
-            # - 10:15 candle (615 minutes): (615 - 555) // 60 = 1, interval start = 09:15 + 1*60 = 10:15
-            # - 11:15 candle (675 minutes): (675 - 555) // 60 = 2, interval start = 09:15 + 2*60 = 11:15
-            interval_start_minutes = origin_minutes + ((candle_minutes - origin_minutes) // interval_minutes) * interval_minutes
-
-            if current_interval_start is None:
-                current_interval_start = interval_start_minutes
-                current_interval_candles = [candle]
-            elif interval_start_minutes == current_interval_start:
-                current_interval_candles.append(candle)
-            else:
-                # Interval changed - add the last candle of the previous interval
-                if current_interval_candles:
-                    result.append(current_interval_candles[-1])
-                current_interval_start = interval_start_minutes
-                current_interval_candles = [candle]
-
-        # Add the last interval's last candle if it has candles
-        if current_interval_candles:
-            result.append(current_interval_candles[-1])
-
-        return result
+        return list(filter_candles_by_timeframe(candles, interval, origin_time))
