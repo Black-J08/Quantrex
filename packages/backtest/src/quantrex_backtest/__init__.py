@@ -2,12 +2,16 @@
 
 from quantrex_core import InstrumentSpec, PortfolioConfig
 from .core.engine import BacktestEngine
+from .config import EngineConfig
 from .exceptions.backtest_error import BacktestError, ProviderError
-from .portfolio import BacktestPortfolioContext, PortfolioResult, SymbolResult, SingleInstrumentResult
+from .core import BacktestPortfolioContext
+from .results import PortfolioResult, SymbolResult, SingleInstrumentResult
 from .data import DataOrchestrator, DataOrchestratorConfig
+from .execution import ParallelismDetector, ParallelismReport
 
 __all__ = [
     "BacktestEngine",
+    "EngineConfig",
     "BacktestError",
     "ProviderError",
     "BacktestPortfolioContext",
@@ -16,6 +20,8 @@ __all__ = [
     "SingleInstrumentResult",
     "DataOrchestrator",
     "DataOrchestratorConfig",
+    "ParallelismDetector",
+    "ParallelismReport",
     "InstrumentSpec",
     "PortfolioConfig",
 ]

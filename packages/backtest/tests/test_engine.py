@@ -700,7 +700,7 @@ class TestBacktestEngine:
         engine.run()
 
         # Locate the most recent run directory written by this run.
-        run_dirs = list(Path("output/TestStrategy").glob("*"))
+        run_dirs = list(Path("output/backtest/TestStrategy").glob("*"))
         assert run_dirs, "no run directory was created"
         latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
         log_path = latest_dir / "execution_log" / "COPPER_execution.log"

@@ -10,7 +10,7 @@ from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
 from quantrex_core.models.order import Order
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
-from quantrex_backtest.core.context import BacktestStrategyContext
+from quantrex_backtest.core.strategy_context import BacktestStrategyContext
 
 logger = get_logger(__name__)
 

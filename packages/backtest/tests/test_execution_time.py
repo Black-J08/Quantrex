@@ -27,7 +27,7 @@ from quantrex_core.strategy.timeframe import on_timeframe
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
-from quantrex_backtest.core.context import BacktestStrategyContext
+from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_backtest.core.timeframe import (
     calculate_close_time,
     parse_timeframe_to_timedelta,

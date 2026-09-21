@@ -224,7 +224,7 @@ def test_per_candle_audit_log_includes_indicator_values(
     are omitted to keep logs clean.
     """
     import logging
-    from quantrex_backtest.core.engine import _RUN_LOG_FILENAME
+    from quantrex_backtest.observability.directory_manager import _RUN_LOG_FILENAME
 
     rows = [
         _row("20230101 09:30", 100.0, 101.0, 99.0, 100.5, 10),

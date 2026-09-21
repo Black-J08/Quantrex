@@ -7,7 +7,7 @@ import pytest
 
 from quantrex_core.models.position import Position
 from quantrex_core.models.trade import TradeRecord
-from quantrex_backtest.portfolio import PortfolioResult, SymbolResult, SingleInstrumentResult
+from quantrex_backtest.results import PortfolioResult, SymbolResult, SingleInstrumentResult
 
 
 class TestSymbolResult:

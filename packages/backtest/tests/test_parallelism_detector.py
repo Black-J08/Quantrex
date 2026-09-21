@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 from quantrex_backtest import BacktestEngine, PortfolioConfig
-from quantrex_backtest.core.engine import ParallelismReport
+from quantrex_backtest.execution import ParallelismReport
 from quantrex_core import InstrumentSpec
 from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
@@ -327,12 +327,13 @@ class TestParallelismDetectorUnit:
                 pass
         
         # Monkey-patch to cause an exception in bytecode analysis
-        original_analyze = BacktestEngine._analyze_method
+        from quantrex_backtest.execution import ParallelismDetector
+        original_analyze = ParallelismDetector._analyze_method
         
-        def broken_analyze(self, method, method_name, symbol_names):
+        def broken_analyze(self, method, method_name):
             raise ValueError("Test exception")
         
-        BacktestEngine._analyze_method = broken_analyze
+        ParallelismDetector._analyze_method = broken_analyze
         
         try:
             strategy = BrokenStrategy()
@@ -343,7 +344,7 @@ class TestParallelismDetectorUnit:
             assert len(report.warnings) > 0
             assert "Could not analyze" in report.warnings[0]
         finally:
-            BacktestEngine._analyze_method = original_analyze
+            ParallelismDetector._analyze_method = original_analyze
 
 
 if __name__ == "__main__":

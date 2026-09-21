@@ -24,7 +24,7 @@ import pytest
 from quantrex_core import Candle, Strategy
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
-from quantrex_backtest.core.context import BacktestStrategyContext
+from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 

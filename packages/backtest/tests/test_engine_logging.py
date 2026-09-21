@@ -19,12 +19,12 @@ from quantrex_core.protocols import DataAdapter
 from quantrex_core.strategy.base import Strategy
 from quantrex_backtest import BacktestEngine, InstrumentSpec, PortfolioConfig
 
-# Logger name used by the backtest engine module; the per-bar audit
+# Logger name used by the backtest execution module; the per-bar audit
 # log line is emitted on this logger.
-_ENGINE_LOGGER = "quantrex_backtest.core.engine"
+_ENGINE_LOGGER = "quantrex_backtest.execution.single"
 # Logger name used by the backtest context module; order audit lines
 # are emitted on this logger.
-_CONTEXT_LOGGER = "quantrex_backtest.core.context"
+_CONTEXT_LOGGER = "quantrex_backtest.core.strategy_context"
 
 
 class _LoggingProbeStrategy(Strategy):

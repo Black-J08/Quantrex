@@ -10,7 +10,7 @@ from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
-from quantrex_backtest.portfolio import BacktestPortfolioContext
+from quantrex_backtest.core import BacktestPortfolioContext
 from quantrex_backtest.core.timeframe import calculate_close_time
 
 

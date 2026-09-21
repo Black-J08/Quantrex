@@ -1,6 +1,7 @@
 """Integration tests for parallel backtest execution."""
 
 from unittest.mock import Mock
+import pickle
 import pytest
 
 from quantrex_core import Strategy
@@ -9,7 +10,33 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, PortfolioConfig, PortfolioResult
 from quantrex_core import InstrumentSpec
-from quantrex_backtest.core.engine import ParallelismReport
+from quantrex_backtest.execution import ParallelismReport
+
+
+class PicklableMockAdapter:
+    """A picklable mock adapter for testing."""
+    
+    def __init__(self):
+        self.datetime_format = "%Y%m%d %H:%M"
+        self.supported_timeframes = ["1M"]
+        self._origin_time = None
+        self._read_timeframe_data = [
+            {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
+            {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
+            {"datetime": "20260101 09:17", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
+            {"datetime": "20260101 09:18", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
+        ]
+    
+    def get_origin_time(self):
+        return self._origin_time
+    
+    def read_timeframe(self, tf):
+        return self._read_timeframe_data
+
+
+def _make_picklable_mock_adapter():
+    """Create a mock adapter that can be pickled."""
+    return PicklableMockAdapter()
 
 
 class IndependentStrategy(Strategy):
@@ -198,16 +225,7 @@ class TestParallelExecution:
     
     def test_parallel_execution_independent_strategy(self):
         """Independent strategy with multiple instruments should run in parallel."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:17", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:18", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-        ]
+        mock_adapter = _make_picklable_mock_adapter()
         
         instruments = [
             InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter),
@@ -225,11 +243,8 @@ class TestParallelExecution:
     
     def test_sequential_fallback_portfolio_access(self):
         """Strategy with portfolio access should fall back to sequential."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        mock_adapter = _make_picklable_mock_adapter()
+        mock_adapter._read_timeframe_data = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
@@ -251,11 +266,8 @@ class TestParallelExecution:
     
     def test_sequential_fallback_cross_symbol_order(self):
         """Strategy with cross-symbol orders should fall back to sequential."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        mock_adapter = _make_picklable_mock_adapter()
+        mock_adapter._read_timeframe_data = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
@@ -275,11 +287,8 @@ class TestParallelExecution:
     
     def test_sequential_fallback_cross_symbol_position(self):
         """Strategy with cross-symbol position queries should fall back to sequential."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        mock_adapter = _make_picklable_mock_adapter()
+        mock_adapter._read_timeframe_data = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
@@ -299,11 +308,8 @@ class TestParallelExecution:
     
     def test_sequential_fallback_symbol_keyed_state(self):
         """Strategy with symbol-keyed state should fall back to sequential."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        mock_adapter = _make_picklable_mock_adapter()
+        mock_adapter._read_timeframe_data = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
@@ -323,11 +329,8 @@ class TestParallelExecution:
     
     def test_single_instrument_sequential(self):
         """Single instrument should always run sequentially (no parallel benefit)."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
+        mock_adapter = _make_picklable_mock_adapter()
+        mock_adapter._read_timeframe_data = [
             {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
             {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
         ]
@@ -344,16 +347,7 @@ class TestParallelExecution:
     
     def test_parallel_vs_sequential_equivalence(self):
         """Parallel and sequential execution should produce equivalent results for independent strategies."""
-        mock_adapter = Mock(spec=DataAdapter)
-        mock_adapter.datetime_format = "%Y%m%d %H:%M"
-        mock_adapter.supported_timeframes = ["1M"]
-        mock_adapter.get_origin_time.return_value = None
-        mock_adapter.read_timeframe.return_value = [
-            {"datetime": "20260101 09:15", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:16", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:17", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-            {"datetime": "20260101 09:18", "open": "100", "high": "101", "low": "99", "close": "100", "volume": "1000"},
-        ]
+        mock_adapter = _make_picklable_mock_adapter()
         
         instruments = [
             InstrumentSpec(symbol="RELIANCE", adapter=mock_adapter),

@@ -14,7 +14,7 @@ from quantrex_core import StrategyContext
 from quantrex_core.models.enums import OrderSide, OrderType
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
-from quantrex_backtest.core.context import BacktestStrategyContext
+from quantrex_backtest.core.strategy_context import BacktestStrategyContext
 from quantrex_live.core.context import LiveStrategyContext
 
 

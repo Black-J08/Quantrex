@@ -4,7 +4,7 @@
 import time
 from datetime import datetime, timedelta
 from quantrex_core.models import Candle
-from quantrex_backtest.core.context import BacktestStrategyContext
+from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.order import OrderManagementSystem
