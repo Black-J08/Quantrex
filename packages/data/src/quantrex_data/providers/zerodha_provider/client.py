@@ -27,6 +27,36 @@ from .models import HistoricalDataResponse
 logger = get_logger(__name__)
 
 
+def _load_dotenv() -> None:
+    """Load .env file if python-dotenv is available."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+
+# Allow tests to disable .env loading
+_load_dotenv_enabled = True
+
+
+def set_load_dotenv_enabled(enabled: bool) -> None:
+    """Enable or disable .env loading (for testing)."""
+    global _load_dotenv_enabled
+    _load_dotenv_enabled = enabled
+
+
+def _load_dotenv() -> None:
+    """Load .env file if python-dotenv is available and enabled."""
+    if not _load_dotenv_enabled:
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass
+
+
 class TokenBucketRateLimiter:
     """Token bucket rate limiter for API requests."""
 
@@ -72,6 +102,9 @@ class ZerodhaAPIClient:
         Args:
             config: Provider configuration.
         """
+        # Load .env file to ensure environment variables are available
+        _load_dotenv()
+
         self._config = config
         self._access_token = config.access_token
         self._client = httpx.Client(

@@ -3,7 +3,11 @@
 import pytest
 from datetime import date, datetime
 
-from quantrex_data.providers.zerodha_provider.config import ZerodhaProviderConfig
+# Disable .env loading BEFORE importing config
+from quantrex_data.providers.zerodha_provider.client import set_load_dotenv_enabled
+set_load_dotenv_enabled(False)
+
+from quantrex_data.providers.zerodha_provider.config import ZerodhaProviderConfig, _parse_redirect_url
 from quantrex_data.providers.zerodha_provider.exceptions import (
     ZerodhaInstrumentMasterError,
     ZerodhaSymbolNotFoundError,
@@ -200,3 +204,162 @@ class TestZerodhaProviderConfig:
             to_date="2024-01-31",
         )
         assert str(config.cache_dir).endswith(".quantrex/cache/zerodha")
+
+
+class TestParseRedirectUrl:
+    """Tests for _parse_redirect_url function."""
+
+    def test_parse_standard_url(self):
+        """Should parse standard HTTP URL with port."""
+        host, port, path = _parse_redirect_url("http://localhost:8765/callback")
+        assert host == "localhost"
+        assert port == 8765
+        assert path == "/callback"
+
+    def test_parse_https_url(self):
+        """Should parse HTTPS URL with default port."""
+        host, port, path = _parse_redirect_url("https://example.com/callback")
+        assert host == "example.com"
+        assert port == 443
+        assert path == "/callback"
+
+    def test_parse_http_url_default_port(self):
+        """Should parse HTTP URL with default port."""
+        host, port, path = _parse_redirect_url("http://example.com/callback")
+        assert host == "example.com"
+        assert port == 80
+        assert path == "/callback"
+
+    def test_parse_url_with_custom_path(self):
+        """Should parse URL with custom path."""
+        host, port, path = _parse_redirect_url("http://localhost:9999/auth/zerodha/callback")
+        assert host == "localhost"
+        assert port == 9999
+        assert path == "/auth/zerodha/callback"
+
+    def test_parse_url_with_ip(self):
+        """Should parse URL with IP address."""
+        host, port, path = _parse_redirect_url("http://127.0.0.1:61035/callback")
+        assert host == "127.0.0.1"
+        assert port == 61035
+        assert path == "/callback"
+
+    def test_parse_invalid_url_no_scheme(self):
+        """Should raise ValueError for URL without scheme."""
+        with pytest.raises(ValueError, match="Invalid redirect URL"):
+            _parse_redirect_url("localhost:8765/callback")
+
+    def test_parse_invalid_url_no_host(self):
+        """Should raise ValueError for URL without host."""
+        with pytest.raises(ValueError, match="Invalid redirect URL"):
+            _parse_redirect_url("http:///callback")
+
+
+class TestCallbackConfig:
+    """Tests for callback configuration in ZerodhaProviderConfig."""
+
+    def test_default_redirect_url(self, monkeypatch):
+        """Config should use default redirect URL."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+
+        config = ZerodhaProviderConfig(
+            symbol="RELIANCE",
+            exchange="NSE",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.redirect_url == "http://localhost:8765/callback"
+        assert config.callback_host == "localhost"
+        assert config.callback_port == 8765
+        assert config.callback_path == "/callback"
+
+    def test_custom_redirect_url_from_env(self, monkeypatch):
+        """Config should parse custom redirect URL from env var."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_REDIRECT_URL", "http://127.0.0.1:61035/callback")
+
+        config = ZerodhaProviderConfig(
+            symbol="RELIANCE",
+            exchange="NSE",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.redirect_url == "http://127.0.0.1:61035/callback"
+        assert config.callback_host == "127.0.0.1"
+        assert config.callback_port == 61035
+        assert config.callback_path == "/callback"
+
+    def test_custom_redirect_url_with_custom_path(self, monkeypatch):
+        """Config should parse custom redirect URL with custom path."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_REDIRECT_URL", "http://localhost:9999/auth/zerodha/callback")
+
+        config = ZerodhaProviderConfig(
+            symbol="RELIANCE",
+            exchange="NSE",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.redirect_url == "http://localhost:9999/auth/zerodha/callback"
+        assert config.callback_host == "localhost"
+        assert config.callback_port == 9999
+        assert config.callback_path == "/auth/zerodha/callback"
+
+    def test_invalid_redirect_url_raises(self, monkeypatch):
+        """Config should raise ValueError for invalid redirect URL."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_REDIRECT_URL", "invalid-url")
+
+        with pytest.raises(ValueError, match="Invalid ZERODHA_REDIRECT_URL"):
+            ZerodhaProviderConfig(
+                symbol="RELIANCE",
+                exchange="NSE",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_callback_timeout_from_env(self, monkeypatch):
+        """Config should load callback timeout from env var."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_CALLBACK_TIMEOUT", "300")
+
+        config = ZerodhaProviderConfig(
+            symbol="RELIANCE",
+            exchange="NSE",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        assert config.callback_timeout == 300.0
+
+    def test_invalid_callback_timeout_raises(self, monkeypatch):
+        """Config should raise ValueError for invalid callback timeout."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_CALLBACK_TIMEOUT", "invalid")
+
+        with pytest.raises(ValueError, match="ZERODHA_CALLBACK_TIMEOUT must be a number"):
+            ZerodhaProviderConfig(
+                symbol="RELIANCE",
+                exchange="NSE",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )
+
+    def test_negative_callback_timeout_raises(self, monkeypatch):
+        """Config should raise ValueError for negative callback timeout."""
+        monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
+        monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_CALLBACK_TIMEOUT", "-10")
+
+        with pytest.raises(ValueError, match="callback_timeout must be positive"):
+            ZerodhaProviderConfig(
+                symbol="RELIANCE",
+                exchange="NSE",
+                from_date="2024-01-01",
+                to_date="2024-01-31",
+            )

@@ -149,6 +149,9 @@ class ZerodhaDataProvider:
         # Ensure we have a valid token before resolving symbols or downloading instrument master
         self._ensure_valid_token()
 
+        # Update config with the valid access token so InstrumentMaster can use it
+        object.__setattr__(self._config, "access_token", self._client._access_token)
+
         # Resolve symbol to instrument_token if needed
         self._instrument_token = self._config.instrument_token
         if self._config.symbol is not None:

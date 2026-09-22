@@ -1,7 +1,7 @@
 """Tests for ZerodhaAuth login flow and token management."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, PropertyMock
 from pathlib import Path
 
 from quantrex_data.providers.zerodha_provider.auth import ZerodhaAuth
@@ -130,9 +130,126 @@ class TestZerodhaAuth:
         mock_client.get_profile.side_effect = ZerodhaAuthenticationError("Token expired")
         mock_client._request.return_value = MOCK_AUTH_SUCCESS_RESPONSE
 
-        with patch("builtins.input", return_value="test_request_token"):
-            token = auth.ensure_valid_token(mock_client)
+        # Mock callback server to fail and fall back to manual input
+        with patch.object(auth, '_start_callback_server', side_effect=OSError("Address already in use")):
+            with patch("builtins.input", return_value="test_request_token"):
+                token = auth.ensure_valid_token(mock_client)
 
         assert token == "test_access_token_12345"
         # Should have saved the new token
         assert config.token_file.read_text().strip() == "test_access_token_12345"
+
+    def test_run_login_flow_automated_success(self, config, mock_client):
+        """run_login_flow should use callback server and succeed."""
+        auth = ZerodhaAuth(config)
+        mock_client._request.return_value = MOCK_AUTH_SUCCESS_RESPONSE
+
+        # Mock the callback server to return a token immediately
+        with patch.object(auth, '_start_callback_server', return_value="http://localhost:8765/callback") as mock_start:
+            mock_server = Mock()
+            mock_server.wait_for_token.return_value = "auto_request_token_123"
+            auth._callback_server = mock_server
+
+            token = auth.run_login_flow(mock_client)
+
+        assert token == "test_access_token_12345"
+        mock_start.assert_called_once()
+        mock_server.wait_for_token.assert_called_once()
+        mock_client._request.assert_called_once()
+        # Verify the payload contains the auto request_token
+        call_args = mock_client._request.call_args
+        assert call_args[1]["data"]["request_token"] == "auto_request_token_123"
+
+    def test_run_login_flow_fallback_to_manual(self, config, mock_client):
+        """run_login_flow should fall back to manual input when server fails."""
+        auth = ZerodhaAuth(config)
+        mock_client._request.return_value = MOCK_AUTH_SUCCESS_RESPONSE
+
+        # Mock callback server to raise OSError (port in use)
+        with patch.object(auth, '_start_callback_server', side_effect=OSError("Address already in use")):
+            with patch("builtins.input", return_value="manual_request_token"):
+                token = auth.run_login_flow(mock_client)
+
+        assert token == "test_access_token_12345"
+        # Should have called input for manual fallback
+        mock_client._request.assert_called_once()
+        call_args = mock_client._request.call_args
+        assert call_args[1]["data"]["request_token"] == "manual_request_token"
+
+    def test_run_login_flow_timeout_fallback(self, config, mock_client):
+        """run_login_flow should fall back to manual input on timeout."""
+        auth = ZerodhaAuth(config)
+        mock_client._request.return_value = MOCK_AUTH_SUCCESS_RESPONSE
+
+        # Mock callback server to raise TimeoutError
+        with patch.object(auth, '_start_callback_server', return_value="http://localhost:8765/callback"):
+            mock_server = Mock()
+            mock_server.wait_for_token.side_effect = TimeoutError("Timeout")
+            auth._callback_server = mock_server
+
+            with patch("builtins.input", return_value="fallback_token"):
+                token = auth.run_login_flow(mock_client)
+
+        assert token == "test_access_token_12345"
+        call_args = mock_client._request.call_args
+        assert call_args[1]["data"]["request_token"] == "fallback_token"
+
+    def test_run_login_flow_error_status_fallback(self, config, mock_client):
+        """run_login_flow should fall back to manual input on error status."""
+        auth = ZerodhaAuth(config)
+        mock_client._request.return_value = MOCK_AUTH_SUCCESS_RESPONSE
+
+        # Mock callback server to raise RuntimeError (error status from Zerodha)
+        with patch.object(auth, '_start_callback_server', return_value="http://localhost:8765/callback"):
+            mock_server = Mock()
+            mock_server.wait_for_token.side_effect = RuntimeError("Zerodha login failed: User cancelled")
+            auth._callback_server = mock_server
+
+            with patch("builtins.input", return_value="fallback_token"):
+                token = auth.run_login_flow(mock_client)
+
+        assert token == "test_access_token_12345"
+        call_args = mock_client._request.call_args
+        assert call_args[1]["data"]["request_token"] == "fallback_token"
+
+    def test_run_login_flow_cancelled_manual(self, config, mock_client):
+        """run_login_flow should raise when manual input is empty."""
+        auth = ZerodhaAuth(config)
+
+        # Force fallback to manual by making server fail
+        with patch.object(auth, '_start_callback_server', side_effect=OSError("Address already in use")):
+            with patch("builtins.input", return_value=""):
+                with pytest.raises(ZerodhaAuthenticationError, match="No request_token provided"):
+                    auth.run_login_flow(mock_client)
+
+    def test_start_stop_callback_server(self, config):
+        """_start_callback_server and _stop_callback_server should work."""
+        auth = ZerodhaAuth(config)
+
+        with patch('quantrex_data.providers.zerodha_provider.auth.CallbackServer') as mock_server_class:
+            mock_server = Mock()
+            mock_server.start.return_value = "http://localhost:8765/callback"
+            mock_server_class.return_value = mock_server
+
+            url = auth._start_callback_server()
+
+            assert url == "http://localhost:8765/callback"
+            mock_server_class.assert_called_once_with(
+                host=config.callback_host,
+                port=config.callback_port,
+                path=config.callback_path,
+                timeout=config.callback_timeout,
+            )
+            mock_server.start.assert_called_once()
+
+            auth._stop_callback_server()
+            mock_server.stop.assert_called_once()
+            assert auth._callback_server is None
+
+    def test_stop_callback_server_idempotent(self, config):
+        """_stop_callback_server should be idempotent."""
+        auth = ZerodhaAuth(config)
+        auth._callback_server = None  # Already None
+
+        auth._stop_callback_server()  # Should not raise
+        assert auth._callback_server is None

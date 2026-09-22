@@ -7,6 +7,7 @@ from typing import Any
 
 from quantrex_core.logging import get_logger
 
+from .callback_server import CallbackServer
 from .config import ZerodhaProviderConfig
 from .exceptions import ZerodhaAuthenticationError
 
@@ -32,14 +33,37 @@ class ZerodhaAuth:
             config: Provider configuration with api_key, api_secret, token_file.
         """
         self._config = config
+        self._callback_server: CallbackServer | None = None
 
     def get_login_url(self) -> str:
         """Get the login URL for the user to authenticate.
 
         Returns:
-            Login URL string.
+            Login URL string with redirect URL configured.
         """
+        # Per Kite Connect docs, the redirect URL is registered in the developer console.
+        # We don't pass redirect_params (state) per user decision to keep it simple.
         return self.LOGIN_URL_TEMPLATE.format(api_key=self._config.api_key)
+
+    def _start_callback_server(self) -> str:
+        """Start the local callback server.
+
+        Returns:
+            The callback URL.
+        """
+        self._callback_server = CallbackServer(
+            host=self._config.callback_host,
+            port=self._config.callback_port,
+            path=self._config.callback_path,
+            timeout=self._config.callback_timeout,
+        )
+        return self._callback_server.start()
+
+    def _stop_callback_server(self) -> None:
+        """Stop the local callback server if running."""
+        if self._callback_server:
+            self._callback_server.stop()
+            self._callback_server = None
 
     def open_login_url(self) -> bool:
         """Attempt to open the login URL in the default browser.
@@ -152,10 +176,10 @@ class ZerodhaAuth:
             return False
 
     def run_login_flow(self, client: Any) -> str:
-        """Run the complete login flow interactively.
+        """Run the complete login flow with automated callback server.
 
-        This prints the login URL, waits for user input, exchanges the token,
-        and saves it.
+        Attempts to start a local callback server to receive the request_token
+        automatically. Falls back to manual input if server cannot start.
 
         Args:
             client: ZerodhaAPIClient instance.
@@ -173,15 +197,35 @@ class ZerodhaAuth:
         print("=" * 70)
         print(f"Please open the following URL in your browser to log in:")
         print(f"\n  {login_url}\n")
-        print("After logging in, you will be redirected to a URL containing a")
-        print("'request_token' parameter. Copy that request_token and paste it below.")
-        print("=" * 70)
 
-        # Try to open browser automatically
-        self.open_login_url()
+        # Try automated callback server first
+        request_token = None
+        try:
+            callback_url = self._start_callback_server()
+            print(f"Waiting for callback at {callback_url} ...")
+            print("=" * 70)
 
-        # Wait for user to provide request_token
-        request_token = input("\nEnter request_token from redirect URL: ").strip()
+            # Try to open browser automatically
+            self.open_login_url()
+
+            # Wait for callback with request_token
+            request_token = self._callback_server.wait_for_token()
+
+        except (OSError, RuntimeError, TimeoutError) as e:
+            # Server failed to start or timed out - fall back to manual input
+            logger.warning("Callback server unavailable (%s), falling back to manual input", e)
+            self._stop_callback_server()
+
+            print("Automated callback unavailable. Falling back to manual entry.")
+            print("After logging in, you will be redirected to a URL containing a")
+            print("'request_token' parameter. Copy that request_token and paste it below.")
+            print("=" * 70)
+
+            # Try to open browser automatically
+            self.open_login_url()
+
+            # Wait for user to provide request_token
+            request_token = input("\nEnter request_token from redirect URL: ").strip()
 
         if not request_token:
             raise ZerodhaAuthenticationError("No request_token provided. Login flow cancelled.")

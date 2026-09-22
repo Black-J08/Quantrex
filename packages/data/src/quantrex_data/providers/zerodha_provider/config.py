@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from quantrex_core.logging import get_logger
 
@@ -17,6 +18,33 @@ logger = get_logger(__name__)
 DEFAULT_TOKEN_FILE = Path("~/.quantrex/zerodha/access_token").expanduser()
 # Default cache directory
 DEFAULT_CACHE_DIR = Path("~/.quantrex/cache/zerodha").expanduser()
+
+# Default callback configuration
+DEFAULT_REDIRECT_URL = "http://localhost:8765/callback"
+DEFAULT_CALLBACK_TIMEOUT = 120.0
+
+
+def _parse_redirect_url(redirect_url: str) -> tuple[str, int, str]:
+    """Parse redirect URL into host, port, and path.
+
+    Args:
+        redirect_url: Full redirect URL (e.g., http://localhost:8765/callback)
+
+    Returns:
+        Tuple of (host, port, path)
+
+    Raises:
+        ValueError: If URL is invalid or missing required components.
+    """
+    parsed = urlparse(redirect_url)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(f"Invalid redirect URL: {redirect_url}. Must include scheme and host.")
+
+    host = parsed.hostname or "localhost"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    path = parsed.path or "/callback"
+
+    return host, port, path
 
 
 def _resolve_access_token(
@@ -125,6 +153,10 @@ class ZerodhaProviderConfig:
         chunk_size_days: Custom chunk sizes per interval (days per request).
         cache_dir: Directory for caching instrument master CSV.
         cache_ttl_hours: Cache TTL for instrument master in hours (default: 24).
+        redirect_url: Full callback URL for OAuth redirect. Default: http://localhost:8765/callback.
+                     Can be set via ZERODHA_REDIRECT_URL env var.
+        callback_timeout: Timeout in seconds for waiting for callback. Default: 120.
+                         Can be set via ZERODHA_CALLBACK_TIMEOUT env var.
     """
 
     api_key: str | None = None
@@ -154,6 +186,30 @@ class ZerodhaProviderConfig:
     chunk_size_days: dict[str, int] = field(default_factory=dict)
     cache_dir: Path = field(default_factory=lambda: DEFAULT_CACHE_DIR)
     cache_ttl_hours: int = 24
+
+    # Callback server configuration (single source of truth: redirect_url)
+    redirect_url: str = DEFAULT_REDIRECT_URL
+    callback_timeout: float = DEFAULT_CALLBACK_TIMEOUT
+
+    # Parsed callback components (set in __post_init__)
+    _callback_host: str = field(default="", init=False, repr=False)
+    _callback_port: int = field(default=0, init=False, repr=False)
+    _callback_path: str = field(default="", init=False, repr=False)
+
+    @property
+    def callback_host(self) -> str:
+        """Host for local callback server (parsed from redirect_url)."""
+        return self._callback_host
+
+    @property
+    def callback_port(self) -> int:
+        """Port for local callback server (parsed from redirect_url)."""
+        return self._callback_port
+
+    @property
+    def callback_path(self) -> str:
+        """Path for local callback server (parsed from redirect_url)."""
+        return self._callback_path
 
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
@@ -231,6 +287,34 @@ class ZerodhaProviderConfig:
         # Ensure token file directory exists
         self.token_file.parent.mkdir(parents=True, exist_ok=True)
 
+        # Resolve callback configuration from env vars
+        # Single source of truth: ZERODHA_REDIRECT_URL
+        explicit_redirect_url = os.getenv("ZERODHA_REDIRECT_URL") or DEFAULT_REDIRECT_URL
+        object.__setattr__(self, "redirect_url", explicit_redirect_url)
+
+        # Parse redirect URL to get host, port, and path for callback server
+        try:
+            callback_host, callback_port, callback_path = _parse_redirect_url(explicit_redirect_url)
+        except ValueError as e:
+            raise ValueError(f"Invalid ZERODHA_REDIRECT_URL: {e}") from e
+
+        # Store parsed components for callback server
+        object.__setattr__(self, "_callback_host", callback_host)
+        object.__setattr__(self, "_callback_port", callback_port)
+        object.__setattr__(self, "_callback_path", callback_path)
+
+        # Resolve callback timeout
+        resolved_callback_timeout = DEFAULT_CALLBACK_TIMEOUT
+        env_timeout = os.getenv("ZERODHA_CALLBACK_TIMEOUT")
+        if env_timeout:
+            try:
+                resolved_callback_timeout = float(env_timeout)
+            except ValueError:
+                raise ValueError(f"ZERODHA_CALLBACK_TIMEOUT must be a number, got: {env_timeout}")
+        if resolved_callback_timeout <= 0:
+            raise ValueError(f"callback_timeout must be positive, got: {resolved_callback_timeout}")
+        object.__setattr__(self, "callback_timeout", resolved_callback_timeout)
+
         # Resolve access token (may be None if not yet available)
         resolved_token = _resolve_access_token(
             self.access_token,
@@ -241,9 +325,10 @@ class ZerodhaProviderConfig:
         object.__setattr__(self, "access_token", resolved_token)
 
         logger.debug(
-            "ZerodhaProviderConfig initialized: exchange=%s, interval=%s, symbol=%s, instrument_token=%s",
+            "ZerodhaProviderConfig initialized: exchange=%s, interval=%s, symbol=%s, instrument_token=%s, redirect_url=%s",
             self.exchange,
             self.interval,
             self.symbol,
             self.instrument_token,
+            self.redirect_url,
         )
