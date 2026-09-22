@@ -7,7 +7,7 @@ import pytest
 from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, BacktestConfig, PortfolioResult
+from quantrex_backtest import BacktestEngine, BacktestConfig, BacktestResult
 from quantrex_core import InstrumentSpec
 
 
@@ -90,7 +90,7 @@ class TestBacktestEnginePortfolioMode:
         assert "DataAdapter required" in str(exc_info.value)
 
     def test_portfolio_mode_run_returns_portfolio_result(self):
-        """Test portfolio mode run returns PortfolioResult."""
+        """Test portfolio mode run returns BacktestResult."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
@@ -107,7 +107,7 @@ class TestBacktestEnginePortfolioMode:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
 
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert result.initial_cash == 1_000_000.0
         assert result.symbols == ["RELIANCE"]
 
@@ -150,7 +150,7 @@ class TestBacktestEnginePortfolioMode:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
 
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
 
     def test_portfolio_mode_strategy_receives_portfolio_context(self):
@@ -201,7 +201,7 @@ class TestBacktestEnginePortfolioModeEdgeCases:
     """Tests for edge cases in portfolio mode."""
 
     def test_portfolio_mode_empty_data(self):
-        """Test portfolio mode with empty data returns empty PortfolioResult."""
+        """Test portfolio mode with empty data returns empty BacktestResult."""
         mock_adapter = Mock(spec=DataAdapter)
         mock_adapter.datetime_format = "%Y%m%d %H:%M"
         mock_adapter.supported_timeframes = ["1M"]
@@ -215,10 +215,10 @@ class TestBacktestEnginePortfolioModeEdgeCases:
         engine = BacktestEngine(instruments, strategy, config)
         
         result = engine.run()
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert result.initial_cash == 1_000_000.0
         assert result.final_equity == 1_000_000.0
-        assert result.total_trades == 0
+        assert len(result.trades) == 0
 
     def test_portfolio_mode_mismatched_timestamps(self):
         """Test portfolio mode with mismatched timestamps across symbols."""
@@ -251,4 +251,4 @@ class TestBacktestEnginePortfolioModeEdgeCases:
         result = engine.run()
 
         # Should handle mismatched timestamps gracefully
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)

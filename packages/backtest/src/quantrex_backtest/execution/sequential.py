@@ -9,7 +9,7 @@ from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
-from quantrex_backtest.results import PortfolioResult, SymbolResult
+from quantrex_backtest.results import BacktestResult
 from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_backtest.data import DataOrchestrator
 from quantrex_backtest.exceptions.backtest_error import ProviderError
@@ -49,7 +49,7 @@ class SequentialMultiExecution(ExecutionMode):
         base_timeframe: str,
         staging_dir: Path,
         backtest_start_local: datetime,
-    ) -> PortfolioResult:
+    ) -> BacktestResult:
         """Execute multi-instrument sequential backtest."""
         symbols = [spec.symbol for spec in instruments]
 
@@ -78,7 +78,7 @@ class SequentialMultiExecution(ExecutionMode):
             logger.warning("No base timeframe data; backtest completed with zero candles")
             strategy.on_stop()
             self._result_exporter.export_trades_csv([], staging_dir)
-            return PortfolioResult.empty(config.initial_cash)
+            return BacktestResult.empty(config.initial_cash, symbols)
 
         # Sort base data by datetime
         base_data.sort(key=lambda row: row.get("datetime", ""))
@@ -200,13 +200,16 @@ class SequentialMultiExecution(ExecutionMode):
         )
         logger.info("Run log: %s", run_dir / "execution_log")
 
-        # Build PortfolioResult
-        return self._build_portfolio_result(
-            symbols=symbols,
+        # Build minimal result
+        all_trades = self._position_manager.get_closed_trades()
+        final_equity = equity_curve[-1][1] if equity_curve else config.initial_cash
+
+        return BacktestResult(
+            trades=all_trades,
             equity_curve=equity_curve,
             initial_cash=config.initial_cash,
-            data_start_dt=data_start_dt,
-            data_end_dt=data_end_dt,
+            final_equity=final_equity,
+            symbols=symbols,
         )
 
     def _create_context(
@@ -316,87 +319,3 @@ class SequentialMultiExecution(ExecutionMode):
                 order.quantity,
                 execution_price,
             )
-
-    def _build_portfolio_result(
-        self,
-        symbols: List[str],
-        equity_curve: List[tuple[datetime, float]],
-        initial_cash: float,
-        data_start_dt: datetime | None,
-        data_end_dt: datetime | None,
-    ) -> PortfolioResult:
-        """Build PortfolioResult from equity curve and trades."""
-        all_trades = self._position_manager.get_closed_trades()
-
-        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
-        total_return = final_equity - initial_cash
-        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
-
-        max_drawdown = 0.0
-        max_drawdown_pct = 0.0
-        peak = initial_cash
-        for _, equity in equity_curve:
-            if equity > peak:
-                peak = equity
-            drawdown = peak - equity
-            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-            if drawdown_pct > max_drawdown_pct:
-                max_drawdown_pct = drawdown_pct
-
-        total_trades = len(all_trades)
-        winning_trades = sum(1 for t in all_trades if t.pnl > 0)
-        losing_trades = sum(1 for t in all_trades if t.pnl < 0)
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-
-        gross_profit = sum(t.pnl for t in all_trades if t.pnl > 0)
-        gross_loss = abs(sum(t.pnl for t in all_trades if t.pnl < 0))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
-
-        symbol_results = {}
-        for symbol in symbols:
-            symbol_trades = [t for t in all_trades if t.symbol == symbol]
-
-            symbol_total_trades = len(symbol_trades)
-            symbol_winning_trades = sum(1 for t in symbol_trades if t.pnl > 0)
-            symbol_losing_trades = sum(1 for t in symbol_trades if t.pnl < 0)
-            symbol_win_rate = (symbol_winning_trades / symbol_total_trades * 100) if symbol_total_trades > 0 else 0.0
-
-            symbol_gross_profit = sum(t.pnl for t in symbol_trades if t.pnl > 0)
-            symbol_gross_loss = abs(sum(t.pnl for t in symbol_trades if t.pnl < 0))
-            symbol_profit_factor = (symbol_gross_profit / symbol_gross_loss) if symbol_gross_loss > 0 else None
-
-            symbol_position = self._position_manager.get_position(symbol)
-
-            symbol_results[symbol] = SymbolResult(
-                symbol=symbol,
-                trades=symbol_trades,
-                final_position=symbol_position,
-                total_trades=symbol_total_trades,
-                winning_trades=symbol_winning_trades,
-                losing_trades=symbol_losing_trades,
-                total_pnl=sum(t.pnl for t in symbol_trades),
-                max_drawdown=max_drawdown,
-                sharpe_ratio=None,
-            )
-
-        return PortfolioResult(
-            initial_cash=initial_cash,
-            final_equity=final_equity,
-            total_return=total_return,
-            total_return_pct=total_return_pct,
-            max_drawdown=max_drawdown,
-            max_drawdown_pct=max_drawdown_pct,
-            sharpe_ratio=None,
-            total_trades=total_trades,
-            winning_trades=winning_trades,
-            losing_trades=losing_trades,
-            win_rate=win_rate,
-            profit_factor=profit_factor,
-            per_symbol=symbol_results,
-            equity_curve=equity_curve,
-            start_date=data_start_dt,
-            end_date=data_end_dt,
-            symbols=symbols,
-        )

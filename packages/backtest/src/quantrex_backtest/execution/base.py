@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
 from quantrex_core.strategy.base import Strategy
-from quantrex_backtest.results import SingleInstrumentResult, PortfolioResult
+from quantrex_backtest.results import BacktestResult
 
 
 class ExecutionMode(ABC):
@@ -25,7 +25,7 @@ class ExecutionMode(ABC):
         base_timeframe: str,
         staging_dir: Any,  # Path
         backtest_start_local: Any,  # datetime
-    ) -> PortfolioResult:
+    ) -> BacktestResult:
         """Execute the backtest and return results.
 
         Args:
@@ -41,6 +41,6 @@ class ExecutionMode(ABC):
             backtest_start_local: Backtest start timestamp
 
         Returns:
-            PortfolioResult with backtest results
+            BacktestResult with trade log and equity curve
         """
         pass

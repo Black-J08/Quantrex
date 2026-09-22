@@ -8,7 +8,7 @@ from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
-from quantrex_backtest import BacktestEngine, BacktestConfig, PortfolioResult
+from quantrex_backtest import BacktestEngine, BacktestConfig, BacktestResult
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.execution import ParallelismReport
 
@@ -237,9 +237,9 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
-        assert result.total_trades > 0
+        assert len(result.trades) > 0
     
     def test_sequential_fallback_portfolio_access(self):
         """Strategy with portfolio access should fall back to sequential."""
@@ -259,7 +259,7 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
         # Should have portfolio snapshots from sequential execution
         assert len(strategy.portfolio_snapshots) > 0
@@ -282,7 +282,7 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
     
     def test_sequential_fallback_cross_symbol_position(self):
@@ -303,7 +303,7 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
     
     def test_sequential_fallback_symbol_keyed_state(self):
@@ -324,7 +324,7 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert set(result.symbols) == {"RELIANCE", "TCS"}
     
     def test_single_instrument_sequential(self):
@@ -342,7 +342,7 @@ class TestParallelExecution:
         engine = BacktestEngine(instruments, strategy, config)
         result = engine.run()
         
-        assert isinstance(result, PortfolioResult)
+        assert isinstance(result, BacktestResult)
         assert result.symbols == ["RELIANCE"]
     
     def test_parallel_vs_sequential_equivalence(self):
@@ -366,8 +366,8 @@ class TestParallelExecution:
         result2 = engine2.run()
         
         # Both should complete successfully
-        assert isinstance(result1, PortfolioResult)
-        assert isinstance(result2, PortfolioResult)
+        assert isinstance(result1, BacktestResult)
+        assert isinstance(result2, BacktestResult)
         assert set(result1.symbols) == set(result2.symbols) == {"RELIANCE", "TCS"}
 
 

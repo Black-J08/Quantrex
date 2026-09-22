@@ -4,15 +4,16 @@ import pickle
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from quantrex_core.logging import get_logger
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
 from quantrex_core.strategy.base import Strategy
-from quantrex_backtest.results import PortfolioResult, SingleInstrumentResult
+from quantrex_backtest.results import BacktestResult
 from quantrex_backtest.execution.base import ExecutionMode
 from quantrex_backtest.execution.detector import ParallelismDetector
+from quantrex_core.models.trade import TradeRecord
 
 logger = get_logger(__name__)
 
@@ -29,7 +30,7 @@ def _run_single_instrument_worker(
     raw_data: Dict[str, Dict[str, List[Dict]]],
     indicators: Dict[str, Dict[str, List[Dict]]],
     base_timeframe: str,
-) -> SingleInstrumentResult:
+) -> Tuple[List[TradeRecord], List[tuple[datetime, float]]]:
     """Run backtest for a single instrument in a worker process.
 
     This function must be at module level for multiprocessing pickling.
@@ -47,7 +48,7 @@ def _run_single_instrument_worker(
         base_timeframe: Base timeframe
 
     Returns:
-        SingleInstrumentResult for this single instrument
+        Tuple of (trades, equity_curve) for this single instrument
     """
     # Import here to avoid circular imports
     from quantrex_backtest.core.portfolio_context import BacktestPortfolioContext
@@ -94,24 +95,7 @@ def _run_single_instrument_worker(
     if not base_data:
         logger.warning("No base timeframe data for %s; backtest completed with zero candles", instrument.symbol)
         strategy.on_stop()
-        return SingleInstrumentResult(
-            symbol=instrument.symbol,
-            trades=[],
-            equity_curve=[],
-            final_equity=config.initial_cash,
-            total_return=0.0,
-            total_return_pct=0.0,
-            max_drawdown=0.0,
-            max_drawdown_pct=0.0,
-            total_trades=0,
-            winning_trades=0,
-            losing_trades=0,
-            win_rate=0.0,
-            profit_factor=None,
-            final_position=position_manager.get_position(instrument.symbol),
-            start_date=None,
-            end_date=None,
-        )
+        return [], []
 
     # Sort base data by datetime
     base_data.sort(key=lambda row: row.get("datetime", ""))
@@ -286,61 +270,11 @@ def _run_single_instrument_worker(
     strategy.on_stop()
     logger.info("Backtest completed for %s: %d candles processed", instrument.symbol, len(base_data))
 
-    # Parse dates
-    data_start_dt = datetime.strptime(data_start, "%Y%m%d_%H%M%S") if data_start else None
-    data_end_dt = datetime.strptime(data_end, "%Y%m%d_%H%M%S") if data_end else None
-
-    # Build SingleInstrumentResult
+    # Return raw data for merging in main process
     trades = position_manager.get_closed_trades()
     symbol_trades = [t for t in trades if t.symbol == instrument.symbol]
 
-    initial_cash = config.initial_cash
-    final_equity = equity_curve[-1][1] if equity_curve else initial_cash
-    total_return = final_equity - initial_cash
-    total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
-
-    max_drawdown = 0.0
-    max_drawdown_pct = 0.0
-    peak = initial_cash
-    for _, equity in equity_curve:
-        if equity > peak:
-            peak = equity
-        drawdown = peak - equity
-        drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
-        if drawdown_pct > max_drawdown_pct:
-            max_drawdown_pct = drawdown_pct
-
-    total_trades = len(symbol_trades)
-    winning_trades = sum(1 for t in symbol_trades if t.pnl > 0)
-    losing_trades = sum(1 for t in symbol_trades if t.pnl < 0)
-    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-
-    gross_profit = sum(t.pnl for t in symbol_trades if t.pnl > 0)
-    gross_loss = abs(sum(t.pnl for t in symbol_trades if t.pnl < 0))
-    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
-
-    symbol_position = position_manager.get_position(instrument.symbol)
-
-    return SingleInstrumentResult(
-        symbol=instrument.symbol,
-        trades=symbol_trades,
-        equity_curve=equity_curve,
-        final_equity=final_equity,
-        total_return=total_return,
-        total_return_pct=total_return_pct,
-        max_drawdown=max_drawdown,
-        max_drawdown_pct=max_drawdown_pct,
-        total_trades=total_trades,
-        winning_trades=winning_trades,
-        losing_trades=losing_trades,
-        win_rate=win_rate,
-        profit_factor=profit_factor,
-        final_position=symbol_position,
-        start_date=data_start_dt,
-        end_date=data_end_dt,
-    )
+    return symbol_trades, equity_curve
 
 
 class ParallelMultiExecution(ExecutionMode):
@@ -376,7 +310,7 @@ class ParallelMultiExecution(ExecutionMode):
         base_timeframe: str,
         staging_dir: Path,
         backtest_start_local: datetime,
-    ) -> PortfolioResult:
+    ) -> BacktestResult:
         """Execute multi-instrument parallel backtest."""
         # Check parallelism safety
         report = self._detector.analyze(strategy, instruments)
@@ -407,7 +341,9 @@ class ParallelMultiExecution(ExecutionMode):
         # Extract strategy init kwargs (assume default constructor for now)
         strategy_init_kwargs = {}
 
-        results: List[SingleInstrumentResult] = []
+        all_trades: List[TradeRecord] = []
+        all_equity_curves: List[List[tuple[datetime, float]]] = []
+        symbols = [spec.symbol for spec in instruments]
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # Submit tasks for each instrument
@@ -435,25 +371,32 @@ class ParallelMultiExecution(ExecutionMode):
             for future in as_completed(future_to_symbol):
                 symbol = future_to_symbol[future]
                 try:
-                    result = future.result()
-                    results.append(result)
+                    trades, equity_curve = future.result()
+                    all_trades.extend(trades)
+                    all_equity_curves.append(equity_curve)
                     logger.info("Completed backtest for %s", symbol)
                 except Exception as e:
                     logger.exception("Worker failed for %s: %s", symbol, e)
                     raise
 
-        # After all workers complete, write aggregated closed_trades.csv
-        all_trades = []
-        for result in results:
-            all_trades.extend(result.trades)
+        # Merge equity curves
+        merged_equity_curve = BacktestResult.merge_equity_curves(all_equity_curves, config.initial_cash)
 
         # Write aggregated CSV
         self._write_aggregated_trades_csv(staging_dir, all_trades)
 
-        # Build PortfolioResult from single results
-        return PortfolioResult.from_single_results(results, config.initial_cash)
+        # Build minimal result
+        final_equity = merged_equity_curve[-1][1] if merged_equity_curve else config.initial_cash
 
-    def _write_aggregated_trades_csv(self, output_dir: Path, trades: List[Any]) -> None:
+        return BacktestResult(
+            trades=all_trades,
+            equity_curve=merged_equity_curve,
+            initial_cash=config.initial_cash,
+            final_equity=final_equity,
+            symbols=symbols,
+        )
+
+    def _write_aggregated_trades_csv(self, output_dir: Path, trades: List[TradeRecord]) -> None:
         """Write aggregated trades from all instruments to a single CSV."""
         import csv
         output_file = output_dir / "closed_trades.csv"

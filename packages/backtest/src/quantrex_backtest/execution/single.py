@@ -9,7 +9,7 @@ from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
-from quantrex_backtest.results import SingleInstrumentResult, PortfolioResult
+from quantrex_backtest.results import BacktestResult
 from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_backtest.data import DataOrchestrator
 from quantrex_backtest.exceptions.backtest_error import ProviderError
@@ -49,7 +49,7 @@ class SingleInstrumentExecution(ExecutionMode):
         base_timeframe: str,
         staging_dir: Path,
         backtest_start_local: datetime,
-    ) -> PortfolioResult:
+    ) -> BacktestResult:
         """Execute single-instrument backtest."""
         # Single instrument mode - use the first (and only) instrument
         spec = instruments[0]
@@ -80,7 +80,7 @@ class SingleInstrumentExecution(ExecutionMode):
             strategy.on_stop()
             if config.export_trades:
                 self._result_exporter.export_trades_csv([], staging_dir)
-            return PortfolioResult.empty(config.initial_cash)
+            return BacktestResult.empty(config.initial_cash, [symbol])
 
         # Sort base data by datetime
         base_data.sort(key=lambda row: row.get("datetime", ""))
@@ -194,59 +194,19 @@ class SingleInstrumentExecution(ExecutionMode):
             )
         logger.info("Run log: %s", run_dir / "execution_log")
 
-        # Build result
+        # Build minimal result
         trades = self._position_manager.get_closed_trades()
         symbol_trades = [t for t in trades if t.symbol == symbol]
 
-        initial_cash = config.initial_cash
-        final_equity = equity_curve[-1][1] if equity_curve else initial_cash
-        total_return = final_equity - initial_cash
-        total_return_pct = (total_return / initial_cash * 100) if initial_cash > 0 else 0.0
+        final_equity = equity_curve[-1][1] if equity_curve else config.initial_cash
 
-        max_drawdown = 0.0
-        max_drawdown_pct = 0.0
-        peak = initial_cash
-        for _, equity in equity_curve:
-            if equity > peak:
-                peak = equity
-            drawdown = peak - equity
-            drawdown_pct = (drawdown / peak * 100) if peak > 0 else 0.0
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-            if drawdown_pct > max_drawdown_pct:
-                max_drawdown_pct = drawdown_pct
-
-        total_trades = len(symbol_trades)
-        winning_trades = sum(1 for t in symbol_trades if t.pnl > 0)
-        losing_trades = sum(1 for t in symbol_trades if t.pnl < 0)
-        win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0.0
-
-        gross_profit = sum(t.pnl for t in symbol_trades if t.pnl > 0)
-        gross_loss = abs(sum(t.pnl for t in symbol_trades if t.pnl < 0))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else None
-
-        symbol_position = self._position_manager.get_position(symbol)
-
-        single_result = SingleInstrumentResult(
-            symbol=symbol,
+        return BacktestResult(
             trades=symbol_trades,
             equity_curve=equity_curve,
+            initial_cash=config.initial_cash,
             final_equity=final_equity,
-            total_return=total_return,
-            total_return_pct=total_return_pct,
-            max_drawdown=max_drawdown,
-            max_drawdown_pct=max_drawdown_pct,
-            total_trades=total_trades,
-            winning_trades=winning_trades,
-            losing_trades=losing_trades,
-            win_rate=win_rate,
-            profit_factor=profit_factor,
-            final_position=symbol_position,
-            start_date=data_start_dt,
-            end_date=data_end_dt,
+            symbols=[symbol],
         )
-
-        return single_result.to_portfolio_result(config.initial_cash)
 
     def _create_context(
         self,

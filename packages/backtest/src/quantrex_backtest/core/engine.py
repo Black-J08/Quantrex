@@ -23,7 +23,7 @@ from quantrex_backtest.execution import (
 from quantrex_backtest.observability import RunLogger, RunDirectoryManager
 from quantrex_backtest.results import ResultExporter
 from quantrex_backtest.exceptions.backtest_error import ProviderError
-from quantrex_backtest.results import PortfolioResult
+from quantrex_backtest.results import BacktestResult
 
 logger = get_logger(__name__)
 
@@ -143,19 +143,19 @@ class BacktestEngine:
         """
         return self._parallelism_detector.analyze(self._strategy, self._instruments)
 
-    def run(self) -> PortfolioResult:
+    def run(self) -> BacktestResult:
         """Run the backtest, invoking the strategy's lifecycle methods.
 
         Calls strategy.on_start(), then strategy.on_candle() for each candle
         in timestamp order, then strategy.on_stop().
-        After completion, exports closed trades to CSV and returns PortfolioResult.
+        After completion, exports closed trades to CSV and returns BacktestResult.
 
         For single instrument: runs directly in current process.
         For multiple instruments: detects parallelism safety, runs parallel if safe,
         otherwise falls back to sequential execution.
 
         Returns:
-            PortfolioResult with portfolio-level and per-symbol metrics.
+            BacktestResult with trade log and equity curve.
 
         Raises:
             ProviderError: If adapter.read() fails or returns invalid data.
@@ -194,7 +194,7 @@ class BacktestEngine:
             if self._config.export_trades:
                 self._result_exporter.export_trades_csv([], staging_dir)
             logger.info("Run log: %s", staging_dir / "execution_log")
-            return PortfolioResult.empty(self._config.initial_cash)
+            return BacktestResult.empty(self._config.initial_cash, symbols)
 
         # Step 3: Read additional timeframes directly from adapters (non-base timeframes)
         additional_timeframes = [tf for tf in required_timeframes if tf != base_timeframe]
