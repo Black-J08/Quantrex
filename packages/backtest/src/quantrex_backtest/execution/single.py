@@ -69,8 +69,6 @@ class SingleInstrumentExecution(ExecutionMode):
             config=config,
         )
 
-        # Set symbol and datetime format
-        context.strategy_context.set_symbol_and_format(symbol, spec.adapter.datetime_format)
         strategy.set_context(context)
 
         # Get base data for time index
@@ -154,8 +152,8 @@ class SingleInstrumentExecution(ExecutionMode):
                 if any("on_candle" in cls.__dict__ for cls in strategy.__class__.__mro__ if cls is not Strategy):
                     strategy.on_candle(candle)
 
-                # Dispatch timeframe events
-                strategy.timeframe_dispatcher.dispatch_all(context)
+                # Dispatch timeframe events for this symbol
+                strategy.timeframe_dispatcher.dispatch_all(context, symbol)
 
                 # Record equity curve point
                 equity_curve.append((close_time, context.equity))

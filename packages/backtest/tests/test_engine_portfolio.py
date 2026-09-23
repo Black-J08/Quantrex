@@ -1,5 +1,6 @@
 """Tests for unified BacktestEngine portfolio mode."""
 
+from datetime import datetime
 from unittest.mock import Mock
 
 import pytest
@@ -195,6 +196,254 @@ class TestBacktestEnginePortfolioMode:
             assert 'cash' in snapshot
             assert 'equity' in snapshot
             assert 'positions' in snapshot
+
+
+class TestBacktestEnginePortfolioModeMultiTimeframe:
+    """Tests for multi-timeframe dispatch in portfolio mode."""
+
+    def test_multi_symbol_multi_timeframe_dispatch(self):
+        """Test that higher-timeframe callbacks fire for all symbols in portfolio."""
+        from quantrex_core.strategy.base import on_timeframe
+        
+        class MultiSymbolTFStrategy(Strategy):
+            """Strategy that logs higher timeframe callbacks for each symbol."""
+            
+            def __init__(self):
+                super().__init__()
+                self.higher_tf_calls = {}  # symbol -> list of (timeframe, candle)
+            
+            @on_timeframe("1H")
+            def on_1h_candle(self, candle: Candle):
+                symbol = candle.symbol
+                if symbol not in self.higher_tf_calls:
+                    self.higher_tf_calls[symbol] = []
+                self.higher_tf_calls[symbol].append(("1H", candle))
+            
+            @on_timeframe("1D")
+            def on_daily_candle(self, candle: Candle):
+                symbol = candle.symbol
+                if symbol not in self.higher_tf_calls:
+                    self.higher_tf_calls[symbol] = []
+                self.higher_tf_calls[symbol].append(("1D", candle))
+            
+            def on_candle(self, candle: Candle):
+                pass
+            
+            def compute_indicators(self, candles, timeframe=None):
+                return [{} for _ in candles]
+
+        def create_mock_adapter(symbol, base_price):
+            adapter = Mock(spec=DataAdapter)
+            adapter.datetime_format = "%Y%m%d %H:%M"
+            adapter.supported_timeframes = ["1M", "1H", "1D"]
+            adapter.get_origin_time.return_value = None
+            
+            # Generate 1M data for 2 days (enough for 1H and 1D candles)
+            base_data = []
+            for day in range(2):
+                for hour in range(9, 15):
+                    for minute in range(0, 60, 1):
+                        dt = datetime(2026, 1, 1 + day, hour, minute)
+                        base_data.append({
+                            "datetime": dt.strftime("%Y%m%d %H:%M"),
+                            "open": str(base_price),
+                            "high": str(base_price + 1),
+                            "low": str(base_price - 1),
+                            "close": str(base_price),
+                            "volume": "1000",
+                        })
+            
+            # 1H data
+            h1_data = []
+            for day in range(2):
+                for hour in range(9, 15):
+                    dt = datetime(2026, 1, 1 + day, hour, 0)
+                    h1_data.append({
+                        "datetime": dt.strftime("%Y%m%d %H:%M"),
+                        "open": str(base_price),
+                        "high": str(base_price + 2),
+                        "low": str(base_price - 2),
+                        "close": str(base_price),
+                        "volume": "60000",
+                    })
+            
+            # 1D data - use 14:30 close time so it's before the last base candle (14:59)
+            d1_data = []
+            for day in range(2):
+                dt = datetime(2026, 1, 1 + day, 14, 30)
+                d1_data.append({
+                    "datetime": dt.strftime("%Y%m%d %H:%M"),
+                    "open": str(base_price),
+                    "high": str(base_price + 5),
+                    "low": str(base_price - 5),
+                    "close": str(base_price),
+                    "volume": "3600000",
+                })
+            
+            def read_timeframe(tf, from_date=None, to_date=None):
+                if tf == "1M":
+                    return base_data
+                elif tf == "1H":
+                    return h1_data
+                elif tf == "1D":
+                    return d1_data
+                return []
+            
+            adapter.read_timeframe.side_effect = read_timeframe
+            return adapter
+
+        adapter_reliance = create_mock_adapter("RELIANCE", 1500)
+        adapter_tcs = create_mock_adapter("TCS", 3000)
+
+        instruments = [
+            InstrumentSpec(symbol="RELIANCE", adapter=adapter_reliance),
+            InstrumentSpec(symbol="TCS", adapter=adapter_tcs),
+        ]
+
+        strategy = MultiSymbolTFStrategy()
+        config = BacktestConfig(
+            initial_cash=1_000_000.0,
+            auto_download=False,
+            data_start="2026-01-01",
+            data_end="2026-01-02",
+        )
+
+        engine = BacktestEngine(instruments, strategy, config)
+        result = engine.run()
+
+        # Verify both symbols received higher timeframe callbacks
+        assert "RELIANCE" in strategy.higher_tf_calls, "RELIANCE missing higher TF callbacks"
+        assert "TCS" in strategy.higher_tf_calls, "TCS missing higher TF callbacks"
+        assert len(strategy.higher_tf_calls["RELIANCE"]) > 0, "RELIANCE has no higher TF callbacks"
+        assert len(strategy.higher_tf_calls["TCS"]) > 0, "TCS has no higher TF callbacks"
+
+        # Verify 1H callbacks exist for both symbols
+        reliance_1h = [c for tf, c in strategy.higher_tf_calls["RELIANCE"] if tf == "1H"]
+        tcs_1h = [c for tf, c in strategy.higher_tf_calls["TCS"] if tf == "1H"]
+        assert len(reliance_1h) > 0, "RELIANCE has no 1H callbacks"
+        assert len(tcs_1h) > 0, "TCS has no 1H callbacks"
+
+        # Verify 1D callbacks exist for both symbols
+        reliance_1d = [c for tf, c in strategy.higher_tf_calls["RELIANCE"] if tf == "1D"]
+        tcs_1d = [c for tf, c in strategy.higher_tf_calls["TCS"] if tf == "1D"]
+        assert len(reliance_1d) > 0, "RELIANCE has no 1D callbacks"
+        assert len(tcs_1d) > 0, "TCS has no 1D callbacks"
+
+        # Verify callback candles have correct symbols
+        for candle in reliance_1h + reliance_1d:
+            assert candle.symbol == "RELIANCE", f"RELIANCE callback has wrong symbol: {candle.symbol}"
+        for candle in tcs_1h + tcs_1d:
+            assert candle.symbol == "TCS", f"TCS callback has wrong symbol: {candle.symbol}"
+
+    def test_timeframe_history_returns_correct_symbol(self):
+        """Test that timeframe_history returns correct symbol's data in portfolio mode."""
+        from quantrex_core.strategy.base import on_timeframe
+        
+        class CheckHistoryStrategy(Strategy):
+            def __init__(self):
+                super().__init__()
+                self.history_checks = []
+            
+            def on_candle(self, candle: Candle):
+                # Check timeframe_history returns correct symbol's data
+                tf_1h = self.ctx.timeframe_history("1H")
+                tf_1d = self.ctx.timeframe_history("1D")
+                self.history_checks.append({
+                    'symbol': candle.symbol,
+                    'tf_1h_symbols': [c.symbol for c in tf_1h],
+                    'tf_1d_symbols': [c.symbol for c in tf_1d],
+                })
+            
+            def compute_indicators(self, candles, timeframe=None):
+                return [{} for _ in candles]
+
+        def create_mock_adapter(symbol, base_price):
+            adapter = Mock(spec=DataAdapter)
+            adapter.datetime_format = "%Y%m%d %H:%M"
+            adapter.supported_timeframes = ["1M", "1H", "1D"]
+            adapter.get_origin_time.return_value = None
+            
+            base_data = []
+            for day in range(1):
+                for hour in range(9, 10):
+                    for minute in range(0, 60, 1):
+                        dt = datetime(2026, 1, 1 + day, hour, minute)
+                        base_data.append({
+                            "datetime": dt.strftime("%Y%m%d %H:%M"),
+                            "open": str(base_price),
+                            "high": str(base_price + 1),
+                            "low": str(base_price - 1),
+                            "close": str(base_price),
+                            "volume": "1000",
+                        })
+            
+            h1_data = []
+            for day in range(1):
+                for hour in range(9, 10):
+                    dt = datetime(2026, 1, 1 + day, hour, 0)
+                    h1_data.append({
+                        "datetime": dt.strftime("%Y%m%d %H:%M"),
+                        "open": str(base_price),
+                        "high": str(base_price + 2),
+                        "low": str(base_price - 2),
+                        "close": str(base_price),
+                        "volume": "60000",
+                    })
+            
+            d1_data = []
+            for day in range(1):
+                dt = datetime(2026, 1, 1 + day, 15, 30)
+                d1_data.append({
+                    "datetime": dt.strftime("%Y%m%d %H:%M"),
+                    "open": str(base_price),
+                    "high": str(base_price + 5),
+                    "low": str(base_price - 5),
+                    "close": str(base_price),
+                    "volume": "3600000",
+                })
+            
+            def read_timeframe(tf, from_date=None, to_date=None):
+                if tf == "1M":
+                    return base_data
+                elif tf == "1H":
+                    return h1_data
+                elif tf == "1D":
+                    return d1_data
+                return []
+            
+            adapter.read_timeframe.side_effect = read_timeframe
+            return adapter
+
+        adapter_reliance = create_mock_adapter("RELIANCE", 1500)
+        adapter_tcs = create_mock_adapter("TCS", 3000)
+
+        instruments = [
+            InstrumentSpec(symbol="RELIANCE", adapter=adapter_reliance),
+            InstrumentSpec(symbol="TCS", adapter=adapter_tcs),
+        ]
+
+        strategy = CheckHistoryStrategy()
+        config = BacktestConfig(
+            initial_cash=1_000_000.0,
+            auto_download=False,
+            data_start="2026-01-01",
+            data_end="2026-01-01",
+        )
+
+        engine = BacktestEngine(instruments, strategy, config)
+        result = engine.run()
+
+        # Verify timeframe_history returns correct symbol's data
+        for check in strategy.history_checks:
+            symbol = check['symbol']
+            tf_1h_symbols = check['tf_1h_symbols']
+            tf_1d_symbols = check['tf_1d_symbols']
+            
+            # All candles in timeframe_history should belong to the current symbol
+            for s in tf_1h_symbols:
+                assert s == symbol, f"When processing {symbol}, timeframe_history(1H) returned {s}'s candles"
+            for s in tf_1d_symbols:
+                assert s == symbol, f"When processing {symbol}, timeframe_history(1D) returned {s}'s candles"
 
 
 class TestBacktestEnginePortfolioModeEdgeCases:

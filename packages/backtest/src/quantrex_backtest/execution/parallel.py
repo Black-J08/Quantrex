@@ -87,7 +87,6 @@ def _run_single_instrument_worker(
         origin_time=origin_time,
     )
 
-    context.strategy_context.set_symbol_and_format(instrument.symbol, instrument.adapter.datetime_format)
     strategy.set_context(context)
 
     # Get base data for time index
@@ -211,8 +210,8 @@ def _run_single_instrument_worker(
             if any("on_candle" in cls.__dict__ for cls in strategy.__class__.__mro__ if cls is not Strategy):
                 strategy.on_candle(candle)
 
-            # Dispatch timeframe events
-            strategy.timeframe_dispatcher.dispatch_all(context)
+            # Dispatch timeframe events for this symbol
+            strategy.timeframe_dispatcher.dispatch_all(context, instrument.symbol)
 
             # Record equity curve point
             equity_curve.append((close_time, context.equity))

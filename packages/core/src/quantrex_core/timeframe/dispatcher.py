@@ -17,18 +17,22 @@ class TimeframeDispatcher:
 
     Reads filtered candles from StrategyContext.timeframe_history()
     and invokes all registered methods for that interval.
+    
+    Tracks dispatch state per symbol to support multi-symbol portfolio backtests.
     """
 
     def __init__(self, registry: TimeframeRegistry) -> None:
         self._registry = registry
-        self._last_dispatched_index: dict[str, int] = defaultdict(int)
+        # Track last dispatched index per symbol per interval
+        self._last_dispatched_index: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
 
-    def dispatch(self, ctx: StrategyContext, interval: str) -> None:
+    def dispatch(self, ctx: StrategyContext, interval: str, symbol: str = "") -> None:
         """Dispatch latest timeframe candles to registered methods.
 
         Args:
             ctx: StrategyContext with timeframe_history support
             interval: Timeframe interval (e.g., "1H")
+            symbol: Symbol to dispatch for (optional, for multi-symbol support)
         """
         methods = self._registry.get_methods(interval)
         if not methods:
@@ -38,21 +42,26 @@ class TimeframeDispatcher:
         if not tf_history:
             return
 
-        last_idx = self._last_dispatched_index[interval]
+        last_idx = self._last_dispatched_index[symbol][interval]
         new_candles = tf_history[last_idx:]
 
         for candle in new_candles:
             for method in methods:
                 method(candle)
 
-        self._last_dispatched_index[interval] = len(tf_history)
+        self._last_dispatched_index[symbol][interval] = len(tf_history)
 
-    def dispatch_all(self, ctx: StrategyContext) -> None:
-        """Dispatch for all registered intervals, ordered by duration (smallest first)."""
+    def dispatch_all(self, ctx: StrategyContext, symbol: str = "") -> None:
+        """Dispatch for all registered intervals, ordered by duration (smallest first).
+
+        Args:
+            ctx: StrategyContext with timeframe_history support
+            symbol: Symbol to dispatch for (optional, for multi-symbol support)
+        """
         # Sort intervals by duration (minutes) so smaller timeframes dispatch first
         intervals = sorted(self._registry.intervals(), key=interval_to_minutes)
         for interval in intervals:
-            self.dispatch(ctx, interval)
+            self.dispatch(ctx, interval, symbol)
 
     def reset(self) -> None:
         """Reset dispatch state (e.g., for new backtest run)."""
