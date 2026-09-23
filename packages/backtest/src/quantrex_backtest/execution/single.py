@@ -63,8 +63,8 @@ class SingleInstrumentExecution(ExecutionMode):
         context = self._create_context(
             instruments=[symbol],
             origin_time=origin_time,
-            raw_data=raw_data,
-            indicators=indicators,
+            raw_data=raw_data[symbol],  # Pass symbol-specific data {timeframe: list}
+            indicators=indicators[symbol],  # Pass symbol-specific indicators {timeframe: list}
             base_timeframe=base_timeframe,
             config=config,
         )

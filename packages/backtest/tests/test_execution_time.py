@@ -256,18 +256,15 @@ class TestMultiTimeframeExecutionTime:
         )
         engine.run()
 
-        # NOTE: Current implementation dispatches 5M candle after first 1M candle
-        # (at 09:16) rather than when it completes (at 09:20). This is a known
-        # issue in the timeframe_history implementation that should be fixed
-        # separately. The test documents current behavior.
+        # 5M candle (09:15-09:20) has close_time = 09:20
+        # Should be dispatched when processing the 1M candle at 09:19 (execution_time = 09:20)
         assert strategy.tf_candle_timestamps[0] == datetime(2026, 1, 1, 9, 15)
-        assert strategy.tf_execution_times[0] == datetime(2026, 1, 1, 9, 16)
+        assert strategy.tf_execution_times[0] == datetime(2026, 1, 1, 9, 20)
 
-        # Second 5M candle (open 09:20) completes at 09:25.
-        # NOTE: Current implementation dispatches after first 1M candle of next
-        # period (at 09:21) rather than when it completes (at 09:25).
+        # Second 5M candle (09:20-09:25) has close_time = 09:25
+        # Should be dispatched when processing the 1M candle at 09:24 (execution_time = 09:25)
         assert strategy.tf_candle_timestamps[1] == datetime(2026, 1, 1, 9, 20)
-        assert strategy.tf_execution_times[1] == datetime(2026, 1, 1, 9, 21)
+        assert strategy.tf_execution_times[1] == datetime(2026, 1, 1, 9, 25)
 
 
 # ---------------------------------------------------------------------------

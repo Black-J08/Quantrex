@@ -5,6 +5,7 @@ from quantrex_core.models import Candle
 from quantrex_core.strategy.base import Strategy
 from quantrex_core.strategy.timeframe import TimeframeRegistry, TimeframeDispatcher, on_timeframe
 from quantrex_core.strategy.context import StrategyContext
+from quantrex_core.timeframe.parser import interval_to_minutes
 
 
 class MockStrategyContext(StrategyContext):
@@ -203,3 +204,100 @@ def test_strategy_without_timeframe_methods():
     strategy = NoTimeframeStrategy()
     assert strategy.timeframe_registry.intervals() == []
     assert strategy.timeframe_dispatcher._registry.intervals() == []
+
+
+def test_dispatch_all_orders_by_timeframe_hierarchy():
+    """Test that dispatch_all dispatches intervals in duration order (smallest first)."""
+    # Create a strategy with multiple timeframes registered in non-sorted order
+    class OrderedDispatchStrategy(Strategy):
+        def __init__(self):
+            super().__init__()
+            self.dispatch_order = []
+
+        @on_timeframe("1D")
+        def on_daily(self, candle: Candle) -> None:
+            self.dispatch_order.append("1D")
+
+        @on_timeframe("15M")
+        def on_15m(self, candle: Candle) -> None:
+            self.dispatch_order.append("15M")
+
+        @on_timeframe("1H")
+        def on_1h(self, candle: Candle) -> None:
+            self.dispatch_order.append("1H")
+
+        def on_candle(self, candle: Candle) -> None:
+            pass
+
+    strategy = OrderedDispatchStrategy()
+    
+    # Registry now maintains intervals sorted by duration (smallest first)
+    registry_intervals = strategy.timeframe_registry.intervals()
+    assert registry_intervals == ["15M", "1H", "1D"]  # Sorted by duration
+    
+    # dispatch_all should also dispatch in duration order
+    # Create mock context with candles for all timeframes
+    base_time = datetime(2024, 1, 1, 9, 0)
+    candles = [make_candle(base_time + timedelta(minutes=i * 15)) for i in range(8)]  # 2 hours of 15M candles
+    
+    class MockCtx(StrategyContext):
+        def __init__(self, candles):
+            self._history = candles
+        def submit_order(self, *a, **k): pass
+        def get_position(self, *a, **k): pass
+        @property
+        def history(self): return tuple(self._history)
+        @property
+        def current_time(self): return datetime(2024, 1, 1, 12, 0)  # After all intervals close
+        def timeframe_history(self, interval):
+            # Return appropriate candles for each timeframe
+            if interval == "15M":
+                return tuple(self._history)  # All 15M candles
+            elif interval == "1H":
+                # Return last candle of each hour
+                return tuple([self._history[3], self._history[7]])  # 9:45, 10:45
+            elif interval == "1D":
+                return tuple([self._history[-1]])  # Last candle
+            return tuple(self._history)
+    
+    ctx = MockCtx(candles)
+    strategy.set_context(ctx)
+    
+    # Call dispatch_all once
+    strategy.timeframe_dispatcher.dispatch_all(ctx)
+    
+    # Verify dispatch order: first 15M dispatch happens before first 1H dispatch,
+    # which happens before first 1D dispatch
+    # Find first occurrence of each timeframe in dispatch order
+    first_15m = strategy.dispatch_order.index("15M")
+    first_1h = strategy.dispatch_order.index("1H")
+    first_1d = strategy.dispatch_order.index("1D")
+    
+    assert first_15m < first_1h < first_1d, \
+        f"Expected 15M before 1H before 1D, got order: {strategy.dispatch_order}"
+
+
+def test_registry_rejects_non_multiple_timeframe():
+    """Test that TimeframeRegistry.register validates higher timeframe is multiple of base."""
+    registry = TimeframeRegistry()
+    
+    # Register base timeframe first (5M)
+    registry.register("5M", lambda c: None)
+    
+    # Valid multiples should work
+    registry.register("15M", lambda c: None)  # 3 * 5M
+    registry.register("1H", lambda c: None)   # 12 * 5M
+    registry.register("1D", lambda c: None)   # 288 * 5M
+    
+    # Non-multiple should raise ValueError
+    try:
+        registry.register("7M", lambda c: None)  # 7 is not a multiple of 5
+        assert False, "Should have raised ValueError for non-multiple timeframe"
+    except ValueError as e:
+        assert "must be a multiple of base timeframe" in str(e)
+    
+    try:
+        registry.register("13M", lambda c: None)  # 13 is not a multiple of 5
+        assert False, "Should have raised ValueError for non-multiple timeframe"
+    except ValueError as e:
+        assert "must be a multiple of base timeframe" in str(e)

@@ -50,6 +50,8 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
     def on_hour_candle(self, candle: Candle):
         symbol = candle.symbol
         prev_1h_candle = self.ctx.timeframe_history("1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
+        logger.info(f"[{symbol}] Received 1H candle: {candle}")
+        logger.info(f"[{symbol}] Previous 1H candle: {prev_1h_candle}")
 
         if prev_1h_candle is not None:
             if candle.high < prev_1h_candle.high and candle.low > prev_1h_candle.low:

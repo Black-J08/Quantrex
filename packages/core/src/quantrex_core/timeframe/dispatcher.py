@@ -9,6 +9,7 @@ from collections.abc import Callable
 from quantrex_core.models import Candle
 from quantrex_core.strategy.context import StrategyContext
 from quantrex_core.timeframe.registry import TimeframeRegistry
+from quantrex_core.timeframe.parser import interval_to_minutes
 
 
 class TimeframeDispatcher:
@@ -47,8 +48,10 @@ class TimeframeDispatcher:
         self._last_dispatched_index[interval] = len(tf_history)
 
     def dispatch_all(self, ctx: StrategyContext) -> None:
-        """Dispatch for all registered intervals."""
-        for interval in self._registry.intervals():
+        """Dispatch for all registered intervals, ordered by duration (smallest first)."""
+        # Sort intervals by duration (minutes) so smaller timeframes dispatch first
+        intervals = sorted(self._registry.intervals(), key=interval_to_minutes)
+        for interval in intervals:
             self.dispatch(ctx, interval)
 
     def reset(self) -> None:

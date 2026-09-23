@@ -172,6 +172,9 @@ class BacktestEngine:
 
         logger.info("Starting backtest for %d instrument(s)", len(self._instruments))
 
+        # Reset dispatcher state for new run
+        self._strategy.timeframe_dispatcher.reset()
+
         self._strategy.on_start()
 
         # Step 1: Get required timeframes
