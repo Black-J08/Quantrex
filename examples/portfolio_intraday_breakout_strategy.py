@@ -10,6 +10,9 @@ This example demonstrates the new portfolio backtesting features:
 
 from datetime import time
 
+import pandas as pd
+import pandas_ta_classic as ta
+
 from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.logging import get_logger
@@ -41,6 +44,12 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         self._inside_candle: dict[str, Candle | None] = {}
         self._entry_pre_setup_condition_met: dict[str, bool] = {}
 
+    def compute_indicators(self, candles, timeframe=None):
+        df = pd.DataFrame(candles)
+        df["st"] = ta.supertrend(
+            df['high'], df['low'], df['close'], length=10, multiplier=3)['SUPERTd_10_3.0']
+        return [{"st": row["st"]} for row in df.to_dict(orient="records")]
+
     def reset_state(self, symbol: str):
         self._mother_candle[symbol] = None
         self._inside_candle[symbol] = None
@@ -49,7 +58,8 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
     @on_timeframe("1H")
     def on_hour_candle(self, candle: Candle):
         symbol = candle.symbol
-        prev_1h_candle = self.ctx.timeframe_history("1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
+        prev_1h_candle = self.ctx.timeframe_history(
+            "1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
         logger.info(f"[{symbol}] Received 1H candle: {candle}")
         logger.info(f"[{symbol}] Previous 1H candle: {prev_1h_candle}")
 
@@ -58,8 +68,10 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
                 self._mother_candle[symbol] = prev_1h_candle
                 self._inside_candle[symbol] = candle
                 self._entry_pre_setup_condition_met[symbol] = True
-                logger.info(f"[{symbol}] Mother candle detected: {self._mother_candle[symbol]}")
-                logger.info(f"[{symbol}] Inside candle detected: {self._inside_candle[symbol]}")
+                logger.info(
+                    f"[{symbol}] Mother candle detected: {self._mother_candle[symbol]}")
+                logger.info(
+                    f"[{symbol}] Inside candle detected: {self._inside_candle[symbol]}")
             else:
                 self.reset_state(symbol)
 
@@ -70,40 +82,41 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         if symbol not in self._entry_pre_setup_condition_met:
             self.reset_state(symbol)
 
-        prev_candle = self.ctx.history[-2] if len(self.ctx.history) >= 2 else None
+        prev_candle = self.ctx.history[-2] if len(
+            self.ctx.history) >= 2 else None
         if prev_candle is not None:
             if prev_candle.timestamp.date() != candle.timestamp.date():
                 self.reset_state(symbol)
-
-        # Portfolio-level logging (NEW FEATURE)
-        portfolio = self.ctx.portfolio
-        logger.info(
-            f"[{symbol}] Portfolio: cash={portfolio.cash:.2f}, "
-            f"equity={portfolio.equity:.2f}, "
-            f"margin_used={portfolio.margin_used:.2f}, "
-            f"margin_available={portfolio.margin_available:.2f}, "
-            f"unrealized_pnl={portfolio.unrealized_pnl:.2f}, "
-            f"realized_pnl={portfolio.realized_pnl:.2f}"
-        )
-
-        # All positions across portfolio (NEW FEATURE)
-        all_positions = self.ctx.positions
-        for sym, pos in all_positions.items():
-            if pos.quantity != 0:
-                logger.info(f"  Position [{sym}]: qty={pos.quantity}, entry={pos.entry_price:.2f}")
 
         position = self.ctx.get_position(symbol)
 
         # End-of-day exit logic
         if candle.timestamp.time() >= time(15, 15):
             if position.quantity > 0:  # long position
-                logger.info(f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp}")
-                self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
+                logger.info(
+                    f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp}")
+                self.ctx.submit_order(
+                    symbol, OrderSide.SELL, position.quantity)
                 self.reset_state(symbol)
             elif position.quantity < 0:  # short position
-                logger.info(f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp}")
-                self.ctx.submit_order(symbol, OrderSide.BUY, abs(position.quantity))
+                logger.info(
+                    f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp}")
+                self.ctx.submit_order(
+                    symbol, OrderSide.BUY, abs(position.quantity))
                 self.reset_state(symbol)
+        # long position and supertrend indicates downtrend
+        elif position.quantity > 0 and candle.indicators.get('st') == -1:
+            logger.info(
+                f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to supertrend signal")
+            self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
+            self.reset_state(symbol)
+        # short position and supertrend indicates uptrend
+        elif position.quantity < 0 and candle.indicators.get('st') == 1:
+            logger.info(
+                f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to supertrend signal")
+            self.ctx.submit_order(symbol, OrderSide.BUY,
+                                  abs(position.quantity))
+            self.reset_state(symbol)
 
         # Breakout entry logic
         if self._entry_pre_setup_condition_met.get(symbol, False) and position.quantity == 0:
@@ -113,11 +126,13 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
 
             if candle.close > inside_candle.high:
                 self.ctx.submit_order(symbol, OrderSide.BUY, 8)
-                logger.info(f"[{symbol}] Breakout BUY order placed at {candle.close} on {candle.timestamp}")
+                logger.info(
+                    f"[{symbol}] Breakout BUY order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)
             elif candle.close < inside_candle.low:
                 self.ctx.submit_order(symbol, OrderSide.SELL, 8)
-                logger.info(f"[{symbol}] Breakout SELL order placed at {candle.close} on {candle.timestamp}")
+                logger.info(
+                    f"[{symbol}] Breakout SELL order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)
 
 
@@ -139,24 +154,33 @@ if __name__ == "__main__":
                 )
             ),
         ),
-        InstrumentSpec(
-            symbol="TCS",
-            adapter=ZerodhaDataAdapter(
-                ZerodhaDataProvider(
-                    symbol="TCS",
-                    exchange_segment="NSE",
-                )
-            ),
-        ),
-        InstrumentSpec(
-            symbol="INFY",
-            adapter=ZerodhaDataAdapter(
-                ZerodhaDataProvider(
-                    symbol="INFY",
-                    exchange_segment="NSE",
-                )
-            ),
-        ),
+        # InstrumentSpec(
+        #     symbol="TCS",
+        #     adapter=ZerodhaDataAdapter(
+        #         ZerodhaDataProvider(
+        #             symbol="TCS",
+        #             exchange_segment="NSE",
+        #         )
+        #     ),
+        # ),
+        # InstrumentSpec(
+        #     symbol="INFY",
+        #     adapter=ZerodhaDataAdapter(
+        #         ZerodhaDataProvider(
+        #             symbol="INFY",
+        #             exchange_segment="NSE",
+        #         )
+        #     ),
+        # ),
+        # InstrumentSpec(
+        #     symbol="SUNPHARMA",
+        #     adapter=ZerodhaDataAdapter(
+        #         ZerodhaDataProvider(
+        #             symbol="SUNPHARMA",
+        #             exchange_segment="NSE",
+        #         )
+        #     ),
+        # ),
     ]
 
     # Portfolio configuration (NEW FEATURE)
@@ -165,8 +189,8 @@ if __name__ == "__main__":
         initial_cash=1_000_000.0,      # Starting capital
         margin_requirement=1.0,         # 1.0 = no leverage, 2.0 = 2x leverage
         auto_download=True,             # Auto-download missing data
-        data_start="2026-01-01",
-        data_end="2026-01-31",
+        data_start="2024-09-01",
+        data_end="2025-08-31",
     )
 
     # Unified BacktestEngine API - works for both single and portfolio (NEW FEATURE)
@@ -178,3 +202,4 @@ if __name__ == "__main__":
 
     # Run portfolio backtest
     result = engine.run()
+    print(f"Final Portfolio Equity: {result.final_equity:.2f}")
