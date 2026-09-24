@@ -42,6 +42,7 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         super().__init__()
         self._mother_candle: dict[str, Candle | None] = {}
         self._inside_candle: dict[str, Candle | None] = {}
+        self._candle_stoploss: dict[str, float] = {}
         self._entry_pre_setup_condition_met: dict[str, bool] = {}
 
     def compute_indicators(self, candles, timeframe=None):
@@ -81,6 +82,7 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         # Initialize state for new symbols
         if symbol not in self._entry_pre_setup_condition_met:
             self.reset_state(symbol)
+            self._candle_stoploss[symbol] = None
 
         prev_candle = self.ctx.history[-2] if len(
             self.ctx.history) >= 2 else None
@@ -98,12 +100,15 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
                 self.ctx.submit_order(
                     symbol, OrderSide.SELL, position.quantity)
                 self.reset_state(symbol)
+                self._candle_stoploss[symbol] = None
             elif position.quantity < 0:  # short position
                 logger.info(
                     f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp}")
                 self.ctx.submit_order(
                     symbol, OrderSide.BUY, abs(position.quantity))
                 self.reset_state(symbol)
+                self._candle_stoploss[symbol] = None
+
         # long position and supertrend indicates downtrend
         elif position.quantity > 0 and candle.indicators.get('st') == -1:
             logger.info(
@@ -118,6 +123,21 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
                                   abs(position.quantity))
             self.reset_state(symbol)
 
+        # Stop-loss logic
+        elif position.quantity > 0 and candle.close < self._candle_stoploss.get(symbol, float('-inf')):
+            logger.info(
+                f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to stop-loss")
+            self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
+            self.reset_state(symbol)
+            self._candle_stoploss[symbol] = None
+        elif position.quantity < 0 and candle.close > self._candle_stoploss.get(symbol, float('inf')):
+            logger.info(
+                f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to stop-loss")
+            self.ctx.submit_order(symbol, OrderSide.BUY,
+                                  abs(position.quantity))
+            self.reset_state(symbol)
+            self._candle_stoploss[symbol] = None
+
         # Breakout entry logic
         if self._entry_pre_setup_condition_met.get(symbol, False) and position.quantity == 0:
             inside_candle = self._inside_candle.get(symbol)
@@ -126,11 +146,13 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
 
             if candle.close > inside_candle.high:
                 self.ctx.submit_order(symbol, OrderSide.BUY, 8)
+                self._candle_stoploss[symbol] = inside_candle.low
                 logger.info(
                     f"[{symbol}] Breakout BUY order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)
             elif candle.close < inside_candle.low:
                 self.ctx.submit_order(symbol, OrderSide.SELL, 8)
+                self._candle_stoploss[symbol] = inside_candle.high
                 logger.info(
                     f"[{symbol}] Breakout SELL order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)
