@@ -234,7 +234,7 @@ def test_timeframe_history_filtering():
                 return tuple([c for c in self._h if c.timestamp.hour == 10])
             return tuple(self._h)
     ctx = MockCtx()
-    c = Candle(symbol="S", timestamp=datetime(2023,1,1,10,30), open=1, high=2, low=0, close=1, volume=10)
+    c = Candle(symbol="S", timestamp=datetime(2023,1,1,10,30), close_time=datetime(2023,1,1,10,31), timeframe="1M", open=1, high=2, low=0, close=1, volume=10)
     ctx._h = [c]
     assert len(ctx.timeframe_history("1H")) == 1
 

@@ -2,14 +2,20 @@
 
 import pytest
 from quantrex_core import Candle
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 def test_candle_creation():
     """Candle can be created with all required fields."""
+    timestamp = datetime(2023, 1, 1, 9, 30)
+    timeframe = "1M"
+    close_time = timestamp + timedelta(minutes=1)
+    
     candle = Candle(
         symbol="TEST",
-        timestamp=datetime(2023, 1, 1, 9, 30),
+        timestamp=timestamp,
+        close_time=close_time,
+        timeframe=timeframe,
         open=100.0,
         high=101.0,
         low=99.0,
@@ -18,7 +24,9 @@ def test_candle_creation():
     )
     
     assert candle.symbol == "TEST"
-    assert candle.timestamp == datetime(2023, 1, 1, 9, 30)
+    assert candle.timestamp == timestamp
+    assert candle.close_time == close_time
+    assert candle.timeframe == timeframe
     assert candle.open == 100.0
     assert candle.high == 101.0
     assert candle.low == 99.0
@@ -28,9 +36,15 @@ def test_candle_creation():
 
 def test_candle_is_immutable():
     """Candle is immutable (frozen dataclass)."""
+    timestamp = datetime(2023, 1, 1, 9, 30)
+    timeframe = "1M"
+    close_time = timestamp + timedelta(minutes=1)
+    
     candle = Candle(
         symbol="TEST",
-        timestamp=datetime(2023, 1, 1, 9, 30),
+        timestamp=timestamp,
+        close_time=close_time,
+        timeframe=timeframe,
         open=100.0,
         high=101.0,
         low=99.0,
@@ -53,10 +67,12 @@ def test_candle_from_row():
         "volume": "1000"
     }
     
-    candle = Candle.from_row(row, "TEST")
+    candle = Candle.from_row(row, "TEST", "1M")
     
     assert candle.symbol == "TEST"
     assert candle.timestamp == datetime(2023, 1, 1, 9, 30)
+    assert candle.close_time == datetime(2023, 1, 1, 9, 31)
+    assert candle.timeframe == "1M"
     assert candle.open == 100.0
     assert candle.high == 101.0
     assert candle.low == 99.0
@@ -75,9 +91,11 @@ def test_candle_from_row_custom_format():
         "volume": "1000"
     }
     
-    candle = Candle.from_row(row, "TEST", datetime_format="%Y-%m-%d %H:%M:%S")
+    candle = Candle.from_row(row, "TEST", "1M", datetime_format="%Y-%m-%d %H:%M:%S")
     
     assert candle.timestamp == datetime(2023, 1, 1, 9, 30, 0)
+    assert candle.close_time == datetime(2023, 1, 1, 9, 31, 0)
+    assert candle.timeframe == "1M"
 
 
 def test_candle_from_row_missing_key():
@@ -91,7 +109,7 @@ def test_candle_from_row_missing_key():
     }
     
     with pytest.raises(ValueError, match="Missing required key"):
-        Candle.from_row(row, "TEST")
+        Candle.from_row(row, "TEST", "1M")
 
 
 def test_candle_from_row_invalid_values():
@@ -106,7 +124,7 @@ def test_candle_from_row_invalid_values():
     }
 
     with pytest.raises(ValueError, match="Failed to parse row values"):
-        Candle.from_row(row, "TEST")
+        Candle.from_row(row, "TEST", "1M")
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +146,8 @@ def test_candle_default_indicators_is_empty_mapping():
     candle = Candle(
         symbol="TEST",
         timestamp=datetime(2023, 1, 1, 9, 30),
+        close_time=datetime(2023, 1, 1, 9, 31),
+        timeframe="1M",
         open=100.0,
         high=101.0,
         low=99.0,
@@ -158,6 +178,7 @@ def test_candle_indicators_via_from_row():
     candle = Candle.from_row(
         row,
         "TEST",
+        "1M",
         indicators={"sma20": 100.5, "rsi14": 55, "warmup": None},
     )
 
@@ -178,6 +199,8 @@ def test_candle_immutability_extends_to_indicators():
     candle = Candle(
         symbol="TEST",
         timestamp=datetime(2023, 1, 1, 9, 30),
+        close_time=datetime(2023, 1, 1, 9, 31),
+        timeframe="1M",
         open=100.0,
         high=101.0,
         low=99.0,
@@ -191,3 +214,39 @@ def test_candle_immutability_extends_to_indicators():
 
     with pytest.raises(TypeError):
         candle.indicators["new"] = 1  # type: ignore[index]
+
+
+def test_candle_close_time_validation():
+    """Candle validates that close_time matches timestamp + timeframe."""
+    timestamp = datetime(2023, 1, 1, 9, 30)
+    timeframe = "1M"
+    # Wrong close_time (should be 9:31)
+    wrong_close_time = datetime(2023, 1, 1, 9, 32)
+    
+    with pytest.raises(ValueError, match="close_time.*does not match"):
+        Candle(
+            symbol="TEST",
+            timestamp=timestamp,
+            close_time=wrong_close_time,
+            timeframe=timeframe,
+            open=100.0,
+            high=101.0,
+            low=99.0,
+            close=100.5,
+            volume=1000
+        )
+
+
+def test_candle_from_row_invalid_timeframe():
+    """Candle.from_row raises ValueError for invalid timeframe format."""
+    row = {
+        "datetime": "20230101 09:30",
+        "open": "100.0",
+        "high": "101.0",
+        "low": "99.0",
+        "close": "100.5",
+        "volume": "1000"
+    }
+    
+    with pytest.raises(ValueError, match="Invalid interval format"):
+        Candle.from_row(row, "TEST", "INVALID")

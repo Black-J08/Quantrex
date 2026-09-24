@@ -4,9 +4,51 @@ Immutable OHLCV candle with timestamp and symbol, shared across all execution en
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Mapping
+
+
+def _parse_interval(interval: str):
+    """Parse a timeframe interval string into its components (local copy to avoid circular import)."""
+    import re
+    _INTERVAL_PATTERN = re.compile(r'^(\d+)([MHDW])$', re.IGNORECASE)
+    _UNIT_TO_MINUTES = {
+        'M': 1,
+        'H': 60,
+        'D': 60 * 24,
+        'W': 60 * 24 * 7,
+    }
+    
+    if not interval or not isinstance(interval, str):
+        raise ValueError(f"Interval must be a non-empty string, got: {interval!r}")
+
+    match = _INTERVAL_PATTERN.match(interval.strip().upper())
+    if not match:
+        raise ValueError(
+            f"Invalid interval format: {interval!r}. "
+            f"Expected format like '1H', '4H', '1D', '15M', '1W'. "
+            f"Pattern: <number><unit> where unit is M, H, D, or W."
+        )
+
+    value = int(match.group(1))
+    unit = match.group(2)
+
+    if value <= 0:
+        raise ValueError(f"Interval value must be positive, got: {value}")
+
+    if unit not in _UNIT_TO_MINUTES:
+        raise ValueError(f"Invalid interval unit: {unit!r}. Valid units: {sorted(_UNIT_TO_MINUTES.keys())}")
+
+    total_minutes = value * _UNIT_TO_MINUTES[unit]
+    
+    class ParsedInterval:
+        def __init__(self, value, unit, total_minutes):
+            self.value = value
+            self.unit = unit
+            self.total_minutes = total_minutes
+    
+    return ParsedInterval(value=value, unit=unit, total_minutes=total_minutes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,7 +57,9 @@ class Candle:
 
     Attributes:
         symbol: Trading symbol (e.g., "COPPER")
-        timestamp: Candle timestamp (naive datetime, assumed UTC)
+        timestamp: Candle open time (naive datetime, assumed UTC)
+        close_time: Candle close time (open time + timeframe duration)
+        timeframe: Timeframe interval (e.g., "1M", "1H", "1D")
         open: Opening price
         high: Highest price
         low: Lowest price
@@ -31,6 +75,8 @@ class Candle:
 
     symbol: str
     timestamp: datetime
+    close_time: datetime
+    timeframe: str
     open: float
     high: float
     low: float
@@ -39,13 +85,20 @@ class Candle:
     indicators: Mapping[str, float | int | None] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Wrap ``indicators`` in a MappingProxyType for runtime immutability.
+        """Validate close_time and wrap indicators in MappingProxyType.
 
-        The dataclass is ``frozen=True`` so the field *binding* cannot be
-        reassigned, but a plain ``dict`` value would still allow item
-        mutation. ``MappingProxyType`` gives us a read-only view that
-        preserves dict-style reads while blocking writes with ``TypeError``.
+        Validates that close_time equals timestamp + timeframe duration.
+        Wraps indicators in MappingProxyType for runtime immutability.
         """
+        # Validate close_time matches timestamp + timeframe
+        parsed = _parse_interval(self.timeframe)
+        expected_close = self.timestamp + timedelta(minutes=parsed.total_minutes)
+        if self.close_time != expected_close:
+            raise ValueError(
+                f"close_time {self.close_time} does not match timestamp {self.timestamp} "
+                f"+ timeframe {self.timeframe} (expected {expected_close})"
+            )
+
         if not isinstance(self.indicators, MappingProxyType):
             object.__setattr__(self, "indicators", MappingProxyType(dict(self.indicators)))
 
@@ -54,6 +107,7 @@ class Candle:
         cls,
         row: dict,
         symbol: str,
+        timeframe: str,
         datetime_format: str = "%Y%m%d %H:%M",
         *,
         indicators: Mapping[str, float | int | None] | None = None,
@@ -63,6 +117,7 @@ class Candle:
         Args:
             row: Dictionary with keys 'datetime', 'open', 'high', 'low', 'close', 'volume'
             symbol: Trading symbol
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D")
             datetime_format: Format string for parsing the datetime field
             indicators: Optional read-only mapping of precomputed indicator
                 name -> value for this bar. Defaults to an empty mapping.
@@ -74,7 +129,8 @@ class Candle:
             Candle instance with parsed values.
 
         Raises:
-            ValueError: If required keys are missing or values cannot be parsed.
+            ValueError: If required keys are missing, values cannot be parsed,
+                or timeframe format is invalid.
         """
         try:
             dt_val = row["datetime"]
@@ -83,9 +139,16 @@ class Candle:
                 timestamp = dt_val.to_pydatetime()
             else:
                 timestamp = datetime.strptime(dt_val, datetime_format)
+
+            # Compute close_time from timestamp + timeframe
+            parsed = _parse_interval(timeframe)
+            close_time = timestamp + timedelta(minutes=parsed.total_minutes)
+
             return cls(
                 symbol=symbol,
                 timestamp=timestamp,
+                close_time=close_time,
+                timeframe=timeframe,
                 open=float(row["open"]),
                 high=float(row["high"]),
                 low=float(row["low"]),

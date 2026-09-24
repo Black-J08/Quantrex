@@ -67,11 +67,15 @@ class TestStrategy(Strategy):
         # Engine manages dispatch automatically; never call manually.
 
 
-def make_candle(timestamp: datetime, symbol: str = "TEST") -> Candle:
+def make_candle(timestamp: datetime, symbol: str = "TEST", timeframe: str = "1M") -> Candle:
     """Create a test candle."""
+    from datetime import timedelta
+    close_time = timestamp + timedelta(minutes=1) if timeframe == "1M" else timestamp + timedelta(hours=1)
     return Candle(
         symbol=symbol,
         timestamp=timestamp,
+        close_time=close_time,
+        timeframe=timeframe,
         open=100.0,
         high=101.0,
         low=99.0,

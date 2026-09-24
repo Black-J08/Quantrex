@@ -5,7 +5,6 @@ import time
 from datetime import datetime, timedelta
 from quantrex_core.models import Candle
 from quantrex_backtest.core import BacktestStrategyContext
-from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.order import OrderManagementSystem
 
@@ -15,9 +14,12 @@ def create_test_candles(count: int, base_time: datetime) -> list[Candle]:
     candles = []
     for i in range(count):
         timestamp = base_time + timedelta(minutes=i)
+        close_time = timestamp + timedelta(minutes=1)
         candle = Candle(
             symbol="TEST",
             timestamp=timestamp,
+            close_time=close_time,
+            timeframe="1M",
             open=float(i),
             high=float(i) + 1.0,
             low=float(i) - 0.5,

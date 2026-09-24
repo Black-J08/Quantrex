@@ -31,11 +31,11 @@ class TestCSVDataAdapter:
         
         assert len(result) == 2
         assert result[0]["datetime"] == "20230620 19:00"
-        assert result[0]["open"] == "737.20"
-        assert result[0]["high"] == "737.20"
-        assert result[0]["low"] == "737.20"
-        assert result[0]["close"] == "737.20"
-        assert result[0]["volume"] == "1"
+        assert result[0]["open"] == 737.20
+        assert result[0]["high"] == 737.20
+        assert result[0]["low"] == 737.20
+        assert result[0]["close"] == 737.20
+        assert result[0]["volume"] == 1.0
         assert result[1]["datetime"] == "20230621 10:06"
 
     def test_adapter_header_mode_basic(self):
@@ -61,7 +61,7 @@ class TestCSVDataAdapter:
         
         assert len(result) == 2
         assert result[0]["datetime"] == "20230620 19:00"
-        assert result[0]["open"] == "737.20"
+        assert result[0]["open"] == 737.20
         assert result[1]["datetime"] == "20230621 10:06"
 
     def test_adapter_header_mode_multi_column_datetime(self):

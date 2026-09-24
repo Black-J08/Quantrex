@@ -10,7 +10,6 @@ from quantrex_core.strategy.base import Strategy
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
 from quantrex_backtest.results import BacktestResult
-from quantrex_backtest.core.timeframe import calculate_close_time
 from quantrex_backtest.data import DataOrchestrator
 from quantrex_backtest.exceptions.backtest_error import ProviderError
 from quantrex_backtest.execution.base import ExecutionMode
@@ -119,6 +118,7 @@ class SequentialMultiExecution(ExecutionMode):
                     candle = Candle.from_row(
                         symbol_row,
                         symbol,
+                        base_timeframe,
                         symbol_adapter.datetime_format,
                         indicators=candle_indicators,
                     )
@@ -128,8 +128,8 @@ class SequentialMultiExecution(ExecutionMode):
                 for symbol, candle in candles.items():
                     self._drain_pending(candle.open, candle.timestamp, symbol=symbol)
 
-                # Update context time with close time
-                close_time = calculate_close_time(candle.timestamp, base_timeframe)
+                # Update context time with close time (from candle)
+                close_time = candle.close_time
                 context.update_time(close_time)
 
                 # Update context with each candle and call strategy
@@ -170,8 +170,7 @@ class SequentialMultiExecution(ExecutionMode):
         # Flush remaining pending orders at final close price
         if candles:
             last_candle = list(candles.values())[0]
-            last_close_time = calculate_close_time(last_candle.timestamp, base_timeframe)
-            self._drain_pending(last_candle.close, last_close_time, is_final=True)
+            self._drain_pending(last_candle.close, last_candle.close_time, is_final=True)
 
         strategy.on_stop()
         logger.info("Backtest completed: %d candles processed", len(base_data))

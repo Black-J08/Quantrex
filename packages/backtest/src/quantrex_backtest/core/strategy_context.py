@@ -8,7 +8,6 @@ from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_core.strategy.context import StrategyContext
 from quantrex_core.timeframe import filter_candles_by_timeframe
-from quantrex_backtest.core.timeframe import calculate_close_time
 from collections.abc import Mapping
 
 
@@ -76,6 +75,7 @@ class BacktestStrategyContext(StrategyContext):
                 candle = Candle.from_row(
                     row,
                     self._symbol,
+                    timeframe,
                     self._datetime_format,
                     indicators=indicators[idx] if idx < len(indicators) else {},
                 )
@@ -204,7 +204,7 @@ class BacktestStrategyContext(StrategyContext):
         """
         # Update base timeframe completed index
         while (self._base_completed_index < len(self._history) and
-               calculate_close_time(self._history[self._base_completed_index].timestamp, self._base_timeframe) <= current_timestamp):
+               self._history[self._base_completed_index].close_time <= current_timestamp):
             self._base_completed_index += 1
 
         for tf, derived_candles in self._derived_candles.items():
@@ -212,9 +212,7 @@ class BacktestStrategyContext(StrategyContext):
             idx = self._derived_indices[tf]
 
             # Add all derived candles whose close time has passed
-            while idx < len(derived_candles) and calculate_close_time(
-                derived_candles[idx].timestamp, tf
-            ) <= current_timestamp:
+            while idx < len(derived_candles) and derived_candles[idx].close_time <= current_timestamp:
                 derived_history.append(derived_candles[idx])
                 idx += 1
 

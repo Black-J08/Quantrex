@@ -128,20 +128,6 @@ def test_higher_timeframe_candle_visibility_timing():
     
     # Debug: check required timeframes
     required_tfs = engine._get_required_timeframes()
-    print(f"Required timeframes: {required_tfs}")
-    print(f"Base timeframe: {required_tfs[0]}")
-    
-    # Debug: check what 1H data looks like after reading
-    h1_data = adapter.read_timeframe("1H")
-    print(f"1H data from adapter: {h1_data}")
-    
-    # Debug: test calculate_close_time
-    from quantrex_backtest.core.timeframe import calculate_close_time
-    test_time = datetime(2024, 1, 1, 9, 0)
-    close_1h = calculate_close_time(test_time, "1H")
-    close_1m = calculate_close_time(test_time, "1M")
-    print(f"calculate_close_time(9:00, '1H') = {close_1h}")
-    print(f"calculate_close_time(9:00, '1M') = {close_1m}")
     
     engine.run()
     

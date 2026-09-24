@@ -128,6 +128,7 @@ class LiveEngine:
                         candle = Candle.from_row(
                             row,
                             self._symbol,
+                            tf,
                             self._adapter.datetime_format,
                         )
                         candles.append(candle)

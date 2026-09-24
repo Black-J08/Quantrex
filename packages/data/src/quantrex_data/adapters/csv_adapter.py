@@ -8,6 +8,7 @@ from datetime import time
 from typing import Literal
 
 from quantrex_core.logging import get_logger
+from quantrex_core.models import Candle
 from quantrex_core.protocols import DataProvider, DataAdapter
 from quantrex_data.providers.csv_provider import CSVDataProvider
 
@@ -179,11 +180,34 @@ class CSVDataAdapter:
             data_rows = raw_data
             self._mode = self._detect_mode()
         
+        from quantrex_core.models import Candle
+        
         results = []
         for line_num, row in enumerate(data_rows, start=1):
             try:
                 extracted = self._extract_row_values(row)
-                results.append(extracted)
+                # Create Candle with timeframe for validation and close_time
+                candle = Candle.from_row(
+                    extracted,
+                    symbol="",  # Symbol will be set by engine
+                    timeframe=timeframe,
+                    datetime_format=self._datetime_format,
+                )
+                # Convert back to dict for engine compatibility
+                # Include all extracted fields, not just OHLCV
+                result_dict = {
+                    "datetime": candle.timestamp.strftime(self._datetime_format),
+                    "open": candle.open,
+                    "high": candle.high,
+                    "low": candle.low,
+                    "close": candle.close,
+                    "volume": candle.volume,
+                }
+                # Add any additional fields from extracted that aren't the standard OHLCV
+                for key, value in extracted.items():
+                    if key not in ("datetime", "open", "high", "low", "close", "volume"):
+                        result_dict[key] = value
+                results.append(result_dict)
             except (IndexError, KeyError, ValueError) as e:
                 logger.warning("Skipping malformed row at line %d: %s", line_num, e)
                 continue
@@ -251,13 +275,28 @@ class CSVDataAdapter:
             # Use first row's datetime as bucket start (open time)
             first_row = bucket_rows[0]
             
-            aggregated.append({
+            # Create aggregated row and validate via Candle.from_row
+            aggregated_row = {
                 "datetime": first_row["datetime"],
                 "open": opens[0],
                 "high": max(highs),
                 "low": min(lows),
                 "close": closes[-1],
                 "volume": sum(volumes),
+            }
+            candle = Candle.from_row(
+                aggregated_row,
+                symbol="",
+                timeframe=target_timeframe,
+                datetime_format=self._datetime_format,
+            )
+            aggregated.append({
+                "datetime": candle.timestamp.strftime(self._datetime_format),
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": candle.volume,
             })
         
         return aggregated

@@ -55,7 +55,6 @@ def _run_single_instrument_worker(
     from quantrex_core.position.manager import PositionManager
     from quantrex_core.order import OrderManagementSystem
     from quantrex_core.models import Candle
-    from quantrex_backtest.core.timeframe import calculate_close_time
     from quantrex_backtest.data import DataOrchestrator
     from quantrex_backtest.exceptions.backtest_error import ProviderError
 
@@ -141,6 +140,7 @@ def _run_single_instrument_worker(
             candle = Candle.from_row(
                 symbol_row,
                 instrument.symbol,
+                base_timeframe,
                 instrument.adapter.datetime_format,
                 indicators=candle_indicators,
             )
@@ -182,8 +182,8 @@ def _run_single_instrument_worker(
                         candle.open,
                     )
 
-            # Update context time with close time
-            close_time = calculate_close_time(candle.timestamp, base_timeframe)
+            # Update context time with close time (from candle)
+            close_time = candle.close_time
             context.update_time(close_time)
 
             # Update context and call strategy
@@ -222,7 +222,6 @@ def _run_single_instrument_worker(
 
     # Flush remaining pending orders at final close price
     if 'candle' in locals():
-        last_close_time = calculate_close_time(candle.timestamp, base_timeframe)
         if oms.pending_count > 0:
             logger.warning(
                 "%d order(s) still pending at final candle for %s — "
@@ -231,7 +230,7 @@ def _run_single_instrument_worker(
                 instrument.symbol,
                 candle.close,
             )
-            entries = oms.drain(candle.close, last_close_time)
+            entries = oms.drain(candle.close, candle.close_time)
             for entry in entries:
                 order = entry.order
                 logger.info(

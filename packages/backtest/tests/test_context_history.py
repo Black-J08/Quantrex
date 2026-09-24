@@ -96,9 +96,9 @@ def test_record_candle_appends_in_order():
     # Set current_time to a time after the close time of the last candle (base timeframe is 1M by default)
     ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime(2024, 1, 1, 9, 33))
     candles = [
-        Candle("X", datetime(2024, 1, 1, 9, 30), 1, 2, 0.5, 1.5, 100),
-        Candle("X", datetime(2024, 1, 1, 9, 31), 2, 3, 1.5, 2.5, 200),
-        Candle("X", datetime(2024, 1, 1, 9, 32), 3, 4, 2.5, 3.5, 300),
+        Candle("X", datetime(2024, 1, 1, 9, 30), datetime(2024, 1, 1, 9, 31), "1M", 1, 2, 0.5, 1.5, 100),
+        Candle("X", datetime(2024, 1, 1, 9, 31), datetime(2024, 1, 1, 9, 32), "1M", 2, 3, 1.5, 2.5, 200),
+        Candle("X", datetime(2024, 1, 1, 9, 32), datetime(2024, 1, 1, 9, 33), "1M", 3, 4, 2.5, 3.5, 300),
     ]
     for c in candles:
         ctx.record_candle(c)
@@ -121,7 +121,7 @@ def test_history_is_immutable_tuple():
     """
     ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime.min)
     ctx.record_candle(
-        Candle("X", datetime(2024, 1, 1, 9, 30), 1, 2, 0.5, 1.5, 100)
+        Candle("X", datetime(2024, 1, 1, 9, 30), datetime(2024, 1, 1, 9, 31), "1M", 1, 2, 0.5, 1.5, 100)
     )
 
     with pytest.raises((TypeError, AttributeError)):
@@ -133,7 +133,7 @@ def test_history_returns_fresh_tuple_each_call():
     # Set current_time to a time after the close time of the candle (base timeframe is 1M by default)
     ctx = BacktestStrategyContext(PositionManager(), OrderManagementSystem(), datetime(2024, 1, 1, 9, 32))
     ctx.record_candle(
-        Candle("X", datetime(2024, 1, 1, 9, 30), 1, 2, 0.5, 1.5, 100)
+        Candle("X", datetime(2024, 1, 1, 9, 30), datetime(2024, 1, 1, 9, 31), "1M", 1, 2, 0.5, 1.5, 100)
     )
     first = ctx.history
     second = ctx.history

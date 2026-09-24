@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Test script to verify history optimization works correctly."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from quantrex_core.models import Candle
 from quantrex_backtest.core import BacktestStrategyContext
 from quantrex_core.position.manager import PositionManager
@@ -21,11 +21,11 @@ def test_history_optimization():
     
     # Create test candles
     candles = [
-        Candle("TEST", datetime(2024, 1, 1, 9, 30), 1.0, 2.0, 0.5, 1.5, 100),
-        Candle("TEST", datetime(2024, 1, 1, 9, 31), 2.0, 3.0, 1.5, 2.5, 200),
-        Candle("TEST", datetime(2024, 1, 1, 9, 32), 3.0, 4.0, 2.5, 3.5, 300),
-        Candle("TEST", datetime(2024, 1, 1, 9, 33), 4.0, 5.0, 3.5, 4.5, 400),
-        Candle("TEST", datetime(2024, 1, 1, 9, 34), 5.0, 6.0, 4.5, 5.5, 500),
+        Candle("TEST", datetime(2024, 1, 1, 9, 30), datetime(2024, 1, 1, 9, 31), "1M", 1.0, 2.0, 0.5, 1.5, 100),
+        Candle("TEST", datetime(2024, 1, 1, 9, 31), datetime(2024, 1, 1, 9, 32), "1M", 2.0, 3.0, 1.5, 2.5, 200),
+        Candle("TEST", datetime(2024, 1, 1, 9, 32), datetime(2024, 1, 1, 9, 33), "1M", 3.0, 4.0, 2.5, 3.5, 300),
+        Candle("TEST", datetime(2024, 1, 1, 9, 33), datetime(2024, 1, 1, 9, 34), "1M", 4.0, 5.0, 3.5, 4.5, 400),
+        Candle("TEST", datetime(2024, 1, 1, 9, 34), datetime(2024, 1, 1, 9, 35), "1M", 5.0, 6.0, 4.5, 5.5, 500),
     ]
     
     # Record candles one by one and check history after each
@@ -71,7 +71,7 @@ def test_edge_cases():
     )
     
     # Add some candles
-    candle = Candle("TEST", datetime(2024, 1, 1, 9, 30), 1.0, 2.0, 0.5, 1.5, 100)
+    candle = Candle("TEST", datetime(2024, 1, 1, 9, 30), datetime(2024, 1, 1, 9, 31), "1M", 1.0, 2.0, 0.5, 1.5, 100)
     ctx.record_candle(candle)
     
     # With datetime.min, history should be empty (backward compatibility)

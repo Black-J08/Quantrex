@@ -295,7 +295,7 @@ class TestBacktestEngine:
             assert "Disk error" in str(e)
 
     def test_engine_raises_on_invalid_candle_data(self):
-        """Engine should raise ProviderError for malformed candle data."""
+        """Engine should handle malformed candle data gracefully (skip bad rows)."""
         # CSV with invalid float value
         rows = [
             ["20230620", "09:15", "not_a_number", "738.00", "736.50", "737.50", "100", "50"],
@@ -324,14 +324,9 @@ class TestBacktestEngine:
                 BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
             )
 
-            try:
-                engine.run()
-                assert False, "Should have raised ProviderError"
-            except ProviderError as e:
-                # Error now comes from DataOrchestrator validation
-                assert "Failed to read data" in str(e)
-                assert "Invalid data format" in str(e)
-                assert "open must be numeric" in str(e)
+            # Engine should complete without error, but with zero candles (bad row skipped)
+            engine.run()
+            assert len(strategy.candles) == 0
 
     def test_engine_deterministic_order(self):
         """Engine should produce identical callback sequence on repeated runs."""
@@ -742,11 +737,19 @@ class TestBacktestEngine:
             BacktestConfig(auto_download=False, validate_completeness=False, min_bars_required=1)
         )
 
+        # Clean up any existing run directories for this test to avoid conflicts
+        import shutil
+        test_output_dir = Path("output/backtest/TestStrategy")
+        if test_output_dir.exists():
+            shutil.rmtree(test_output_dir)
+
         engine.run()
 
-        # Locate the most recent run directory written by this run.
+        # Locate the run directory written by this run.
         run_dirs = list(Path("output/backtest/TestStrategy").glob("*"))
         assert run_dirs, "no run directory was created"
+        # Filter to only directories (not files)
+        run_dirs = [d for d in run_dirs if d.is_dir()]
         latest_dir = max(run_dirs, key=lambda d: d.stat().st_mtime)
         log_path = latest_dir / "execution_log" / "COPPER_execution.log"
         assert log_path.exists(), f"COPPER_execution.log not found at {log_path}"

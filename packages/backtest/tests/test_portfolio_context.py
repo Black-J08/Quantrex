@@ -11,7 +11,6 @@ from quantrex_core.models.enums import OrderSide, OrderType, OrderStatus
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 from quantrex_backtest.core import BacktestPortfolioContext
-from quantrex_backtest.core.timeframe import calculate_close_time
 
 
 class TestBacktestPortfolioContext:
@@ -100,6 +99,8 @@ class TestBacktestPortfolioContext:
         candle = Candle(
             symbol="RELIANCE",
             timestamp=datetime(2026, 1, 1, 9, 15),
+            close_time=datetime(2026, 1, 1, 9, 16),
+            timeframe="1M",
             open=100.0,
             high=101.0,
             low=99.0,
@@ -107,7 +108,7 @@ class TestBacktestPortfolioContext:
             volume=1000.0,
         )
         self.context.update_candle(candle)
-        self.context.update_time(calculate_close_time(candle.timestamp, "1M"))
+        self.context.update_time(candle.close_time)
 
         order = self.context.submit_order("RELIANCE", OrderSide.BUY, 10.0)
         assert order.status == OrderStatus.PENDING
@@ -120,6 +121,8 @@ class TestBacktestPortfolioContext:
         candle = Candle(
             symbol="RELIANCE",
             timestamp=datetime(2026, 1, 1, 9, 15),
+            close_time=datetime(2026, 1, 1, 9, 16),
+            timeframe="1M",
             open=100.0,
             high=101.0,
             low=99.0,

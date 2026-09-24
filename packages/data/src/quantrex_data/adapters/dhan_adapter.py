@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from quantrex_core.logging import get_logger
+from quantrex_core.models import Candle
 from quantrex_core.protocols import DataAdapter, DataProvider
 
 from quantrex_data.providers.dhan_provider import DhanDataProvider
@@ -235,7 +236,25 @@ class DhanDataAdapter:
             if ois is not None:
                 row["oi"] = float(ois[i])
 
-            results.append(row)
+            # Validate via Candle.from_row with timeframe
+            candle = Candle.from_row(
+                row,
+                symbol="",
+                timeframe=timeframe,
+                datetime_format=self._datetime_format,
+            )
+            result_dict = {
+                "datetime": candle.timestamp.strftime(self._datetime_format),
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": candle.volume,
+            }
+            # Add OI if present
+            if ois is not None:
+                result_dict["oi"] = float(ois[i])
+            results.append(result_dict)
 
         logger.debug("DhanDataAdapter: normalized %d rows for timeframe %s", len(results), timeframe)
         return results

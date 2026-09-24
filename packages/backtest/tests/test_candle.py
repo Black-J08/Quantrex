@@ -1,6 +1,6 @@
 """Tests for Candle model."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from quantrex_data.providers.csv_provider import CSVDataProvider
 from quantrex_data.adapters.csv_adapter import CSVDataAdapter
 from quantrex_core.models import Candle
@@ -16,9 +16,15 @@ class TestCandle:
 
     def test_candle_creation(self):
         """Test basic Candle creation with all fields."""
+        timestamp = datetime(2023, 6, 20, 19, 0)
+        timeframe = "1M"
+        close_time = timestamp + timedelta(minutes=1)
+        
         candle = Candle(
             symbol="COPPER",
-            timestamp=datetime(2023, 6, 20, 19, 0),
+            timestamp=timestamp,
+            close_time=close_time,
+            timeframe=timeframe,
             open=737.20,
             high=737.20,
             low=737.20,
@@ -27,7 +33,9 @@ class TestCandle:
         )
 
         assert candle.symbol == "COPPER"
-        assert candle.timestamp == datetime(2023, 6, 20, 19, 0)
+        assert candle.timestamp == timestamp
+        assert candle.close_time == close_time
+        assert candle.timeframe == timeframe
         assert candle.open == 737.20
         assert candle.high == 737.20
         assert candle.low == 737.20
@@ -36,9 +44,15 @@ class TestCandle:
 
     def test_candle_immutability(self):
         """Test that Candle is immutable (frozen dataclass)."""
+        timestamp = datetime(2023, 6, 20, 19, 0)
+        timeframe = "1M"
+        close_time = timestamp + timedelta(minutes=1)
+        
         candle = Candle(
             symbol="COPPER",
-            timestamp=datetime(2023, 6, 20, 19, 0),
+            timestamp=timestamp,
+            close_time=close_time,
+            timeframe=timeframe,
             open=737.20,
             high=737.20,
             low=737.20,
@@ -64,10 +78,12 @@ class TestCandle:
             "volume": "1",
         }
 
-        candle = Candle.from_row(row, symbol="COPPER")
+        candle = Candle.from_row(row, symbol="COPPER", timeframe="1M")
 
         assert candle.symbol == "COPPER"
         assert candle.timestamp == datetime(2023, 6, 20, 19, 0)
+        assert candle.close_time == datetime(2023, 6, 20, 19, 1)
+        assert candle.timeframe == "1M"
         assert candle.open == 737.20
         assert candle.high == 737.20
         assert candle.low == 737.20
@@ -92,12 +108,13 @@ class TestCandle:
             })
             csv_rows = adapter.read()
 
-            candles = [Candle.from_row(row, symbol="COPPER") for row in csv_rows]
+            candles = [Candle.from_row(row, symbol="COPPER", timeframe="1M") for row in csv_rows]
 
             assert len(candles) == 3
             for candle in candles:
                 assert candle.symbol == "COPPER"
                 assert isinstance(candle.timestamp, datetime)
+                assert candle.timeframe == "1M"
                 assert candle.open > 0
                 assert candle.high >= candle.open
                 assert candle.low <= candle.open
@@ -132,17 +149,21 @@ class TestCandle:
                 "low": 3,
                 "close": 4,
                 "volume": 5,
-            })
+            }, datetime_format="%Y-%m-%d %H:%M:%S")
             csv_rows = adapter.read()
 
             candles = [
-                Candle.from_row(row, symbol="COPPER", datetime_format="%Y-%m-%d %H:%M:%S")
+                Candle.from_row(row, symbol="COPPER", timeframe="1H", datetime_format="%Y-%m-%d %H:%M:%S")
                 for row in csv_rows
             ]
 
             assert len(candles) == 2
             assert candles[0].timestamp == datetime(2023, 6, 20, 19, 0, 0)
+            assert candles[0].close_time == datetime(2023, 6, 20, 20, 0, 0)
+            assert candles[0].timeframe == "1H"
             assert candles[1].timestamp == datetime(2023, 6, 20, 20, 0, 0)
+            assert candles[1].close_time == datetime(2023, 6, 20, 21, 0, 0)
+            assert candles[1].timeframe == "1H"
 
     def test_candle_from_row_missing_key(self):
         """Test Candle.from_row raises ValueError for missing key."""
@@ -153,7 +174,7 @@ class TestCandle:
         }
 
         try:
-            Candle.from_row(row, symbol="COPPER")
+            Candle.from_row(row, symbol="COPPER", timeframe="1M")
             assert False, "Should have raised ValueError"
         except ValueError as e:
             assert "Missing required key" in str(e)
@@ -170,7 +191,7 @@ class TestCandle:
         }
 
         try:
-            Candle.from_row(row, symbol="COPPER")
+            Candle.from_row(row, symbol="COPPER", timeframe="1M")
             assert False, "Should have raised ValueError"
         except ValueError as e:
             assert "Failed to parse row values" in str(e)
@@ -186,15 +207,23 @@ class TestCandle:
             "volume": "1",
         }
 
-        candle = Candle.from_row(row, symbol="COPPER", datetime_format="%Y-%m-%d %H:%M:%S")
+        candle = Candle.from_row(row, symbol="COPPER", timeframe="1M", datetime_format="%Y-%m-%d %H:%M:%S")
 
         assert candle.timestamp == datetime(2023, 6, 20, 19, 0, 0)
+        assert candle.close_time == datetime(2023, 6, 20, 19, 1, 0)
+        assert candle.timeframe == "1M"
 
     def test_candle_slots(self):
         """Test that Candle uses __slots__ for memory efficiency."""
+        timestamp = datetime(2023, 6, 20, 19, 0)
+        timeframe = "1M"
+        close_time = timestamp + timedelta(minutes=1)
+        
         candle = Candle(
             symbol="COPPER",
-            timestamp=datetime(2023, 6, 20, 19, 0),
+            timestamp=timestamp,
+            close_time=close_time,
+            timeframe=timeframe,
             open=737.20,
             high=737.20,
             low=737.20,

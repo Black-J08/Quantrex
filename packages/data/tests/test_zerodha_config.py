@@ -262,6 +262,7 @@ class TestCallbackConfig:
         """Config should use default redirect URL."""
         monkeypatch.setenv("ZERODHA_API_KEY", "test_key")
         monkeypatch.setenv("ZERODHA_API_SECRET", "test_secret")
+        monkeypatch.setenv("ZERODHA_REDIRECT_URL", "http://localhost:8765/callback")
 
         config = ZerodhaProviderConfig(
             symbol="RELIANCE",

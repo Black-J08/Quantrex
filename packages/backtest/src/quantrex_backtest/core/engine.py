@@ -12,7 +12,7 @@ from quantrex_core.position.manager import PositionManager
 from quantrex_core import InstrumentSpec
 from quantrex_backtest.config import BacktestConfig
 from quantrex_backtest.data import DataOrchestrator, DataOrchestratorConfig
-from quantrex_backtest.core import BacktestPortfolioContext, calculate_close_time
+from quantrex_backtest.core import BacktestPortfolioContext
 from quantrex_backtest.execution import (
     ExecutionMode,
     SingleInstrumentExecution,

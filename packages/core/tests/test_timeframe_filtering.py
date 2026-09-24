@@ -1,7 +1,7 @@
 """Unit tests for timeframe filtering module."""
 
 import pytest
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from quantrex_core.models import Candle
 from quantrex_core.timeframe.filtering import (
     filter_candles_by_timeframe,
@@ -9,11 +9,14 @@ from quantrex_core.timeframe.filtering import (
 )
 
 
-def make_candle(timestamp: datetime, symbol: str = "TEST", close: float = 100.0) -> Candle:
+def make_candle(timestamp: datetime, symbol: str = "TEST", close: float = 100.0, timeframe: str = "1M") -> Candle:
     """Create a test candle."""
+    close_time = timestamp + timedelta(minutes=1) if timeframe == "1M" else timestamp + timedelta(hours=1)
     return Candle(
         symbol=symbol,
         timestamp=timestamp,
+        close_time=close_time,
+        timeframe=timeframe,
         open=100.0,
         high=101.0,
         low=99.0,

@@ -2,7 +2,7 @@
 
 import pytest
 from quantrex_core import Strategy, Candle
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class ConcreteStrategy(Strategy):
@@ -42,9 +42,13 @@ def test_concrete_strategy_can_be_instantiated():
 def test_on_candle_is_called():
     """on_candle method is called for each candle."""
     strategy = ConcreteStrategy()
+    timestamp = datetime.now()
+    close_time = timestamp + timedelta(minutes=1)
     candle = Candle(
         symbol="TEST",
-        timestamp=datetime.now(),
+        timestamp=timestamp,
+        close_time=close_time,
+        timeframe="1M",
         open=100.0,
         high=101.0,
         low=99.0,
@@ -76,9 +80,13 @@ def test_strategy_maintains_state():
     
     # Process multiple candles
     for i in range(5):
+        timestamp = datetime.now()
+        close_time = timestamp + timedelta(minutes=1)
         candle = Candle(
             symbol="TEST",
-            timestamp=datetime.now(),
+            timestamp=timestamp,
+            close_time=close_time,
+            timeframe="1M",
             open=100.0,
             high=101.0,
             low=99.0,

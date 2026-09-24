@@ -28,10 +28,7 @@ from quantrex_core.models.enums import OrderSide
 from quantrex_core.protocols import DataAdapter
 from quantrex_backtest import BacktestEngine, InstrumentSpec, BacktestConfig
 from quantrex_backtest.core import BacktestStrategyContext
-from quantrex_backtest.core.timeframe import (
-    calculate_close_time,
-    parse_timeframe_to_timedelta,
-)
+from quantrex_backtest.core.timeframe import parse_timeframe_to_timedelta
 from quantrex_core.order import OrderManagementSystem
 from quantrex_core.position.manager import PositionManager
 
@@ -293,18 +290,5 @@ class TestTimeframeParser:
     @pytest.mark.parametrize("bad", ["", "X", "1X", "M", "1.5H", "-5M"])
     def test_parse_invalid_timeframe_returns_none(self, bad):
         assert parse_timeframe_to_timedelta(bad) is None
-
-    def test_calculate_close_time_daily(self):
-        """Daily candle close time is open + 24h (regression: was 66*24 min)."""
-        open_time = datetime(2026, 1, 1, 9, 15)
-        assert calculate_close_time(open_time, "1D") == datetime(2026, 1, 2, 9, 15)
-
-    def test_calculate_close_time_hourly(self):
-        open_time = datetime(2026, 1, 1, 10, 15)
-        assert calculate_close_time(open_time, "1H") == datetime(2026, 1, 1, 11, 15)
-
-    def test_calculate_close_time_invalid_falls_back_to_one_minute(self):
-        open_time = datetime(2026, 1, 1, 9, 15)
-        assert calculate_close_time(open_time, "bogus") == datetime(2026, 1, 1, 9, 16)
 
     

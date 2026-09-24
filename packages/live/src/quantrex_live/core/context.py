@@ -99,9 +99,24 @@ class LiveStrategyContext(StrategyContext):
         For live trading, we only add closed higher-timeframe candles.
         The current forming higher-timeframe candle is NOT added until it closes.
         """
-        # This is a simplified implementation - in production, you'd track
-        # forming higher-timeframe candles and only add them when they close
-        pass
+        # Use candle's own timeframe and close_time for validation
+        tf = candle.timeframe
+        close_time = candle.close_time
+        
+        # If this is a base timeframe candle, check if any derived timeframes are now complete
+        if tf == self._base_timeframe:
+            # Check all derived timeframes
+            for derived_tf in list(self._derived_histories.keys()):
+                # In a full implementation, we'd track forming derived candles
+                # and add them when their close_time is reached
+                pass
+        else:
+            # This is a derived timeframe candle - add it if its close_time has passed
+            # For now, we just add it (simplified)
+            if tf not in self._derived_histories:
+                from collections import deque
+                self._derived_histories[tf] = deque(maxlen=self._max_history_size)
+            self._derived_histories[tf].append(candle)
 
     def set_base_timeframe(self, timeframe: str) -> None:
         """Set the base timeframe for this context."""
