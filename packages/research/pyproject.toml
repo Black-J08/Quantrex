@@ -1,0 +1,19 @@
+[project]
+name = "quantrex-research"
+version = "0.1.0"
+description = "Quantrex research package for quantitative analysis"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "quantrex-core",
+    "quantrex-data",
+    "quantrex-backtest",
+    "pandas>=3.0.5",
+    "numpy>=2.0.0",
+    "matplotlib>=3.9.0",
+    "scipy>=1.13.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13"]
+build-backend = "uv_build"
