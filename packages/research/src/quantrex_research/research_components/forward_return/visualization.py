@@ -245,7 +245,7 @@ def plot_horizon_comparison(
     output_path: Path,
     title: Optional[str] = None,
 ) -> None:
-    """Plot multi-horizon comparison: mean/std/positive_prob/VaR across all horizons.
+    """Plot multi-horizon comparison: mean/median/std/positive_prob/VaR across all horizons.
     
     Args:
         all_horizon_stats: Dictionary mapping horizon to statistics.
@@ -259,48 +259,74 @@ def plot_horizon_comparison(
     horizon_labels = [str(h) for h in horizons]
     
     means = [all_horizon_stats[h].get("mean", 0) for h in horizons]
+    medians = [all_horizon_stats[h].get("median", 0) for h in horizons]
     stds = [all_horizon_stats[h].get("std", 0) for h in horizons]
     positive_probs = [all_horizon_stats[h].get("positive_prob", 0) for h in horizons]
     var_95 = [all_horizon_stats[h].get("VaR_95", 0) for h in horizons]
     cvar_95 = [all_horizon_stats[h].get("CVaR_95", 0) for h in horizons]
     
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(3, 2, figsize=(14, 14))
     
-    # Mean return
-    axes[0, 0].bar(horizon_labels, means, color="steelblue", alpha=0.7, edgecolor="white")
+    # Mean return with median overlay
+    axes[0, 0].bar(horizon_labels, means, color="steelblue", alpha=0.7, edgecolor="white", label="Mean")
+    axes[0, 0].plot(horizon_labels, medians, color="orange", marker="o", linewidth=2, markersize=6, label="Median")
     axes[0, 0].axhline(y=0, color="black", linewidth=0.5)
-    axes[0, 0].set_title("Mean Return by Horizon")
-    axes[0, 0].set_ylabel("Mean Return (%)")
+    axes[0, 0].set_title("Mean & Median Return by Horizon")
+    axes[0, 0].set_ylabel("Return (%)")
     axes[0, 0].tick_params(axis="x", rotation=45)
+    axes[0, 0].legend()
     axes[0, 0].grid(True, alpha=0.3)
     
-    # Std deviation
-    axes[0, 1].bar(horizon_labels, stds, color="orange", alpha=0.7, edgecolor="white")
-    axes[0, 1].set_title("Std Deviation by Horizon")
-    axes[0, 1].set_ylabel("Std Dev (%)")
+    # Median return (dedicated)
+    axes[0, 1].bar(horizon_labels, medians, color="orange", alpha=0.7, edgecolor="white")
+    axes[0, 1].axhline(y=0, color="black", linewidth=0.5)
+    axes[0, 1].set_title("Median Return by Horizon")
+    axes[0, 1].set_ylabel("Median Return (%)")
     axes[0, 1].tick_params(axis="x", rotation=45)
     axes[0, 1].grid(True, alpha=0.3)
     
-    # Positive probability
-    axes[1, 0].bar(horizon_labels, positive_probs, color="green", alpha=0.7, edgecolor="white")
-    axes[1, 0].axhline(y=0.5, color="black", linewidth=0.5, linestyle="--")
-    axes[1, 0].set_title("Positive Return Probability by Horizon")
-    axes[1, 0].set_ylabel("Probability")
-    axes[1, 0].set_ylim(0, 1)
+    # Std deviation
+    axes[1, 0].bar(horizon_labels, stds, color="orange", alpha=0.7, edgecolor="white")
+    axes[1, 0].set_title("Std Deviation by Horizon")
+    axes[1, 0].set_ylabel("Std Dev (%)")
     axes[1, 0].tick_params(axis="x", rotation=45)
     axes[1, 0].grid(True, alpha=0.3)
+    
+    # Positive probability
+    axes[1, 1].bar(horizon_labels, positive_probs, color="green", alpha=0.7, edgecolor="white")
+    axes[1, 1].axhline(y=0.5, color="black", linewidth=0.5, linestyle="--")
+    axes[1, 1].set_title("Positive Return Probability by Horizon")
+    axes[1, 1].set_ylabel("Probability")
+    axes[1, 1].set_ylim(0, 1)
+    axes[1, 1].tick_params(axis="x", rotation=45)
+    axes[1, 1].grid(True, alpha=0.3)
     
     # VaR 95% and CVaR 95%
     x = np.arange(len(horizon_labels))
     width = 0.35
-    axes[1, 1].bar(x - width/2, var_95, width, label="VaR 95%", color="red", alpha=0.7, edgecolor="white")
-    axes[1, 1].bar(x + width/2, cvar_95, width, label="CVaR 95%", color="darkred", alpha=0.7, edgecolor="white")
-    axes[1, 1].set_title("VaR & CVaR 95% by Horizon")
-    axes[1, 1].set_ylabel("Return (%)")
-    axes[1, 1].set_xticks(x)
-    axes[1, 1].set_xticklabels(horizon_labels, rotation=45)
-    axes[1, 1].legend()
-    axes[1, 1].grid(True, alpha=0.3)
+    axes[2, 0].bar(x - width/2, var_95, width, label="VaR 95%", color="red", alpha=0.7, edgecolor="white")
+    axes[2, 0].bar(x + width/2, cvar_95, width, label="CVaR 95%", color="darkred", alpha=0.7, edgecolor="white")
+    axes[2, 0].set_title("VaR & CVaR 95% by Horizon")
+    axes[2, 0].set_ylabel("Return (%)")
+    axes[2, 0].set_xticks(x)
+    axes[2, 0].set_xticklabels(horizon_labels, rotation=45)
+    axes[2, 0].legend()
+    axes[2, 0].grid(True, alpha=0.3)
+    
+    # Mean vs Median comparison (scatter)
+    axes[2, 1].scatter(means, medians, color="purple", s=100, alpha=0.7, edgecolor="white")
+    # Add diagonal line for reference
+    min_val = min(min(means), min(medians))
+    max_val = max(max(means), max(medians))
+    axes[2, 1].plot([min_val, max_val], [min_val, max_val], "k--", alpha=0.5, label="Mean = Median")
+    # Annotate each point with horizon label
+    for i, label in enumerate(horizon_labels):
+        axes[2, 1].annotate(label, (means[i], medians[i]), textcoords="offset points", xytext=(5, 5), fontsize=8)
+    axes[2, 1].set_xlabel("Mean Return (%)")
+    axes[2, 1].set_ylabel("Median Return (%)")
+    axes[2, 1].set_title("Mean vs Median Return by Horizon")
+    axes[2, 1].legend()
+    axes[2, 1].grid(True, alpha=0.3)
     
     plt.suptitle(title or "Multi-Horizon Forward Return Comparison")
     plt.tight_layout()
