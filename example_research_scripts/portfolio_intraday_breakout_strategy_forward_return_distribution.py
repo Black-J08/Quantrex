@@ -93,17 +93,6 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
 
         position = self.ctx.get_position(symbol)
 
-        # End-of-day exit logic (not needed for research, but kept for completeness)
-        if candle.timestamp.time() >= time(15, 15):
-            if position.quantity > 0:  # long position
-                logger.info(
-                    f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp}")
-                self.reset_state(symbol)
-            elif position.quantity < 0:  # short position
-                logger.info(
-                    f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp}")
-                self.reset_state(symbol)
-
         # Breakout entry logic - EXACT from portfolio_intraday_breakout_strategy.py
         if self._entry_pre_setup_condition_met.get(symbol, False) and position.quantity == 0:
             inside_candle = self._inside_candle.get(symbol)
@@ -147,6 +136,24 @@ if __name__ == "__main__":
                 )
             ),
         ),
+        # InstrumentSpec(
+        #     symbol="HDFCBANK",
+        #     adapter=ZerodhaDataAdapter(
+        #         ZerodhaDataProvider(
+        #             symbol="HDFCBANK",
+        #             exchange_segment="NSE",
+        #         )
+        #     ),
+        # ),
+        # InstrumentSpec(
+        #     symbol="SUNPHARMA",
+        #     adapter=ZerodhaDataAdapter(
+        #         ZerodhaDataProvider(
+        #             symbol="SUNPHARMA",
+        #             exchange_segment="NSE",
+        #         )
+        #     ),
+        # ),
     ]
     
     # Create and run engine

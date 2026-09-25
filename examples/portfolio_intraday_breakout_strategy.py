@@ -47,9 +47,10 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
 
     def compute_indicators(self, candles, timeframe=None):
         df = pd.DataFrame(candles)
+        df['rsi'] = ta.rsi(df['close'], length=14)
         df["st"] = ta.supertrend(
             df['high'], df['low'], df['close'], length=10, multiplier=3)['SUPERTd_10_3.0']
-        return [{"st": row["st"]} for row in df.to_dict(orient="records")]
+        return [{"rsi": row["rsi"], "st": row["st"]} for row in df.to_dict(orient="records")]
 
     def reset_state(self, symbol: str):
         self._mother_candle[symbol] = None
@@ -110,15 +111,28 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
                 self._candle_stoploss[symbol] = None
 
         # long position and supertrend indicates downtrend
-        elif position.quantity > 0 and candle.indicators.get('st') == -1:
+        # elif position.quantity > 0 and candle.indicators.get('st') == -1:
+        #     logger.info(
+        #         f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to supertrend signal")
+        #     self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
+        #     self.reset_state(symbol)
+        # # short position and supertrend indicates uptrend
+        # elif position.quantity < 0 and candle.indicators.get('st') == 1:
+        #     logger.info(
+        #         f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to supertrend signal")
+        #     self.ctx.submit_order(symbol, OrderSide.BUY,
+        #                           abs(position.quantity))
+        #     self.reset_state(symbol)
+            
+        # RSI-based exit logic
+        elif position.quantity > 0 and candle.indicators.get('rsi') > 70:
             logger.info(
-                f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to supertrend signal")
+                f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to RSI > 70")
             self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
             self.reset_state(symbol)
-        # short position and supertrend indicates uptrend
-        elif position.quantity < 0 and candle.indicators.get('st') == 1:
+        elif position.quantity < 0 and candle.indicators.get('rsi') < 30:
             logger.info(
-                f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to supertrend signal")
+                f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to RSI < 30")
             self.ctx.submit_order(symbol, OrderSide.BUY,
                                   abs(position.quantity))
             self.reset_state(symbol)
