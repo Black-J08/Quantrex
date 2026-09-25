@@ -98,7 +98,8 @@ class ResearchComponent(ABC):
         symbol: str,
         direction: OrderSide,
         timestamp: datetime,
-        metadata: Dict[str, Any]
+        metadata: Dict[str, Any],
+        emission_candle: Optional[Candle] = None
     ) -> None:
         """Emit a research event. Engine will track horizons and trigger calculation when elapsed.
         
@@ -107,11 +108,12 @@ class ResearchComponent(ABC):
             direction: OrderSide.BUY for LONG, OrderSide.SELL for SHORT.
             timestamp: Event timestamp (should match current candle timestamp).
             metadata: Additional event metadata.
+            emission_candle: The candle at which the event was emitted. Defaults to current_candle.
         """
         if self._engine is None:
             raise RuntimeError("Engine not set. Call set_event_receiver() first.")
-        if self._current_candle is None:
-            raise RuntimeError("No current candle. emit_event() must be called from on_candle().")
+        if self._current_candle is None and emission_candle is None:
+            raise RuntimeError("No current candle. emit_event() must be called from on_candle() or provide emission_candle.")
         
         from quantrex_research.research_components.forward_return.models import ForwardReturnEvent
         
@@ -120,6 +122,6 @@ class ResearchComponent(ABC):
             timestamp=timestamp,
             direction=direction,
             metadata=metadata,
-            candle=self._current_candle,
+            candle=emission_candle or self._current_candle,
         )
-        self._engine.receive_event(self, event, self._current_candle)
+        self._engine.receive_event(self, event, emission_candle or self._current_candle)

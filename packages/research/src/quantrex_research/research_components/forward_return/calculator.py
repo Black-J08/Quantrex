@@ -35,14 +35,23 @@ class ForwardReturnCalculator:
         event_price = event_candle.close
         
         # Find the index of the event candle in the full candle list
+        # The event candle might be from a different timeframe (e.g., 1H) than the base candles (1M)
+        # So we search by timestamp and symbol instead of object identity
         event_index = None
         for i, candle in enumerate(candles):
-            if candle is event_candle:
+            if candle.symbol == event_candle.symbol and candle.timestamp == event_candle.timestamp:
                 event_index = i
                 break
         
+        # If not found by timestamp, try to find by close_time (for higher timeframe candles)
         if event_index is None:
-            raise ValueError("Event candle not found in candle list")
+            for i, candle in enumerate(candles):
+                if candle.symbol == event_candle.symbol and candle.close_time == event_candle.close_time:
+                    event_index = i
+                    break
+        
+        if event_index is None:
+            raise ValueError(f"Event candle not found in candle list (symbol={event_candle.symbol}, timestamp={event_candle.timestamp}, close_time={event_candle.close_time})")
         
         returns: Dict[timedelta, Optional[float]] = {}
         
