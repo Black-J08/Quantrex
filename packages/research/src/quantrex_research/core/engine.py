@@ -1,9 +1,10 @@
 """ResearchEngine - Generic orchestrator for research components."""
 
+import shutil
 from collections.abc import Sequence, Mapping
 from datetime import datetime, time, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from quantrex_backtest import DataOrchestrator, BacktestConfig
 from quantrex_backtest.data.orchestrator import DataOrchestratorConfig
@@ -93,6 +94,7 @@ class ResearchEngine:
         data_end: str,
         backtest_config: Optional[BacktestConfig] = None,
         data_orchestrator_config: Optional[DataOrchestratorConfig] = None,
+        script_path: Optional[Union[str, Path]] = None,
     ) -> None:
         """Initialize the research engine.
         
@@ -103,6 +105,9 @@ class ResearchEngine:
             data_end: End date string (YYYY-MM-DD).
             backtest_config: Optional BacktestConfig for data preparation.
             data_orchestrator_config: Optional DataOrchestratorConfig.
+            script_path: Optional path to the research script file. If provided,
+                the script will be copied to each component's output directory
+                for reproducibility.
         """
         self.instruments = instruments
         self.research_components = research_components
@@ -115,6 +120,7 @@ class ResearchEngine:
             validate_completeness=True,
         )
         self.data_orchestrator_config = data_orchestrator_config or DataOrchestratorConfig()
+        self._script_path = Path(script_path).resolve() if script_path else None
         
         # Per-component event buffers
         self._event_buffers: Dict[ResearchComponent, List[BufferedEvent]] = {
@@ -710,6 +716,15 @@ class ResearchEngine:
             # output/research/<ComponentClassName>/<timestamp>/
             component_output_dir = output_base / component.__class__.__name__ / timestamp
             component_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Copy research script for reproducibility
+            if self._script_path and self._script_path.is_file():
+                script_dest = component_output_dir / "research_script.py"
+                try:
+                    shutil.copy2(self._script_path, script_dest)
+                    logger.debug("Copied research script to %s", script_dest)
+                except Exception as e:
+                    logger.warning("Failed to copy research script to %s: %s", script_dest, e)
             
             # Component writes its own artifacts
             result = component.on_stop(component_output_dir)

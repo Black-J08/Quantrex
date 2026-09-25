@@ -54,18 +54,16 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         self._mother_candle: dict[str, Candle | None] = {}
         self._inside_candle: dict[str, Candle | None] = {}
         self._entry_pre_setup_condition_met: dict[str, bool] = {}
-
+        
     def reset_state(self, symbol: str):
         self._mother_candle[symbol] = None
         self._inside_candle[symbol] = None
         self._entry_pre_setup_condition_met[symbol] = False
         
-    # def compute_indicators(self, candles, timeframe="1H"):
-    #     df = pd.DataFrame(candles)
-    #     df['rsi'] = ta.rsi(df['close'], length=14)
-    #     logger.info(f"Computed RSI indicators for {len(df)} candles (timeframe={timeframe}).")
-    #     # Return only the calculated RSI indicator, not raw OHLCV columns.
-    #     return [{"rsi": row["rsi"]} for row in df.to_dict(orient="records")]
+    def compute_indicators(self, candles, timeframe="1H"):
+        df = pd.DataFrame(candles)
+        df['volume_ema_60'] = ta.rsi(df['volume'], length=60)
+        return [{"volume_ema_60": row["volume_ema_60"]} for row in df.to_dict(orient="records")]
 
 
     @on_timeframe("1H")
@@ -105,26 +103,29 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         position = self.ctx.get_position(symbol)
 
         # Breakout entry logic - EXACT from portfolio_intraday_breakout_strategy.py
-        if self._entry_pre_setup_condition_met.get(symbol, False) and position.quantity == 0:
+        if self._entry_pre_setup_condition_met.get(symbol, False) and (position.quantity == 0) and (candle.volume > candle.indicators.get("volume_ema_60", float('inf'))):
             inside_candle = self._inside_candle.get(symbol)
             if inside_candle is None:
                 return
+            mother_candle = self._mother_candle.get(symbol)
+            if mother_candle is None:
+                return
 
-            if (candle.close > inside_candle.high):
+            if (candle.close > mother_candle.high):
                 logger.info(
                     f"[{symbol}] Breakout BUY detected at {candle.close} on {candle.timestamp}")
                 self.emit_event(symbol, OrderSide.BUY, candle.timestamp, {
                     "reason": "breakout_up",
-                    "inside_high": inside_candle.high,
+                    "mother_candle": mother_candle.high,
                     "close": candle.close,
                 })
                 self.reset_state(symbol)
-            elif (candle.close < inside_candle.low):
+            elif (candle.close < mother_candle.low):
                 logger.info(
                     f"[{symbol}] Breakout SELL detected at {candle.close} on {candle.timestamp}")
                 self.emit_event(symbol, OrderSide.SELL, candle.timestamp, {
                     "reason": "breakout_down",
-                    "inside_low": inside_candle.low,
+                    "mother_candle": mother_candle.low,
                     "close": candle.close,
                 })
                 self.reset_state(symbol)
@@ -173,6 +174,7 @@ if __name__ == "__main__":
         research_components=[research],
         data_start="2024-09-01",
         data_end="2025-08-31",
+        script_path=__file__,
     )
     
     results = engine.run()
