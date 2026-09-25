@@ -6,9 +6,10 @@ data and the research-component lifecycle.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
@@ -99,7 +100,7 @@ class ResearchComponent(ABC):
         direction: OrderSide,
         timestamp: datetime,
         metadata: Dict[str, Any],
-        emission_candle: Optional[Candle] = None
+        emission_candle: Candle | None = None,
     ) -> None:
         """Emit a research event. Engine will track horizons and trigger calculation when elapsed.
         
@@ -108,12 +109,16 @@ class ResearchComponent(ABC):
             direction: OrderSide.BUY for LONG, OrderSide.SELL for SHORT.
             timestamp: Event timestamp (should match current candle timestamp).
             metadata: Additional event metadata.
-            emission_candle: The candle at which the event was emitted. Defaults to current_candle.
+            emission_candle: Optional candle that triggered this event. Defaults to current_candle.
+                Useful when emitting from @on_timeframe callbacks where the emission candle
+                is the higher timeframe candle, not the base timeframe candle.
         """
         if self._engine is None:
             raise RuntimeError("Engine not set. Call set_event_receiver() first.")
-        if self._current_candle is None and emission_candle is None:
-            raise RuntimeError("No current candle. emit_event() must be called from on_candle() or provide emission_candle.")
+        
+        candle = emission_candle if emission_candle is not None else self._current_candle
+        if candle is None:
+            raise RuntimeError("No current candle. emit_event() must be called from on_candle() or on_timeframe().")
         
         from quantrex_research.research_components.forward_return.models import ForwardReturnEvent
         
@@ -122,6 +127,27 @@ class ResearchComponent(ABC):
             timestamp=timestamp,
             direction=direction,
             metadata=metadata,
-            candle=emission_candle or self._current_candle,
+            candle=candle,
         )
-        self._engine.receive_event(self, event, emission_candle or self._current_candle)
+        self._engine.receive_event(self, event, candle)
+
+    def compute_indicators(
+        self,
+        candles: Sequence[Mapping[str, object]],
+        timeframe: str | None = None,
+    ) -> Sequence[Mapping[str, float | int | None]]:
+        """Precompute technical indicators over the ordered candle history.
+
+        Default: no-op (returns empty mapping per bar). Subclasses may
+        override to compute RSI, SMA, etc. using pandas/numpy/ta-lib.
+        The framework does not provide built-in indicator calculations.
+
+        Args:
+            candles: Sequence of raw candle row dictionaries, sorted by timestamp.
+            timeframe: Timeframe interval (e.g., "1M", "1H", "1D"). None for base timeframe.
+
+        Returns:
+            Sequence of indicator mappings aligned 1:1 with input candles.
+            Each mapping contains indicator name -> value (float, int, or None).
+        """
+        return [{} for _ in candles]

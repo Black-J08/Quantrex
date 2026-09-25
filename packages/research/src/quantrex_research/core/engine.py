@@ -1,17 +1,17 @@
 """ResearchEngine - Generic orchestrator for research components."""
 
+from collections.abc import Sequence, Mapping
 from datetime import datetime, time, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Optional
 
 from quantrex_backtest import DataOrchestrator, BacktestConfig
 from quantrex_backtest.data.orchestrator import DataOrchestratorConfig
 from quantrex_core import InstrumentSpec
-from quantrex_core.models import Candle
 from quantrex_core.logging import get_logger
-from quantrex_core.timeframe import TimeframeRegistry, TimeframeDispatcher
-from quantrex_core.timeframe.filtering import filter_candles_by_timeframe
-from quantrex_core.timeframe.parser import interval_to_minutes, parse_interval
+from quantrex_core.models import Candle
+from quantrex_core.timeframe import TimeframeRegistry, TimeframeDispatcher, filter_candles_by_timeframe
+from quantrex_core.timeframe.parser import interval_to_minutes
 
 from quantrex_research.core.base import ResearchComponent
 from quantrex_research.utils.data_helpers import merge_candle_streams
@@ -31,170 +31,41 @@ class ResearchContext:
     """Minimal context for research components providing history and timeframe access.
     
     Mirrors the StrategyContext interface from backtest for compatibility.
-    Supports multi-timeframe via pre-computed derived candles using shared filtering logic.
-    Supports multiple symbols by storing derived candles per symbol.
     """
     
-    def __init__(
-        self,
-        base_timeframe: str = "1M",
-        required_timeframes: Optional[List[str]] = None,
-        origin_time: Optional[time] = None,
-        raw_data_by_timeframe: Optional[Dict[str, Dict[str, List[dict]]]] = None,
-        indicators_by_timeframe: Optional[Dict[str, Dict[str, List[Mapping]]]] = None,
-    ) -> None:
+    def __init__(self, base_timeframe: str = "1M", origin_time: time | None = None) -> None:
         self._history: List[Candle] = []
         self._base_timeframe = base_timeframe
-        self._required_timeframes = required_timeframes or [base_timeframe]
-        self._origin_time = origin_time
-        self._raw_data_by_timeframe = raw_data_by_timeframe or {}
-        self._indicators_by_timeframe = indicators_by_timeframe or {}
-        # Per-symbol derived candles
-        self._derived_candles: Dict[str, Dict[str, List[Candle]]] = {}
-        self._derived_histories: Dict[str, Dict[str, List[Candle]]] = {}
-        self._derived_indices: Dict[str, Dict[str, int]] = {}
-        self._base_completed_index = 0
+        self._derived_histories: Dict[str, List[Candle]] = {}
+        self._derived_indices: Dict[str, int] = {}
         self._symbol = ""
-        self._datetime_format = "%Y-%m-%d %H:%M:%S"
-        
-        # Pre-compute derived timeframe candles if data provided
-        if self._raw_data_by_timeframe and self._indicators_by_timeframe:
-            self._precompute_derived_candles()
+        self._origin_time = origin_time
     
     def set_symbol(self, symbol: str) -> None:
         self._symbol = symbol
     
-    def set_symbol_and_format(self, symbol: str, datetime_format: str) -> None:
-        """Set symbol and datetime format for derived candle construction.
-        
-        Called by engine after context creation.
-        """
-        self._symbol = symbol
-        self._datetime_format = datetime_format
-        # Rebuild derived candles for this symbol
-        if self._raw_data_by_timeframe and self._indicators_by_timeframe:
-            self._precompute_derived_candles_for_symbol(symbol)
-    
-    def _precompute_derived_candles(self) -> None:
-        """Pre-compute candles for all non-base timeframes for all symbols."""
-        for symbol in self._raw_data_by_timeframe.get(self._base_timeframe, {}).keys():
-            self._precompute_derived_candles_for_symbol(symbol)
-    
-    def _precompute_derived_candles_for_symbol(self, symbol: str) -> None:
-        """Pre-compute candles for all non-base timeframes for a specific symbol."""
-        # Initialize per-symbol storage if not exists
-        if symbol not in self._derived_candles:
-            self._derived_candles[symbol] = {}
-            self._derived_histories[symbol] = {}
-            self._derived_indices[symbol] = {}
-        
-        for tf, symbol_data in self._raw_data_by_timeframe.items():
-            if tf != self._base_timeframe:
-                # Get data for current symbol
-                raw_rows = symbol_data.get(symbol, [])
-                if not raw_rows:
-                    continue
-                indicators = self._indicators_by_timeframe.get(tf, {}).get(symbol, [{} for _ in raw_rows])
-                self._derived_candles[symbol][tf] = self._build_candles_for_timeframe(tf, raw_rows, indicators)
-                self._derived_histories[symbol][tf] = []
-                self._derived_indices[symbol][tf] = 0
-    
     @property
     def history(self) -> tuple[Candle, ...]:
-        """Return history as tuple (read-only snapshot).
-        
-        Returns only completed candles (those whose close time has passed).
-        """
-        return tuple(self._history[:self._base_completed_index])
+        """Return history as tuple (read-only snapshot)."""
+        return tuple(self._history)
     
     def timeframe_history(self, timeframe: str) -> tuple[Candle, ...]:
-        """Return history for a specific timeframe for the current symbol."""
+        """Return history for a specific timeframe."""
         if timeframe == self._base_timeframe:
-            return tuple(self._history[:self._base_completed_index])
-        
-        # Return pre-computed derived history for current symbol (only completed candles)
-        if self._symbol and timeframe in self._derived_histories.get(self._symbol, {}):
-            return tuple(self._derived_histories[self._symbol][timeframe])
-        
-        # Fallback to filtering (for backward compatibility)
-        return tuple(self._filter_by_timeframe(self._history, timeframe))
+            return tuple(self._history)
+        # Derived timeframe candles are already properly aligned closed candles
+        # (either from adapter natively or built incrementally), so return directly
+        # Filter by current symbol
+        candles = self._derived_histories.get(timeframe, [])
+        if not candles:
+            return ()
+        return tuple(c for c in candles if c.symbol == self._symbol)
     
     def record_candle(self, candle: Candle) -> None:
-        """Record a candle to history and update derived timeframe histories."""
+        """Record a candle to history. Derived timeframes are pre-built by the engine."""
         self._history.append(candle)
-        
-        # Update derived timeframe histories using the current execution
-        # time (close of the base bar just processed), so a higher-
-        # timeframe candle becomes visible exactly when its close time is
-        # reached — not one base bar later.
-        self._update_derived_histories(candle.close_time)
-    
-    def _update_derived_histories(self, current_timestamp: datetime) -> None:
-        """Update derived timeframe histories with candles that have completed.
-        
-        A derived candle is complete when its **close time** (open time +
-        its own timeframe duration) is at or before the current execution
-        time. Comparing open times here would dispatch higher-timeframe
-        candles before they finish forming.
-        """
-        # Update base timeframe completed index
-        while (self._base_completed_index < len(self._history) and
-               self._history[self._base_completed_index].close_time <= current_timestamp):
-            self._base_completed_index += 1
-
-        # Update derived histories for current symbol
-        if self._symbol and self._symbol in self._derived_candles:
-            for tf, derived_candles in self._derived_candles[self._symbol].items():
-                derived_history = self._derived_histories[self._symbol][tf]
-                idx = self._derived_indices[self._symbol][tf]
-
-                # Add all derived candles whose close time has passed
-                while idx < len(derived_candles) and derived_candles[idx].close_time <= current_timestamp:
-                    derived_history.append(derived_candles[idx])
-                    idx += 1
-
-                self._derived_indices[self._symbol][tf] = idx
-    
-    def _build_candles_for_timeframe(self, timeframe: str, raw_rows: List[dict], indicators: List[Mapping]) -> List[Candle]:
-        """Build Candle objects for a specific timeframe from raw rows."""
-        candles = []
-        for idx, row in enumerate(raw_rows):
-            try:
-                candle = Candle.from_row(
-                    row,
-                    self._symbol,
-                    timeframe,
-                    self._datetime_format,
-                    indicators=indicators[idx] if idx < len(indicators) else {},
-                )
-                candles.append(candle)
-            except Exception:
-                # Skip malformed rows
-                continue
-        return candles
-    
-    def _filter_by_timeframe(self, candles: List[Candle], interval: str) -> List[Candle]:
-        """Filter candles by timeframe interval using shared implementation.
-        
-        Delegates to quantrex_core.timeframe.filter_candles_by_timeframe.
-        
-        Args:
-            candles: List of candles in chronological order.
-            interval: Timeframe interval string (e.g., "1H", "1D", "4H").
-            
-        Returns:
-            List of candles representing the last candle of each interval.
-        """
-        if not candles:
-            return []
-
-        # Use origin time for correct interval alignment
-        # If origin_time is not set, default to midnight (00:00)
-        origin_time = self._origin_time
-        if origin_time is None:
-            origin_time = time(0, 0)
-
-        return list(filter_candles_by_timeframe(candles, interval, origin_time))
+        # Note: Derived timeframes are pre-built by ResearchEngine.run() before the loop
+        # to enable indicator computation on them. We don't build them on-the-fly here.
     
     def get_position(self, symbol: str):
         """Get position - returns dummy position for research (no actual positions)."""
@@ -253,96 +124,104 @@ class ResearchEngine:
         # Current candle index for progress tracking
         self._current_candle: Optional[Candle] = None
     
-    def _get_required_timeframes(self) -> List[str]:
-        """Get timeframes required by all research components.
+    def _get_required_timeframes(self, component: ResearchComponent) -> list[str]:
+        """Get timeframes required by a component.
         
-        If any component defines on_candle (not just base), base is 1M;
-        otherwise base is the first registered @on_timeframe interval.
+        Base timeframe is always "1M". Additional timeframes come from @on_timeframe decorators.
         """
-        # Collect all registered timeframes from all components
-        all_timeframes = set()
-        has_custom_on_candle = False
+        timeframes = ["1M"]
+        for attr_name in dir(component):
+            attr = getattr(component, attr_name)
+            if callable(attr) and hasattr(attr, '_quantrex_timeframe'):
+                interval = attr._quantrex_timeframe
+                if interval not in timeframes:
+                    timeframes.append(interval)
+        return timeframes
+
+    def _build_derived_timeframe_data(
+        self,
+        base_rows: List[Dict[str, Any]],
+        timeframe: str,
+        datetime_format: str,
+        symbol: str,
+        origin_time: time | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Build derived timeframe (e.g., 1H) raw rows from base (1M) rows.
         
-        for component in self.research_components:
-            # Check if component has custom on_candle (not from base class)
-            for cls in component.__class__.__mro__:
-                if cls is ResearchComponent:
-                    break
-                if "on_candle" in cls.__dict__:
-                    has_custom_on_candle = True
-                    break
-            
-            # Collect @on_timeframe decorated methods
-            for attr_name in dir(component):
-                attr = getattr(component, attr_name)
-                if callable(attr) and hasattr(attr, '_quantrex_timeframe'):
-                    all_timeframes.add(attr._quantrex_timeframe)
-        
-        if has_custom_on_candle:
-            base_timeframe = "1M"
-        elif all_timeframes:
-            base_timeframe = min(all_timeframes, key=interval_to_minutes)
-        else:
-            base_timeframe = "1M"
-        
-        # Return base timeframe first, then others sorted by duration
-        other_timeframes = sorted([tf for tf in all_timeframes if tf != base_timeframe], key=interval_to_minutes)
-        return [base_timeframe] + other_timeframes
-    
-    def _read_timeframe_data(self, timeframe: str) -> Dict[str, List[dict]]:
-        """Read timeframe data from all instrument adapters.
-        
-        Args:
-            timeframe: Timeframe interval string (e.g., "1M", "1H", "1D")
-            
-        Returns:
-            Dictionary mapping symbol to list of raw data rows
+        This mirrors ResearchContext._update_derived_timeframes but operates on raw rows
+        before Candle creation, so indicators can be computed on derived timeframes too.
+        Uses align_to_origin for correct interval alignment with market origin time.
         """
-        symbol_data: Dict[str, List[dict]] = {}
+        from quantrex_core.timeframe.arithmetic import align_to_origin
         
-        for instrument in self.instruments:
-            adapter = instrument.adapter
-            if adapter is None:
-                logger.warning("No adapter for instrument %s, skipping", instrument.symbol)
-                continue
+        tf_minutes = interval_to_minutes(timeframe)
+        if tf_minutes is None or tf_minutes <= 1:
+            return []
+        
+        derived_rows = []
+        current_bucket = None
+        
+        # Use origin_time for alignment (default to midnight if not provided)
+        origin = origin_time if origin_time is not None else time(0, 0)
+        
+        for row in base_rows:
+            dt_val = row["datetime"]
+            if hasattr(dt_val, 'strftime'):
+                dt = dt_val.to_pydatetime()
+            else:
+                dt = datetime.strptime(dt_val, datetime_format)
             
-            try:
-                # Check if adapter supports this timeframe
-                supported = getattr(adapter, 'supported_timeframes', [])
-                if supported and timeframe not in supported:
-                    logger.warning("Adapter for %s does not support timeframe %s, skipping", instrument.symbol, timeframe)
-                    continue
+            # Use align_to_origin for correct interval alignment
+            bucket_timestamp = align_to_origin(dt, origin, tf_minutes)
+            bucket_key = f"{dt.date()}_{bucket_timestamp.hour:02d}:{bucket_timestamp.minute:02d}"
+            
+            if current_bucket is None or current_bucket["key"] != bucket_key:
+                # Finalize previous bucket
+                if current_bucket is not None:
+                    bucket = current_bucket["data"]
+                    derived_rows.append({
+                        "datetime": bucket["timestamp"].strftime(datetime_format),
+                        "open": str(bucket["open"]),
+                        "high": str(bucket["high"]),
+                        "low": str(bucket["low"]),
+                        "close": str(bucket["close"]),
+                        "volume": str(bucket["volume"]),
+                    })
                 
-                # Read data from adapter
-                rows = adapter.read_timeframe(timeframe, from_date=self.data_start, to_date=self.data_end)
-                if rows:
-                    # Sort by datetime to ensure chronological order
-                    datetime_format = getattr(adapter, 'datetime_format', "%Y-%m-%d %H:%M:%S")
-                    rows.sort(key=lambda r: r.get('datetime', ''))
-                    symbol_data[instrument.symbol] = rows
-                    logger.info("Loaded %d rows for %s at %s", len(rows), instrument.symbol, timeframe)
-                else:
-                    logger.warning("No data returned for %s at %s", instrument.symbol, timeframe)
-                    
-            except Exception as e:
-                logger.error("Failed to read %s data for %s: %s", timeframe, instrument.symbol, e)
-                raise
+                # Start new bucket
+                current_bucket = {
+                    "key": bucket_key,
+                    "data": {
+                        "open": float(row["open"]),
+                        "high": float(row["high"]),
+                        "low": float(row["low"]),
+                        "close": float(row["close"]),
+                        "volume": float(row["volume"]),
+                        "timestamp": bucket_timestamp,
+                    }
+                }
+            else:
+                # Update current bucket
+                bucket = current_bucket["data"]
+                bucket["high"] = max(bucket["high"], float(row["high"]))
+                bucket["low"] = min(bucket["low"], float(row["low"]))
+                bucket["close"] = float(row["close"])
+                bucket["volume"] += float(row["volume"])
         
-        return symbol_data
-    
-    def _get_origin_time(self) -> Optional[time]:
-        """Get market origin time from adapters.
+        # Finalize last bucket
+        if current_bucket is not None:
+            bucket = current_bucket["data"]
+            derived_rows.append({
+                "datetime": bucket["timestamp"].strftime(datetime_format),
+                "open": str(bucket["open"]),
+                "high": str(bucket["high"]),
+                "low": str(bucket["low"]),
+                "close": str(bucket["close"]),
+                "volume": str(bucket["volume"]),
+            })
         
-        Returns the first non-None origin_time from adapters, or None.
-        """
-        for instrument in self.instruments:
-            adapter = instrument.adapter
-            if adapter and hasattr(adapter, 'get_origin_time'):
-                origin = adapter.get_origin_time()
-                if origin is not None:
-                    return origin
-        return None
-    
+        return derived_rows
+
     def run(self) -> Dict[str, Any]:
         """Run the research engine.
         
@@ -351,83 +230,181 @@ class ResearchEngine:
         """
         logger.info("Starting ResearchEngine with %d components", len(self.research_components))
         
-        # 1. Get required timeframes from all components
-        required_timeframes = self._get_required_timeframes()
-        base_timeframe = required_timeframes[0]
-        logger.info("Required timeframes: %s (base: %s)", required_timeframes, base_timeframe)
+        # Get origin_time from first instrument's adapter (for timeframe alignment)
+        origin_time = None
+        if self.instruments:
+            first_adapter = self.instruments[0].adapter
+            if hasattr(first_adapter, 'get_origin_time'):
+                origin_time = first_adapter.get_origin_time()
         
-        # 2. Get origin time for interval alignment
-        origin_time = self._get_origin_time()
-        if origin_time:
-            logger.info("Using origin time: %s", origin_time)
-        
-        # 3. Load base timeframe data via DataOrchestrator (validated, synchronized)
-        logger.info("Loading base timeframe (%s) data via DataOrchestrator...", base_timeframe)
+        # 1. Load and prepare data via DataOrchestrator (raw rows, not candles yet)
+        logger.info("Loading data via DataOrchestrator...")
         data_orchestrator = DataOrchestrator(self.data_orchestrator_config)
-        base_symbol_data = data_orchestrator.validate_and_prepare(
+        symbol_base_data = data_orchestrator.validate_and_prepare(
             self.instruments, self.backtest_config
         )
         
-        # 4. Load additional timeframes directly from adapters
-        additional_timeframes = required_timeframes[1:]
-        raw_data_by_timeframe: Dict[str, Dict[str, List[dict]]] = {base_timeframe: base_symbol_data}
-        indicators_by_timeframe: Dict[str, Dict[str, List[Mapping]]] = {base_timeframe: {}}
+        if not symbol_base_data:
+            logger.warning("No data available for any instrument; research completed with zero candles")
+            for component in self.research_components:
+                component.set_event_receiver(self)
+                component.on_start()
+            return self._finalize_components()
         
-        for tf in additional_timeframes:
-            logger.info("Loading additional timeframe (%s) data from adapters...", tf)
-            tf_data = self._read_timeframe_data(tf)
-            raw_data_by_timeframe[tf] = tf_data
-            indicators_by_timeframe[tf] = {symbol: [{} for _ in rows] for symbol, rows in tf_data.items()}
+        logger.info("Loaded base data for %d symbols", len(symbol_base_data))
+        for symbol, rows in symbol_base_data.items():
+            logger.info("  %s: %d base rows", symbol, len(rows))
         
-        # 5. Convert base timeframe data to Candle objects for merging
-        symbol_candles: Dict[str, List[Candle]] = {}
-        for symbol, rows in base_symbol_data.items():
-            candles = []
-            for row in rows:
+        # 2. Determine required timeframes for each component
+        component_timeframes: Dict[ResearchComponent, List[str]] = {}
+        all_timeframes: set[str] = {"1M"}
+        for component in self.research_components:
+            tfs = self._get_required_timeframes(component)
+            component_timeframes[component] = tfs
+            all_timeframes.update(tfs)
+        
+        # 3. Build raw data for all required timeframes (base + derived)
+        # Structure: {symbol: {timeframe: List[raw_rows]}}
+        all_raw_data: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+        
+        for symbol, base_rows in symbol_base_data.items():
+            all_raw_data[symbol] = {"1M": base_rows}
+            
+            # Get datetime format for this symbol
+            adapter = next((inst.adapter for inst in self.instruments if inst.symbol == symbol), None)
+            datetime_format = "%Y-%m-%d %H:%M:%S"
+            if adapter and hasattr(adapter, 'datetime_format'):
+                datetime_format = adapter.datetime_format
+            elif adapter and hasattr(adapter, 'provider') and hasattr(adapter.provider, '_datetime_format'):
+                datetime_format = adapter.provider._datetime_format
+            
+            # Read additional timeframes from adapters (like backtest engine)
+            # This allows adapters to provide native higher timeframe data
+            additional_timeframes: list[str] = [tf for tf in all_timeframes if tf != "1M"]
+            for tf in additional_timeframes:
+                try:
+                    adapter_rows = adapter.read_timeframe(
+                        tf,
+                        from_date=self.data_start,
+                        to_date=self.data_end,
+                    )
+                    if adapter_rows:
+                        all_raw_data[symbol][tf] = adapter_rows
+                        logger.info("  %s: read %d rows for timeframe %s from adapter", symbol, len(adapter_rows), tf)
+                    else:
+                        # Fall back to building from 1M data
+                        derived_rows = self._build_derived_timeframe_data(base_rows, tf, datetime_format, symbol, origin_time)
+                        if derived_rows:
+                            all_raw_data[symbol][tf] = derived_rows
+                            logger.info("  %s: built %d rows for derived timeframe %s", symbol, len(derived_rows), tf)
+                except Exception as e:
+                    logger.warning("Failed to read timeframe %s from adapter for %s: %s. Building from 1M.", tf, symbol, e)
+                    # Fall back to building from 1M data
+                    derived_rows = self._build_derived_timeframe_data(base_rows, tf, datetime_format, symbol, origin_time)
+                    if derived_rows:
+                        all_raw_data[symbol][tf] = derived_rows
+                        logger.info("  %s: built %d rows for derived timeframe %s", symbol, len(derived_rows), tf)
+        
+        # 4. Sort all raw data by datetime for each symbol and timeframe
+        for symbol in all_raw_data:
+            for tf in all_raw_data[symbol]:
                 adapter = next((inst.adapter for inst in self.instruments if inst.symbol == symbol), None)
-                datetime_format = "%Y-%m-%d %H:%M:%S"  # Default
+                dt_format = datetime_format
                 if adapter and hasattr(adapter, 'datetime_format'):
-                    datetime_format = adapter.datetime_format
-                elif adapter and hasattr(adapter, 'provider') and hasattr(adapter.provider, '_datetime_format'):
-                    datetime_format = adapter.provider._datetime_format
+                    dt_format = adapter.datetime_format
+                all_raw_data[symbol][tf].sort(
+                    key=lambda row: datetime.strptime(row.get("datetime", ""), dt_format)
+                    if isinstance(row.get("datetime"), str) else row.get("datetime", datetime.min)
+                )
+        
+        # 5. Compute indicators for each component, symbol, and timeframe
+        # Structure: {component: {symbol: {timeframe: List[Dict[indicator_name -> value]]}}}
+        all_indicators: Dict[ResearchComponent, Dict[str, Dict[str, List[Dict[str, float | int | None]]]]] = {}
+        
+        for component in self.research_components:
+            all_indicators[component] = {}
+            for symbol in all_raw_data:
+                all_indicators[component][symbol] = {}
+                for tf in all_raw_data[symbol]:
+                    try:
+                        indicators = component.compute_indicators(
+                            all_raw_data[symbol][tf], timeframe=tf
+                        )
+                        # Validate length matches
+                        if len(indicators) != len(all_raw_data[symbol][tf]):
+                            logger.exception(
+                                "compute_indicators returned %d entries for %d candles (symbol %s, timeframe %s)",
+                                len(indicators), len(all_raw_data[symbol][tf]), symbol, tf,
+                            )
+                            raise ValueError(
+                                f"compute_indicators returned {len(indicators)} entries "
+                                f"for {len(all_raw_data[symbol][tf])} candles (symbol {symbol}, timeframe {tf}); length must match"
+                            )
+                        all_indicators[component][symbol][tf] = indicators
+                        logger.debug(
+                            "Computed indicators for component %s, symbol %s, timeframe %s: %d entries",
+                            component.__class__.__name__, symbol, tf, len(indicators)
+                        )
+                    except Exception as e:
+                        logger.exception(
+                            "Component.compute_indicators raised for %s symbol %s timeframe %s",
+                            component.__class__.__name__, symbol, tf
+                        )
+                        raise ValueError(
+                            f"Component {component.__class__.__name__}.compute_indicators failed for {symbol} timeframe {tf}: {e}"
+                        ) from e
+        
+        # 6. Prepare base timeframe candles for the main loop (with indicators)
+        # Structure: {symbol: List[Candle]} for base timeframe only
+        base_candles_by_symbol: Dict[str, List[Candle]] = {}
+        
+        for symbol in all_raw_data:
+            if "1M" not in all_raw_data[symbol]:
+                continue
+            candles = []
+            adapter = next((inst.adapter for inst in self.instruments if inst.symbol == symbol), None)
+            datetime_format = "%Y-%m-%d %H:%M:%S"
+            if adapter and hasattr(adapter, 'datetime_format'):
+                datetime_format = adapter.datetime_format
+            elif adapter and hasattr(adapter, 'provider') and hasattr(adapter.provider, '_datetime_format'):
+                datetime_format = adapter.provider._datetime_format
+            
+            for idx, row in enumerate(all_raw_data[symbol]["1M"]):
+                # Get indicators for each component for this candle
+                merged_indicators: Dict[str, float | int | None] = {}
+                for component in self.research_components:
+                    comp_indicators = all_indicators[component][symbol]["1M"][idx]
+                    merged_indicators.update(comp_indicators)
+                
                 candle = Candle.from_row(
-                    row, 
-                    symbol=symbol, 
-                    timeframe=base_timeframe,
-                    datetime_format=datetime_format
+                    row,
+                    symbol=symbol,
+                    timeframe="1M",
+                    datetime_format=datetime_format,
+                    indicators=merged_indicators,
                 )
                 candles.append(candle)
-            symbol_candles[symbol] = candles
+            base_candles_by_symbol[symbol] = candles
+            logger.info("  %s: created %d base candles", symbol, len(candles))
         
-        logger.info("Loaded base data for %d symbols", len(symbol_candles))
-        for symbol, candles in symbol_candles.items():
-            logger.info("  %s: %d candles", symbol, len(candles))
+        # 7. Merge base timeframe candles into single time-ordered stream for the main loop
+        merged_candles = merge_candle_streams(base_candles_by_symbol)
+        logger.info("Merged base candle stream: %d total candles", len(merged_candles))
         
-        # 6. Merge into single time-ordered stream
-        merged_candles = merge_candle_streams(symbol_candles)
-        logger.info("Merged candle stream: %d total candles", len(merged_candles))
-        
-        # 7. Call on_start for all components (always, even with empty data)
+        # 8. Call on_start for all components
         for component in self.research_components:
             component.set_event_receiver(self)
             component.on_start()
         
         if not merged_candles:
-            logger.warning("No candles loaded, exiting")
-            # Still call on_stop for components
+            logger.warning("No base candles loaded, exiting")
             return self._finalize_components()
         
-        # 8. Main candle loop
+        # 9. Main candle loop
         logger.info("Starting candle loop...")
         
-        # Create research context for history/timeframe access with multi-timeframe support
-        context = ResearchContext(
-            base_timeframe=base_timeframe,
-            required_timeframes=required_timeframes,
-            origin_time=origin_time,
-            raw_data_by_timeframe=raw_data_by_timeframe,
-            indicators_by_timeframe=indicators_by_timeframe,
-        )
+        # Create research context for history/timeframe access
+        context = ResearchContext(base_timeframe="1M", origin_time=origin_time)
         
         # Create timeframe registry and dispatcher for @on_timeframe support
         registry = TimeframeRegistry()
@@ -441,15 +418,67 @@ class ResearchEngine:
                     interval = attr._quantrex_timeframe
                     registry.register(interval, attr)
         
-        # Set symbol and format for each symbol in context
-        for symbol in symbol_candles.keys():
+        # Track derived timeframe building state per symbol
+        # For timeframes provided by adapter natively: pre-build candles with indicators,
+        # but add to context incrementally based on close_time for look-ahead prevention
+        # For timeframes built from 1M: build incrementally from 1M data
+        derived_state: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        prebuilt_native_candles: Dict[str, Dict[str, List[Candle]]] = {}
+        
+        for symbol in all_raw_data:
+            derived_state[symbol] = {}
+            prebuilt_native_candles[symbol] = {}
             adapter = next((inst.adapter for inst in self.instruments if inst.symbol == symbol), None)
-            datetime_format = "%Y-%m-%d %H:%M:%S"  # Default
-            if adapter and hasattr(adapter, 'datetime_format'):
-                datetime_format = adapter.datetime_format
-            elif adapter and hasattr(adapter, 'provider') and hasattr(adapter.provider, '_datetime_format'):
-                datetime_format = adapter.provider._datetime_format
-            context.set_symbol_and_format(symbol, datetime_format)
+            
+            for tf in all_raw_data[symbol]:
+                if tf == "1M":
+                    continue
+                
+                # Check if this timeframe was provided by adapter natively
+                is_native = False
+                if adapter and hasattr(adapter, 'supported_timeframes'):
+                    is_native = tf in adapter.supported_timeframes
+                
+                if is_native:
+                    # Pre-build all candles for this native timeframe with indicators
+                    candles: List[Candle] = []
+                    datetime_format = "%Y-%m-%d %H:%M:%S"
+                    if adapter and hasattr(adapter, 'datetime_format'):
+                        datetime_format = adapter.datetime_format
+                    elif adapter and hasattr(adapter, 'provider') and hasattr(adapter.provider, '_datetime_format'):
+                        datetime_format = adapter.provider._datetime_format
+                    
+                    for idx, row in enumerate(all_raw_data[symbol][tf]):
+                        merged_indicators: Dict[str, float | int | None] = {}
+                        for component in self.research_components:
+                            comp_indicators = all_indicators[component][symbol][tf][idx]
+                            merged_indicators.update(comp_indicators)
+                        
+                        candle = Candle.from_row(
+                            row,
+                            symbol=symbol,
+                            timeframe=tf,
+                            datetime_format=datetime_format,
+                            indicators=merged_indicators,
+                        )
+                        candles.append(candle)
+                    prebuilt_native_candles[symbol][tf] = candles
+                    logger.info("  %s: pre-built %d candles for native timeframe %s", symbol, len(candles), tf)
+                else:
+                    # Build incrementally from 1M data
+                    derived_state[symbol][tf] = {
+                        "rows": all_raw_data[symbol][tf],
+                        "indicators": {comp: all_indicators[comp][symbol][tf] for comp in self.research_components},
+                        "next_index": 0,
+                        "current_bucket": None,
+                    }
+        
+        # Track next native candle to dispatch per symbol/timeframe
+        native_candle_indices: Dict[str, Dict[str, int]] = {}
+        for symbol in prebuilt_native_candles:
+            native_candle_indices[symbol] = {}
+            for tf in prebuilt_native_candles[symbol]:
+                native_candle_indices[symbol][tf] = 0
         
         for candle in merged_candles:
             self._current_candle = candle
@@ -466,6 +495,30 @@ class ResearchEngine:
             for component in self.research_components:
                 component.ctx = context
             
+            # Update derived timeframes incrementally for timeframes built from 1M data
+            # This ensures derived candles are only visible at their close time
+            self._update_derived_timeframes_incremental(candle, derived_state, context)
+            
+            # Dispatch native timeframe candles that have closed by this execution time
+            # Execution time = current candle's close_time
+            # Only add native candles for the current symbol
+            execution_time = candle.close_time
+            symbol = candle.symbol
+            if symbol in prebuilt_native_candles:
+                for tf in prebuilt_native_candles[symbol]:
+                    idx = native_candle_indices[symbol][tf]
+                    while idx < len(prebuilt_native_candles[symbol][tf]):
+                        native_candle = prebuilt_native_candles[symbol][tf][idx]
+                        if native_candle.close_time <= execution_time:
+                            # This native candle has closed, add to context history
+                            if tf not in context._derived_histories:
+                                context._derived_histories[tf] = []
+                            context._derived_histories[tf].append(native_candle)
+                            idx += 1
+                        else:
+                            break
+                    native_candle_indices[symbol][tf] = idx
+            
             # Dispatch timeframe methods (e.g., @on_timeframe("1H"))
             dispatcher.dispatch_all(context, candle.symbol)
             
@@ -476,14 +529,130 @@ class ResearchEngine:
             # Check buffered events for elapsed horizons
             self._process_elapsed_horizons(candle, merged_candles)
         
-        # 9. Process remaining events (horizons beyond data end)
+        # 10. Process remaining events (horizons beyond data end)
         self._process_remaining_events(merged_candles)
         
-        # 10. Call on_stop for all components and collect results
+        # 11. Call on_stop for all components and collect results
         results = self._finalize_components()
         
         logger.info("ResearchEngine completed")
         return results
+
+    def _update_derived_timeframes_incremental(
+        self,
+        candle: Candle,
+        derived_state: Dict[str, Dict[str, Dict[str, Any]]],
+        context: "ResearchContext",
+    ) -> None:
+        """Update derived timeframes incrementally, creating candles only when buckets complete.
+        
+        This mirrors the original ResearchContext._update_derived_timeframes but also
+        attaches pre-computed indicators to derived candles when they're created.
+        Uses align_to_origin for correct interval alignment with market origin time.
+        """
+        from quantrex_core.timeframe.arithmetic import align_to_origin
+        
+        symbol = candle.symbol
+        if symbol not in derived_state:
+            return
+        
+        # Get origin_time from context
+        origin_time = context._origin_time if context._origin_time is not None else time(0, 0)
+        
+        for tf, state in derived_state[symbol].items():
+            tf_minutes = interval_to_minutes(tf)
+            if tf_minutes is None or tf_minutes <= 1:
+                continue
+            
+            dt = candle.timestamp
+            # Use align_to_origin for correct interval alignment
+            bucket_timestamp = align_to_origin(dt, origin_time, tf_minutes)
+            bucket_key = f"{dt.date()}_{bucket_timestamp.hour:02d}:{bucket_timestamp.minute:02d}"
+            
+            if state["current_bucket"] is None or state["current_bucket"]["key"] != bucket_key:
+                # Finalize previous bucket if exists
+                if state["current_bucket"] is not None:
+                    bucket = state["current_bucket"]["data"]
+                    idx = state["next_index"] - 1
+                    
+                    # Get merged indicators for this derived candle
+                    merged_indicators: Dict[str, float | int | None] = {}
+                    for component in self.research_components:
+                        comp_indicators = state["indicators"][component][idx]
+                        merged_indicators.update(comp_indicators)
+                    
+                    derived_candle = Candle(
+                        symbol=bucket["symbol"],
+                        timestamp=bucket["timestamp"],
+                        close_time=bucket["timestamp"] + timedelta(minutes=tf_minutes),
+                        timeframe=tf,
+                        open=bucket["open"],
+                        high=bucket["high"],
+                        low=bucket["low"],
+                        close=bucket["close"],
+                        volume=bucket["volume"],
+                        indicators=merged_indicators,
+                    )
+                    
+                    if tf not in context._derived_histories:
+                        context._derived_histories[tf] = []
+                    context._derived_histories[tf].append(derived_candle)
+                
+                # Start new bucket
+                state["current_bucket"] = {
+                    "key": bucket_key,
+                    "data": {
+                        "open": candle.open,
+                        "high": candle.high,
+                        "low": candle.low,
+                        "close": candle.close,
+                        "volume": candle.volume,
+                        "timestamp": bucket_timestamp,
+                        "symbol": symbol,
+                    }
+                }
+                state["next_index"] += 1
+            else:
+                # Update current bucket
+                bucket = state["current_bucket"]["data"]
+                bucket["high"] = max(bucket["high"], candle.high)
+                bucket["low"] = min(bucket["low"], candle.low)
+                bucket["close"] = candle.close
+                bucket["volume"] += candle.volume
+            
+            # Check if this is the last minute of the bucket
+            # Next candle's interval start
+            next_dt = dt + timedelta(minutes=1)
+            next_bucket_timestamp = align_to_origin(next_dt, origin_time, tf_minutes)
+            if next_bucket_timestamp != bucket_timestamp:
+                # Bucket complete - create candle and add to history
+                bucket = state["current_bucket"]["data"]
+                idx = state["next_index"] - 1
+                
+                # Get merged indicators for this derived candle
+                merged_indicators: Dict[str, float | int | None] = {}
+                for component in self.research_components:
+                    comp_indicators = state["indicators"][component][idx]
+                    merged_indicators.update(comp_indicators)
+                
+                derived_candle = Candle(
+                    symbol=bucket["symbol"],
+                    timestamp=bucket["timestamp"],
+                    close_time=bucket["timestamp"] + timedelta(minutes=tf_minutes),
+                    timeframe=tf,
+                    open=bucket["open"],
+                    high=bucket["high"],
+                    low=bucket["low"],
+                    close=bucket["close"],
+                    volume=bucket["volume"],
+                    indicators=merged_indicators,
+                )
+                
+                if tf not in context._derived_histories:
+                    context._derived_histories[tf] = []
+                context._derived_histories[tf].append(derived_candle)
+                
+                state["current_bucket"] = None
     
     def _process_elapsed_horizons(self, current_candle: Candle, all_candles: List[Candle]) -> None:
         """Check buffered events for elapsed horizons and trigger calculation."""

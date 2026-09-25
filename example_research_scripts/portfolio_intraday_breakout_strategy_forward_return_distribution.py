@@ -7,6 +7,8 @@ portfolio_intraday_breakout_strategy.py (hourly inside breakout strategy).
 
 from datetime import timedelta, time
 
+import pandas as pd
+import pandas_ta_classic as ta
 from quantrex_core import Strategy
 from quantrex_core.models import Candle
 from quantrex_core.models.enums import OrderSide
@@ -57,6 +59,14 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         self._mother_candle[symbol] = None
         self._inside_candle[symbol] = None
         self._entry_pre_setup_condition_met[symbol] = False
+        
+    def compute_indicators(self, candles, timeframe="1H"):
+        df = pd.DataFrame(candles)
+        df['rsi'] = ta.rsi(df['close'], length=14)
+        logger.info(f"Computed RSI indicators for {len(df)} candles (timeframe={timeframe}).")
+        # Return only the calculated RSI indicator, not raw OHLCV columns.
+        return [{"rsi": row["rsi"]} for row in df.to_dict(orient="records")]
+
 
     @on_timeframe("1H")
     def on_hour_candle(self, candle: Candle):
@@ -90,6 +100,8 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         if prev_candle is not None:
             if prev_candle.timestamp.date() != candle.timestamp.date():
                 self.reset_state(symbol)
+                
+        prev_1h_candle = self.ctx.timeframe_history("1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
 
         position = self.ctx.get_position(symbol)
 
@@ -99,7 +111,7 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
             if inside_candle is None:
                 return
 
-            if candle.close > inside_candle.high:
+            if (candle.close > inside_candle.high) and (candle.indicators.get('rsi', 50) > 50):
                 logger.info(
                     f"[{symbol}] Breakout BUY detected at {candle.close} on {candle.timestamp}")
                 self.emit_event(symbol, OrderSide.BUY, candle.timestamp, {
@@ -108,7 +120,7 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
                     "close": candle.close,
                 })
                 self.reset_state(symbol)
-            elif candle.close < inside_candle.low:
+            elif (candle.close < inside_candle.low) and (candle.indicators.get('rsi', 50) < 50):
                 logger.info(
                     f"[{symbol}] Breakout SELL detected at {candle.close} on {candle.timestamp}")
                 self.emit_event(symbol, OrderSide.SELL, candle.timestamp, {
