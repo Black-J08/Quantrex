@@ -54,23 +54,23 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         self._mother_candle: dict[str, Candle | None] = {}
         self._inside_candle: dict[str, Candle | None] = {}
         self._entry_pre_setup_condition_met: dict[str, bool] = {}
-        
+
     def reset_state(self, symbol: str):
         self._mother_candle[symbol] = None
         self._inside_candle[symbol] = None
         self._entry_pre_setup_condition_met[symbol] = False
-        
+
     def compute_indicators(self, candles, timeframe="1H"):
         df = pd.DataFrame(candles)
-        df['volume_ema_60'] = ta.rsi(df['volume'], length=60)
+        df['volume_ema_60'] = ta.ema(df['volume'], length=60)
         return [{"volume_ema_60": row["volume_ema_60"]} for row in df.to_dict(orient="records")]
-
 
     @on_timeframe("1H")
     def on_hour_candle(self, candle: Candle):
         """EXACT logic from portfolio_intraday_breakout_strategy.py"""
         symbol = candle.symbol
-        prev_1h_candle = self.ctx.timeframe_history("1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
+        prev_1h_candle = self.ctx.timeframe_history(
+            "1H")[-2] if len(self.ctx.timeframe_history("1H")) >= 2 else None
         logger.info(f"[{symbol}] Received 1H candle: {candle}")
         logger.info(f"[{symbol}] Previous 1H candle: {prev_1h_candle}")
 
@@ -94,11 +94,11 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
         if symbol not in self._entry_pre_setup_condition_met:
             self.reset_state(symbol)
 
-        prev_candle = self.ctx.history[-2] if len(self.ctx.history) >= 2 else None
+        prev_candle = self.ctx.history[-2] if len(
+            self.ctx.history) >= 2 else None
         if prev_candle is not None:
             if prev_candle.timestamp.date() != candle.timestamp.date():
                 self.reset_state(symbol)
-                
 
         position = self.ctx.get_position(symbol)
 
@@ -133,10 +133,10 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
 
 if __name__ == "__main__":
     setup_logging(level="INFO")
-    
+
     # Create research component
     research = HourlyInsideBreakoutResearch()
-    
+
     # Define instruments using CSV data (for testing)
     instruments = [
         InstrumentSpec(
@@ -167,7 +167,7 @@ if __name__ == "__main__":
         #     ),
         # ),
     ]
-    
+
     # Create and run engine
     engine = ResearchEngine(
         instruments=instruments,
@@ -176,9 +176,9 @@ if __name__ == "__main__":
         data_end="2025-08-31",
         script_path=__file__,
     )
-    
+
     results = engine.run()
-    
+
     # Print summary
     for component_name, result in results.items():
         print(f"\n=== {component_name} Results ===")
@@ -189,6 +189,7 @@ if __name__ == "__main__":
                 print(f"    Mean: {stats.get('mean', 0):.4f}%")
                 print(f"    Median: {stats.get('median', 0):.4f}%")
                 print(f"    Std: {stats.get('std', 0):.4f}%")
-                print(f"    Positive Prob: {stats.get('positive_prob', 0):.2%}")
+                print(
+                    f"    Positive Prob: {stats.get('positive_prob', 0):.2%}")
                 print(f"    VaR 95%: {stats.get('VaR_95', 0):.4f}%")
                 print(f"    CVaR 95%: {stats.get('CVaR_95', 0):.4f}%")

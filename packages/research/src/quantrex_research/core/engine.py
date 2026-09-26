@@ -15,6 +15,7 @@ from quantrex_core.timeframe import TimeframeRegistry, TimeframeDispatcher, filt
 from quantrex_core.timeframe.parser import interval_to_minutes
 
 from quantrex_research.core.base import ResearchComponent
+from quantrex_research.observability import RunLogger, ResearchDirectoryManager
 from quantrex_research.utils.data_helpers import merge_candle_streams
 
 logger = get_logger(__name__)
@@ -121,6 +122,10 @@ class ResearchEngine:
         )
         self.data_orchestrator_config = data_orchestrator_config or DataOrchestratorConfig()
         self._script_path = Path(script_path).resolve() if script_path else None
+        
+        # Observability components
+        self._run_logger = RunLogger()
+        self._directory_manager = ResearchDirectoryManager()
         
         # Per-component event buffers
         self._event_buffers: Dict[ResearchComponent, List[BufferedEvent]] = {
@@ -243,6 +248,14 @@ class ResearchEngine:
             if hasattr(first_adapter, 'get_origin_time'):
                 origin_time = first_adapter.get_origin_time()
         
+        # Build run directory and set up logging
+        run_start_local = datetime.now()
+        # Use first component's name for directory (all components share same run dir)
+        component_name = self.research_components[0].__class__.__name__ if self.research_components else "Research"
+        run_dir = self._directory_manager.build_run_dir(component_name, run_start_local)
+        symbols = [spec.symbol for spec in self.instruments]
+        self._run_logger.ensure_run_log_file(run_dir, symbols)
+        
         # 1. Load and prepare data via DataOrchestrator (raw rows, not candles yet)
         logger.info("Loading data via DataOrchestrator...")
         data_orchestrator = DataOrchestrator(self.data_orchestrator_config)
@@ -255,7 +268,7 @@ class ResearchEngine:
             for component in self.research_components:
                 component.set_event_receiver(self)
                 component.on_start()
-            return self._finalize_components()
+            return self._finalize_components(run_dir)
         
         logger.info("Loaded base data for %d symbols", len(symbol_base_data))
         for symbol, rows in symbol_base_data.items():
@@ -404,7 +417,7 @@ class ResearchEngine:
         
         if not merged_candles:
             logger.warning("No base candles loaded, exiting")
-            return self._finalize_components()
+            return self._finalize_components(run_dir)
         
         # 9. Main candle loop
         logger.info("Starting candle loop...")
@@ -528,6 +541,23 @@ class ResearchEngine:
             # Dispatch timeframe methods (e.g., @on_timeframe("1H"))
             dispatcher.dispatch_all(context, candle.symbol)
             
+            # Emit per-candle audit line (mirrors backtest execution logging)
+            indicator_parts = [
+                f"{k}={v}" for k, v in sorted(candle.indicators.items()) if v is not None
+            ]
+            indicator_str = " " + " ".join(indicator_parts) if indicator_parts else ""
+            logger.info(
+                "[%s %s] O=%s H=%s L=%s C=%s V=%s%s",
+                candle.symbol,
+                candle.timestamp.isoformat(),
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
+                indicator_str,
+            )
+            
             # Dispatch to all components
             for component in self.research_components:
                 component.on_candle(candle)
@@ -539,7 +569,7 @@ class ResearchEngine:
         self._process_remaining_events(merged_candles)
         
         # 11. Call on_stop for all components and collect results
-        results = self._finalize_components()
+        results = self._finalize_components(run_dir)
         
         logger.info("ResearchEngine completed")
         return results
@@ -706,15 +736,13 @@ class ResearchEngine:
         """Called by component.emit_event() to buffer the event."""
         self._event_buffers[component].append(BufferedEvent(event, emission_candle))
     
-    def _finalize_components(self) -> Dict[str, Any]:
+    def _finalize_components(self, run_dir: Path) -> Dict[str, Any]:
         """Call on_stop for all components and collect results."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_base = Path("output/research")
         results = {}
         
         for component in self.research_components:
-            # output/research/<ComponentClassName>/<timestamp>/
-            component_output_dir = output_base / component.__class__.__name__ / timestamp
+            # Use the run_dir created at the start of run()
+            component_output_dir = run_dir
             component_output_dir.mkdir(parents=True, exist_ok=True)
             
             # Copy research script for reproducibility
