@@ -50,7 +50,9 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         df['rsi'] = ta.rsi(df['close'], length=14)
         df["st"] = ta.supertrend(
             df['high'], df['low'], df['close'], length=10, multiplier=3)['SUPERTd_10_3.0']
-        return [{"rsi": row["rsi"], "st": row["st"]} for row in df.to_dict(orient="records")]
+        df['volume_ema_60'] = ta.ema(df['volume'], length=60)
+
+        return [{"rsi": row["rsi"], "st": row["st"], "volume_ema_60": row["volume_ema_60"]} for row in df.to_dict(orient="records")]
 
     def reset_state(self, symbol: str):
         self._mother_candle[symbol] = None
@@ -110,7 +112,7 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
                 self.reset_state(symbol)
                 self._candle_stoploss[symbol] = None
 
-        # long position and supertrend indicates downtrend
+        # # long position and supertrend indicates downtrend
         # elif position.quantity > 0 and candle.indicators.get('st') == -1:
         #     logger.info(
         #         f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to supertrend signal")
@@ -123,19 +125,19 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
         #     self.ctx.submit_order(symbol, OrderSide.BUY,
         #                           abs(position.quantity))
         #     self.reset_state(symbol)
-            
-        # RSI-based exit logic
-        elif position.quantity > 0 and candle.indicators.get('rsi') > 70:
-            logger.info(
-                f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to RSI > 70")
-            self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
-            self.reset_state(symbol)
-        elif position.quantity < 0 and candle.indicators.get('rsi') < 30:
-            logger.info(
-                f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to RSI < 30")
-            self.ctx.submit_order(symbol, OrderSide.BUY,
-                                  abs(position.quantity))
-            self.reset_state(symbol)
+
+        # # RSI-based exit logic
+        # elif position.quantity > 0 and candle.indicators.get('rsi') > 70:
+        #     logger.info(
+        #         f"[{symbol}] Exiting long position at {candle.close} on {candle.timestamp} due to RSI > 70")
+        #     self.ctx.submit_order(symbol, OrderSide.SELL, position.quantity)
+        #     self.reset_state(symbol)
+        # elif position.quantity < 0 and candle.indicators.get('rsi') < 30:
+        #     logger.info(
+        #         f"[{symbol}] Exiting short position at {candle.close} on {candle.timestamp} due to RSI < 30")
+        #     self.ctx.submit_order(symbol, OrderSide.BUY,
+        #                           abs(position.quantity))
+        #     self.reset_state(symbol)
 
         # Stop-loss logic
         elif position.quantity > 0 and candle.close < self._candle_stoploss.get(symbol, float('-inf')):
@@ -152,21 +154,25 @@ class PortfolioHourlyInsideBreakoutStrategy(Strategy):
             self.reset_state(symbol)
             self._candle_stoploss[symbol] = None
 
-        # Breakout entry logic
-        if self._entry_pre_setup_condition_met.get(symbol, False) and position.quantity == 0:
-            inside_candle = self._inside_candle.get(symbol)
-            if inside_candle is None:
-                return
+        inside_candle = self._inside_candle.get(symbol)
+        if inside_candle is None:
+            return
+        mother_candle = self._mother_candle.get(symbol)
+        if mother_candle is None:
+            return
 
-            if candle.close > inside_candle.high:
+        # Breakout entry logic
+        if self._entry_pre_setup_condition_met.get(symbol, False) and (position.quantity == 0) and (candle.volume > candle.indicators.get("volume_ema_60", float('inf'))):
+
+            if candle.close > mother_candle.high:
                 self.ctx.submit_order(symbol, OrderSide.BUY, 8)
-                self._candle_stoploss[symbol] = inside_candle.low
+                self._candle_stoploss[symbol] = mother_candle.low
                 logger.info(
                     f"[{symbol}] Breakout BUY order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)
-            elif candle.close < inside_candle.low:
+            elif candle.close < mother_candle.low:
                 self.ctx.submit_order(symbol, OrderSide.SELL, 8)
-                self._candle_stoploss[symbol] = inside_candle.high
+                self._candle_stoploss[symbol] = mother_candle.high
                 logger.info(
                     f"[{symbol}] Breakout SELL order placed at {candle.close} on {candle.timestamp}")
                 self.reset_state(symbol)

@@ -102,15 +102,15 @@ class HourlyInsideBreakoutResearch(ForwardReturnComponent):
 
         position = self.ctx.get_position(symbol)
 
+        inside_candle = self._inside_candle.get(symbol)
+        if inside_candle is None:
+            return
+        mother_candle = self._mother_candle.get(symbol)
+        if mother_candle is None:
+            return
+
         # Breakout entry logic - EXACT from portfolio_intraday_breakout_strategy.py
         if self._entry_pre_setup_condition_met.get(symbol, False) and (position.quantity == 0) and (candle.volume > candle.indicators.get("volume_ema_60", float('inf'))):
-            inside_candle = self._inside_candle.get(symbol)
-            if inside_candle is None:
-                return
-            mother_candle = self._mother_candle.get(symbol)
-            if mother_candle is None:
-                return
-
             if (candle.close > mother_candle.high):
                 logger.info(
                     f"[{symbol}] Breakout BUY detected at {candle.close} on {candle.timestamp}")
