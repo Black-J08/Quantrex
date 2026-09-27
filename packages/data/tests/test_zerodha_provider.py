@@ -76,14 +76,26 @@ class TestZerodhaDataProvider:
             yield cache_instance
 
     def test_provider_init_with_symbol(self, mock_client, mock_instrument_master, mock_auth, mock_cache):
-        """Provider should initialize with symbol and resolve to instrument_token."""
+        """Provider should initialize with symbol and resolve to instrument_token lazily."""
         provider = ZerodhaDataProvider(
             symbol="RELIANCE",
             exchange_segment="NSE",
             from_date="2024-01-01",
             to_date="2024-01-31",
         )
+        # Symbol resolution is now lazy - happens on first fetch
+        assert provider.instrument_token is None
+        assert provider._symbol_resolved is False
+        
+        # Trigger resolution by calling fetch (which calls _ensure_symbol_resolved)
+        with patch.object(provider, '_fetch_from_api', return_value={"candles": []}):
+            provider.fetch()
+        
+        # Manually trigger symbol resolution since _fetch_from_api is mocked
+        provider._ensure_symbol_resolved()
+        
         assert provider.instrument_token == "5633"
+        assert provider._symbol_resolved is True
         mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE")
 
     def test_provider_init_with_instrument_token(self, mock_client, mock_instrument_master, mock_auth, mock_cache):

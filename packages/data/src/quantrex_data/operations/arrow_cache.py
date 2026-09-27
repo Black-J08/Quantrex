@@ -461,6 +461,78 @@ class ArrowCache:
             logger.warning("Failed to get last timestamp from %s: %s", path, e)
             return None
 
+    def list_available_partitions(
+        self,
+        provider: str,
+        symbol: str,
+        timeframe: str,
+    ) -> List[tuple[datetime, datetime]]:
+        """List all available cached partitions for a symbol/timeframe.
+
+        Scans both closed historical partitions and the current open partition.
+
+        Args:
+            provider: Provider name ("dhan" or "zerodha")
+            symbol: Trading symbol
+            timeframe: Timeframe (e.g., "1M", "5M", "1H", "1D")
+
+        Returns:
+            List of (start_datetime, end_datetime) tuples for each available partition,
+            sorted chronologically (oldest first).
+        """
+        partitions = []
+        base_path = self.cache_root / provider / "historical" / symbol / timeframe
+
+        if not base_path.exists():
+            logger.debug("No cache directory for %s/%s/%s", provider, symbol, timeframe)
+            return partitions
+
+        # Get current partition path to avoid double-counting
+        current_path = self._current_partition_path(provider, symbol, timeframe)
+        current_filename = current_path.name
+
+        # Scan year/month directories for closed partitions
+        for year_dir in sorted(base_path.iterdir()):
+            if not year_dir.is_dir():
+                continue
+            for month_dir in sorted(year_dir.iterdir()):
+                if not month_dir.is_dir():
+                    continue
+                for feather_file in sorted(month_dir.glob("*.feather")):
+                    # Skip current partition file to avoid double-counting
+                    if feather_file.name == current_filename:
+                        continue
+                    # Parse start/end from filename: symbol_timeframe_YYYYMMDD_YYYYMMDD.feather
+                    try:
+                        filename = feather_file.stem  # Remove .feather
+                        parts = filename.split("_")
+                        if len(parts) >= 4:
+                            start_str = parts[-2]
+                            end_str = parts[-1]
+                            start_dt = datetime.strptime(start_str, "%Y%m%d")
+                            end_dt = datetime.strptime(end_str, "%Y%m%d")
+                            partitions.append((start_dt, end_dt))
+                    except Exception as e:
+                        logger.warning("Failed to parse partition filename %s: %s", feather_file, e)
+
+        # Also check current partition
+        if current_path.exists():
+            try:
+                table = feather.read_table(current_path, columns=["datetime"])
+                if table.num_rows > 0:
+                    df = table.to_pandas()
+                    min_ts = df["datetime"].min()
+                    max_ts = df["datetime"].max()
+                    if min_ts is not None and max_ts is not None and not pd.isna(min_ts) and not pd.isna(max_ts):
+                        partitions.append((min_ts.to_pydatetime(), max_ts.to_pydatetime()))
+            except Exception as e:
+                logger.warning("Failed to read current partition %s: %s", current_path, e)
+
+        # Sort by start date
+        partitions.sort(key=lambda p: p[0])
+        logger.debug("Found %d cached partitions for %s/%s/%s", len(partitions), provider, symbol, timeframe)
+        return partitions
+
     def clear(
         self,
         provider: str | None = None,

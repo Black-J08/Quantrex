@@ -224,13 +224,25 @@ class TestDhanDataProvider:
             yield cache_instance
 
     def test_provider_init_with_symbol(self, mock_client, mock_instrument_master, mock_cache):
-        """Provider should initialize with symbol and resolve to security_id."""
+        """Provider should initialize with symbol and resolve to security_id lazily."""
         provider = DhanDataProvider(
             symbol="RELIANCE",
             exchange_segment="NSE_EQ",
             instrument="EQUITY",
         )
+        # Symbol resolution is now lazy - happens on first fetch
+        assert provider.security_id is None
+        assert provider._symbol_resolved is False
+        
+        # Trigger resolution by calling fetch (which calls _ensure_symbol_resolved)
+        with patch.object(provider, '_fetch_from_api', return_value={"timestamp": []}):
+            provider.fetch()
+        
+        # Manually trigger symbol resolution since _fetch_from_api is mocked
+        provider._ensure_symbol_resolved()
+        
         assert provider.security_id == "1333"
+        assert provider._symbol_resolved is True
         mock_instrument_master.resolve_symbol.assert_called_once_with("RELIANCE", "NSE_EQ")
 
     def test_provider_init_with_security_id(self, mock_client, mock_instrument_master, mock_cache):
@@ -345,19 +357,21 @@ class TestDhanDataProvider:
         assert mock_client.get_daily_historical.call_count == 3
 
     def test_fetch_symbol_resolution_error(self, mock_client, mock_instrument_master, mock_cache):
-        """Provider should raise DhanSymbolNotFoundError for unknown symbol."""
+        """Provider should raise DhanSymbolNotFoundError for unknown symbol on fetch."""
         mock_instrument_master.resolve_symbol.side_effect = DhanSymbolNotFoundError(
             symbol="UNKNOWN", exchange_segment="NSE_EQ"
         )
 
+        provider = DhanDataProvider(
+            symbol="UNKNOWN",
+            exchange_segment="NSE_EQ",
+            instrument="EQUITY",
+            from_date="2024-01-01",
+            to_date="2024-01-31",
+        )
+        
         with pytest.raises(DhanSymbolNotFoundError):
-            DhanDataProvider(
-                symbol="UNKNOWN",
-                exchange_segment="NSE_EQ",
-                instrument="EQUITY",
-                from_date="2024-01-01",
-                to_date="2024-01-31",
-            )
+            provider.fetch()
 
     def test_fetch_auth_error(self, mock_client, mock_instrument_master, mock_cache):
         """Provider should propagate authentication errors."""

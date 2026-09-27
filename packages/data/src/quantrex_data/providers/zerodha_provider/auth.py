@@ -189,6 +189,7 @@ class ZerodhaAuth:
 
         Raises:
             ZerodhaAuthenticationError: If login flow fails or is cancelled.
+            KeyboardInterrupt: If user cancels the login flow (Ctrl+C).
         """
         login_url = self.get_login_url()
 
@@ -227,6 +228,12 @@ class ZerodhaAuth:
             # Wait for user to provide request_token
             request_token = input("\nEnter request_token from redirect URL: ").strip()
 
+        except KeyboardInterrupt:
+            # User cancelled the login flow
+            self._stop_callback_server()
+            print("\n\nAuthentication cancelled by user.")
+            raise
+
         if not request_token:
             raise ZerodhaAuthenticationError("No request_token provided. Login flow cancelled.")
 
@@ -252,6 +259,7 @@ class ZerodhaAuth:
 
         Raises:
             ZerodhaAuthenticationError: If unable to obtain valid token.
+            KeyboardInterrupt: If user cancels the login flow (Ctrl+C).
         """
         # Try to load existing token
         token = self.load_access_token()

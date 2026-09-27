@@ -24,6 +24,7 @@ from .exceptions import (
     ZerodhaRateLimitError,
     ZerodhaSymbolNotFoundError,
 )
+from quantrex_data.exceptions import DataNotAvailableError
 from .instrument_master import InstrumentMaster
 from .models import HistoricalDataResponse
 
@@ -146,16 +147,10 @@ class ZerodhaDataProvider:
         # Initialize automatic cache (zero-config, internal)
         self._cache = ArrowCache()
 
-        # Ensure we have a valid token before resolving symbols or downloading instrument master
-        self._ensure_valid_token()
-
-        # Update config with the valid access token so InstrumentMaster can use it
-        object.__setattr__(self._config, "access_token", self._client._access_token)
-
-        # Resolve symbol to instrument_token if needed
+        # Defer symbol resolution until actually needed (lazy resolution)
+        # This allows cache hits to work without requiring instrument master
         self._instrument_token = self._config.instrument_token
-        if self._config.symbol is not None:
-            self._instrument_token = self._resolve_symbol(self._config.symbol)
+        self._symbol_resolved = self._config.instrument_token is not None
 
         logger.debug(
             "ZerodhaDataProvider initialized: symbol=%s, instrument_token=%s, exchange=%s, interval=%s",
@@ -192,6 +187,12 @@ class ZerodhaDataProvider:
         logger.debug("Resolved '%s' -> instrument_token='%s'", symbol, instrument_token)
         return instrument_token
 
+    def _ensure_symbol_resolved(self) -> None:
+        """Ensure symbol is resolved to instrument_token (lazy resolution)."""
+        if not self._symbol_resolved and self._config.symbol is not None:
+            self._instrument_token = self._resolve_symbol(self._config.symbol)
+            self._symbol_resolved = True
+
     def _ensure_valid_token(self) -> None:
         """Ensure we have a valid access token, triggering login flow if needed.
 
@@ -204,6 +205,9 @@ class ZerodhaDataProvider:
             self._client.update_access_token(access_token)
         except ZerodhaAuthenticationError:
             # Re-raise with context
+            raise
+        except KeyboardInterrupt:
+            # Re-raise KeyboardInterrupt so it can be caught in fetch()
             raise
         except Exception as e:
             raise ZerodhaAuthenticationError(f"Authentication failed: {e}") from e
@@ -321,6 +325,9 @@ class ZerodhaDataProvider:
         Returns:
             Raw API response as dictionary.
         """
+        # Ensure symbol is resolved before making API calls
+        self._ensure_symbol_resolved()
+
         # Ensure we have a valid token before making requests
         self._ensure_valid_token()
 
@@ -527,8 +534,9 @@ class ZerodhaDataProvider:
         except Exception as e:
             logger.warning("Delta fetch failed, falling back to full API fetch: %s", e)
 
-        # 3. Full fetch (no cache or cache miss)
+        # 3. Full fetch (no cache or cache miss) - authentication happens here
         try:
+            logger.info("Cache miss for %s/%s/%s %s-%s - initiating authentication", provider_name, symbol, effective_interval, start_dt, end_dt)
             api_data = self._fetch_from_api(effective_interval, from_date, to_date)
             if api_data and api_data.get("candles"):
                 # Convert to rows and save to cache
@@ -536,6 +544,17 @@ class ZerodhaDataProvider:
                 if rows:
                     self._cache.save_partition(provider_name, symbol, effective_interval, start_dt, end_dt, rows)
             return api_data
+        except KeyboardInterrupt:
+            # User cancelled authentication - list available cached periods
+            logger.warning("Authentication cancelled by user for %s/%s/%s", provider_name, symbol, effective_interval)
+            cached_periods = self.get_cached_periods(effective_interval)
+            raise DataNotAvailableError(
+                f"Authentication cancelled. Requested data for {symbol} ({effective_interval}) from {effective_from_date} to {effective_to_date} is not available in cache.",
+                provider=provider_name,
+                symbol=symbol,
+                timeframe=effective_interval,
+                cached_periods=cached_periods,
+            )
         except Exception as e:
             logger.exception("API fetch failed for %s/%s/%s: %s", provider_name, symbol, effective_interval, e)
             raise
@@ -558,6 +577,23 @@ class ZerodhaDataProvider:
             Origin time as datetime.time (09:15 for NSE).
         """
         return dt_time(9, 15)
+
+    def get_cached_periods(self, interval: str | None = None) -> list[tuple[str, str]]:
+        """Get list of available cached date ranges for the configured symbol/interval.
+
+        Args:
+            interval: Interval to check (e.g., "minute", "day"). Uses provider's configured interval if None.
+
+        Returns:
+            List of (start_date, end_date) strings in YYYY-MM-DD format,
+            sorted chronologically (oldest first).
+        """
+        effective_interval = interval or self._config.interval
+        provider_name = "zerodha"
+        symbol = self._config.symbol or self._instrument_token
+
+        partitions = self._cache.list_available_partitions(provider_name, symbol, effective_interval)
+        return [(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")) for start, end in partitions]
 
     @property
     def supported_timeframes_property(self) -> list[str]:

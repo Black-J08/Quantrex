@@ -271,6 +271,115 @@ class TestArrowCache:
                 assert " " in row["datetime"]
                 assert ":" in row["datetime"]
 
+    def test_list_available_partitions_empty(self):
+        """Test listing partitions when cache is empty."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            assert partitions == []
+
+    def test_list_available_partitions_closed_only(self):
+        """Test listing closed historical partitions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            data = [
+                {"datetime": "2026-01-15 09:15:00", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000},
+            ]
+            # January 2026 partition
+            start1 = datetime(2026, 1, 15)
+            end1 = datetime(2026, 1, 31)
+            # February 2026 partition
+            start2 = datetime(2026, 2, 1)
+            end2 = datetime(2026, 2, 15)
+
+            cache.save_partition_sync("dhan", "RELIANCE", "1M", start1, end1, data)
+            cache.save_partition_sync("dhan", "RELIANCE", "1M", start2, end2, data)
+
+            partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            assert len(partitions) == 2
+            assert partitions[0] == (start1, end1)
+            assert partitions[1] == (start2, end2)
+
+    def test_list_available_partitions_with_current(self):
+        """Test listing includes current partition."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            now = datetime.now()
+            current_month_start = now.replace(day=1, hour=9, minute=15, second=0, microsecond=0)
+            data = [
+                {"datetime": current_month_start.strftime("%Y-%m-%d %H:%M:%S"), "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000},
+            ]
+
+            cache.append_to_current_partition_sync("dhan", "RELIANCE", "1M", data)
+
+            partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            assert len(partitions) == 1
+            assert partitions[0][0] == current_month_start
+            assert partitions[0][1] >= current_month_start
+
+    def test_list_available_partitions_mixed(self):
+        """Test listing both closed and current partitions."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            now = datetime.now()
+            current_month_start = now.replace(day=1, hour=9, minute=15, second=0, microsecond=0)
+            data = [
+                {"datetime": current_month_start.strftime("%Y-%m-%d %H:%M:%S"), "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000},
+            ]
+            # Previous month closed partition
+            prev_month = current_month_start.replace(day=1) - timedelta(days=1)
+            prev_month_start = prev_month.replace(day=1, hour=9, minute=15, second=0, microsecond=0)
+            prev_month_end = current_month_start - timedelta(days=1)
+            prev_month_end = prev_month_end.replace(hour=15, minute=30, second=0, microsecond=0)
+
+            cache.save_partition_sync("dhan", "RELIANCE", "1M", prev_month_start, prev_month_end, data)
+            cache.append_to_current_partition_sync("dhan", "RELIANCE", "1M", data)
+
+            partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            assert len(partitions) == 2
+            # Should be sorted chronologically
+            # Closed partition only stores date (time defaults to 00:00:00)
+            assert partitions[0][0].date() == prev_month_start.date()
+            assert partitions[1][0] == current_month_start
+
+    def test_list_available_partitions_provider_isolation(self):
+        """Test listing partitions respects provider isolation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            data = [
+                {"datetime": "2026-01-15 09:15:00", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000},
+            ]
+            start = datetime(2026, 1, 15)
+            end = datetime(2026, 1, 15)
+
+            cache.save_partition_sync("dhan", "RELIANCE", "1M", start, end, data)
+            cache.save_partition_sync("zerodha", "RELIANCE", "1M", start, end, data)
+
+            dhan_partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            zerodha_partitions = cache.list_available_partitions("zerodha", "RELIANCE", "1M")
+
+            assert len(dhan_partitions) == 1
+            assert len(zerodha_partitions) == 1
+
+    def test_list_available_partitions_symbol_isolation(self):
+        """Test listing partitions respects symbol isolation."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            cache = ArrowCache(Path(tmpdir))
+            data = [
+                {"datetime": "2026-01-15 09:15:00", "open": 100.0, "high": 101.0, "low": 99.0, "close": 100.5, "volume": 1000},
+            ]
+            start = datetime(2026, 1, 15)
+            end = datetime(2026, 1, 15)
+
+            cache.save_partition_sync("dhan", "RELIANCE", "1M", start, end, data)
+            cache.save_partition_sync("dhan", "INFY", "1M", start, end, data)
+
+            reliance_partitions = cache.list_available_partitions("dhan", "RELIANCE", "1M")
+            infy_partitions = cache.list_available_partitions("dhan", "INFY", "1M")
+
+            assert len(reliance_partitions) == 1
+            assert len(infy_partitions) == 1
+
 
 class TestGetArrowCacheDir:
     """Tests for get_arrow_cache_dir function."""

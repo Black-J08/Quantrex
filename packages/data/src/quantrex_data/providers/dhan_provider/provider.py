@@ -14,6 +14,7 @@ from quantrex_data.operations import ArrowCache
 from .client import DhanAPIClient
 from .config import DhanProviderConfig
 from .exceptions import DhanSymbolNotFoundError
+from quantrex_data.exceptions import DataNotAvailableError
 from .instrument_master import InstrumentMaster
 from .models import HistoricalDataRequest, HistoricalDataResponse, IntradayDataRequest, IntradayDataResponse
 
@@ -137,10 +138,10 @@ class DhanDataProvider:
         # Initialize automatic cache (zero-config, internal)
         self._cache = ArrowCache()
 
-        # Resolve symbol to security_id if needed
+        # Defer symbol resolution until actually needed (lazy resolution)
+        # This allows cache hits to work without requiring instrument master
         self._security_id = self._config.security_id
-        if self._config.symbol is not None:
-            self._security_id = self._resolve_symbol(self._config.symbol)
+        self._symbol_resolved = self._config.security_id is not None
 
         logger.debug(
             "DhanDataProvider initialized: symbol=%s, security_id=%s, exchange_segment=%s, instrument=%s, timeframe=%s",
@@ -216,6 +217,12 @@ class DhanDataProvider:
         security_id = self._instrument_master.resolve_symbol(symbol, self._config.exchange_segment)
         logger.debug("Resolved '%s' -> security_id='%s'", symbol, security_id)
         return security_id
+
+    def _ensure_symbol_resolved(self) -> None:
+        """Ensure symbol is resolved to security_id (lazy resolution)."""
+        if not self._symbol_resolved and self._config.symbol is not None:
+            self._security_id = self._resolve_symbol(self._config.symbol)
+            self._symbol_resolved = True
 
     def _chunk_date_range(self, from_date: str, to_date: str, is_intraday: bool) -> list[tuple[str, str]]:
         """Split date range into API-compliant chunks.
@@ -343,6 +350,9 @@ class DhanDataProvider:
         Returns:
             Raw API response as dictionary.
         """
+        # Ensure symbol is resolved before making API calls
+        self._ensure_symbol_resolved()
+
         dhan_timeframe = self._map_timeframe_to_dhan(timeframe)
         is_intraday = dhan_timeframe != "day"
 
@@ -531,8 +541,9 @@ class DhanDataProvider:
         except Exception as e:
             logger.warning("Delta fetch failed, falling back to full API fetch: %s", e)
 
-        # 3. Full fetch (no cache or cache miss)
+        # 3. Full fetch (no cache or cache miss) - authentication happens here
         try:
+            logger.info("Cache miss for %s/%s/%s %s-%s - initiating authentication", provider_name, symbol, effective_timeframe, start_dt, end_dt)
             api_data = self._fetch_from_api(effective_timeframe, from_date, to_date)
             if api_data and api_data.get("timestamp"):
                 # Convert to rows and save to cache
@@ -540,6 +551,17 @@ class DhanDataProvider:
                 if rows:
                     self._cache.save_partition(provider_name, symbol, effective_timeframe, start_dt, end_dt, rows)
             return api_data
+        except KeyboardInterrupt:
+            # User cancelled authentication - list available cached periods
+            logger.warning("Authentication cancelled by user for %s/%s/%s", provider_name, symbol, effective_timeframe)
+            cached_periods = self.get_cached_periods(effective_timeframe)
+            raise DataNotAvailableError(
+                f"Authentication cancelled. Requested data for {symbol} ({effective_timeframe}) from {effective_from_date} to {effective_to_date} is not available in cache.",
+                provider=provider_name,
+                symbol=symbol,
+                timeframe=effective_timeframe,
+                cached_periods=cached_periods,
+            )
         except Exception as e:
             logger.exception("API fetch failed for %s/%s/%s: %s", provider_name, symbol, effective_timeframe, e)
             raise
@@ -603,6 +625,23 @@ class DhanDataProvider:
             Origin time as datetime.time (09:15 for NSE).
         """
         return time(9, 15)
+
+    def get_cached_periods(self, timeframe: str | None = None) -> list[tuple[str, str]]:
+        """Get list of available cached date ranges for the configured symbol/timeframe.
+
+        Args:
+            timeframe: Timeframe to check (e.g., "1M", "1D"). Uses provider's configured timeframe if None.
+
+        Returns:
+            List of (start_date, end_date) strings in YYYY-MM-DD format,
+            sorted chronologically (oldest first).
+        """
+        effective_timeframe = timeframe or self._config.timeframe
+        provider_name = "dhan"
+        symbol = self._config.symbol or self._security_id
+
+        partitions = self._cache.list_available_partitions(provider_name, symbol, effective_timeframe)
+        return [(start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")) for start, end in partitions]
     
     @property
     def supported_timeframes_property(self) -> list[str]:
