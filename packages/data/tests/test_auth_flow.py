@@ -199,8 +199,11 @@ class TestZerodhaAuthFlow:
                     ["2026-01-15T09:15:00+0530", 100.0, 101.0, 99.0, 100.5, 1000],
                 ]
             }
-            with patch.object(provider, '_fetch_from_api', return_value=mock_response) as mock_fetch:
+            # Mock both authentication and API fetch
+            with patch.object(provider, '_ensure_valid_token') as mock_auth, \
+                 patch.object(provider, '_fetch_from_api', return_value=mock_response) as mock_fetch:
                 result = provider.fetch(interval="minute", from_date="2026-01-15", to_date="2026-01-15")
+                mock_auth.assert_called_once()
                 mock_fetch.assert_called_once()
 
             assert result is not None
@@ -229,7 +232,8 @@ class TestZerodhaAuthFlow:
             )
             provider._cache = cache
 
-            with patch.object(provider, '_fetch_from_api', side_effect=KeyboardInterrupt()):
+            # Mock authentication to raise KeyboardInterrupt (simulating user cancelling login)
+            with patch.object(provider, '_ensure_valid_token', side_effect=KeyboardInterrupt()):
                 with pytest.raises(DataNotAvailableError) as exc_info:
                     provider.fetch(interval="minute", from_date="2026-02-15", to_date="2026-02-15")
 
