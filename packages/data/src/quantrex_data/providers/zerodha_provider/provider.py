@@ -5,7 +5,7 @@ date normalization, automatic chunking, and transparent caching.
 """
 
 import time
-from datetime import date, datetime, time as dt_time
+from datetime import date, datetime, time as dt_time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -146,6 +146,9 @@ class ZerodhaDataProvider:
 
         # Initialize automatic cache (zero-config, internal)
         self._cache = ArrowCache()
+
+        # Track whether instrument master has been refreshed this session
+        self._instrument_master_refreshed = False
 
         # Defer symbol resolution until actually needed (lazy resolution)
         # This allows cache hits to work without requiring instrument master
@@ -313,6 +316,70 @@ class ZerodhaDataProvider:
 
         logger.debug("Merged %d chunks into %d candles", len(responses), len(merged_candles))
         return {"candles": merged_candles}
+
+    def _compute_gaps(
+        self,
+        cached_partitions: list[tuple[datetime, datetime]],
+        requested_start: datetime,
+        requested_end: datetime,
+    ) -> list[tuple[datetime, datetime]]:
+        """Compute missing date ranges (gaps) between cached partitions and requested range.
+
+        Args:
+            cached_partitions: List of (start, end) tuples for cached data, sorted chronologically.
+            requested_start: Start of requested date range.
+            requested_end: End of requested date range.
+
+        Returns:
+            List of (gap_start, gap_end) tuples for missing ranges.
+        """
+        if not cached_partitions:
+            # No cached data - entire range is a gap
+            return [(requested_start, requested_end)]
+
+        # First, merge overlapping/adjacent partitions to avoid false gaps at partition boundaries
+        merged_partitions = []
+        for part_start, part_end in cached_partitions:
+            # Skip partitions that end before requested range starts
+            if part_end < requested_start:
+                continue
+            # Skip partitions that start after requested range ends
+            if part_start > requested_end:
+                break
+
+            if not merged_partitions:
+                merged_partitions.append([part_start, part_end])
+            else:
+                last = merged_partitions[-1]
+                # If current partition overlaps or is adjacent to the last one (within 1 day),
+                # merge them to avoid false gaps at partition boundaries
+                if part_start <= last[1] + timedelta(days=1):
+                    last[1] = max(last[1], part_end)
+                else:
+                    merged_partitions.append([part_start, part_end])
+
+        gaps = []
+        current = requested_start
+
+        for part_start, part_end in merged_partitions:
+            # If there's a gap before this partition
+            if current < part_start:
+                gap_end = min(part_start, requested_end)
+                if current < gap_end:
+                    gaps.append((current, gap_end))
+
+            # Move current to after this partition
+            current = max(current, part_end)
+
+            # If we've covered the requested range, stop
+            if current >= requested_end:
+                break
+
+        # Check for gap after the last partition
+        if current < requested_end:
+            gaps.append((current, requested_end))
+
+        return gaps
 
     def _fetch_from_api(self, interval: str, from_date: str | None = None, to_date: str | None = None) -> dict:
         """Internal method to fetch raw data from Zerodha API.
@@ -534,9 +601,67 @@ class ZerodhaDataProvider:
         except Exception as e:
             logger.warning("Delta fetch failed, falling back to full API fetch: %s", e)
 
-        # 3. Full fetch (no cache or cache miss) - authentication happens here
+        # 3. Full fetch (no cache or cache miss) - check for gaps first
         try:
+            # Check for cached partitions and identify gaps
+            cached_partitions = self._cache.list_available_partitions(provider_name, symbol, effective_interval)
+            gaps = self._compute_gaps(cached_partitions, start_dt, end_dt)
+
+            if gaps:
+                logger.info("Found %d gap partition(s) for %s/%s/%s", len(gaps), provider_name, symbol, effective_interval)
+                # Fetch each gap and merge with cached data
+                all_rows = []
+
+                # Load existing cached data for the requested range
+                for part_start, part_end in cached_partitions:
+                    # Check if partition overlaps with requested range
+                    if part_end >= start_dt and part_start <= end_dt:
+                        cached_rows = self._cache.load_partition(provider_name, symbol, effective_interval, part_start, part_end)
+                        if cached_rows:
+                            all_rows.extend(cached_rows)
+
+                # Fetch each gap
+                for gap_start, gap_end in gaps:
+                    logger.info("Fetching gap partition: %s to %s", gap_start.strftime("%Y-%m-%d"), gap_end.strftime("%Y-%m-%d"))
+                    gap_from = gap_start.strftime("%Y-%m-%d %H:%M:%S")
+                    gap_to = gap_end.strftime("%Y-%m-%d %H:%M:%S")
+
+                    # Ensure authentication is valid before refreshing instrument master
+                    # (refresh() requires access_token for downloading instrument master CSV)
+                    self._ensure_valid_token()
+
+                    # Refresh instrument master once per session before first API fetch
+                    if not self._instrument_master_refreshed:
+                        logger.info("Refreshing instrument master before API fetch (once per session)")
+                        self._instrument_master.refresh()
+                        self._instrument_master_refreshed = True
+
+                    gap_data = self._fetch_from_api(effective_interval, from_date=gap_from, to_date=gap_to)
+                    if gap_data and gap_data.get("candles"):
+                        gap_rows = self._response_to_rows(gap_data, symbol, effective_interval, provider_name)
+                        if gap_rows:
+                            all_rows.extend(gap_rows)
+                            # Save gap to cache
+                            self._cache.save_partition(provider_name, symbol, effective_interval, gap_start, gap_end, gap_rows)
+
+                if all_rows:
+                    # Sort by datetime
+                    all_rows.sort(key=lambda r: r.get("datetime", ""))
+                    return self._format_cached_response(all_rows)
+
+            # No gaps or gap fetching failed - fall back to full fetch
             logger.info("Cache miss for %s/%s/%s %s-%s - initiating authentication", provider_name, symbol, effective_interval, start_dt, end_dt)
+
+            # Ensure authentication is valid before refreshing instrument master
+            # (refresh() requires access_token for downloading instrument master CSV)
+            self._ensure_valid_token()
+
+            # Refresh instrument master once per session before API fetch
+            if not self._instrument_master_refreshed:
+                logger.info("Refreshing instrument master before API fetch (once per session)")
+                self._instrument_master.refresh()
+                self._instrument_master_refreshed = True
+
             api_data = self._fetch_from_api(effective_interval, from_date, to_date)
             if api_data and api_data.get("candles"):
                 # Convert to rows and save to cache

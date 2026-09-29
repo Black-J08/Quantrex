@@ -192,11 +192,11 @@ class ResearchEngine:
                     bucket = current_bucket["data"]
                     derived_rows.append({
                         "datetime": bucket["timestamp"].strftime(datetime_format),
-                        "open": str(bucket["open"]),
-                        "high": str(bucket["high"]),
-                        "low": str(bucket["low"]),
-                        "close": str(bucket["close"]),
-                        "volume": str(bucket["volume"]),
+                        "open": bucket["open"],
+                        "high": bucket["high"],
+                        "low": bucket["low"],
+                        "close": bucket["close"],
+                        "volume": bucket["volume"],
                     })
                 
                 # Start new bucket
@@ -224,11 +224,11 @@ class ResearchEngine:
             bucket = current_bucket["data"]
             derived_rows.append({
                 "datetime": bucket["timestamp"].strftime(datetime_format),
-                "open": str(bucket["open"]),
-                "high": str(bucket["high"]),
-                "low": str(bucket["low"]),
-                "close": str(bucket["close"]),
-                "volume": str(bucket["volume"]),
+                "open": bucket["open"],
+                "high": bucket["high"],
+                "low": bucket["low"],
+                "close": bucket["close"],
+                "volume": bucket["volume"],
             })
         
         return derived_rows

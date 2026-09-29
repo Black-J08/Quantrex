@@ -173,29 +173,57 @@ class InstrumentMaster:
         return lookup
 
     def load(self, exchange: str | None = None) -> None:
-        """Load instrument master from cache or download.
+        """Load instrument master from cache (even if expired) for symbol resolution.
+
+        This method never triggers a download. It loads from cache if available,
+        regardless of TTL expiry. Use refresh() to force a fresh download from API.
 
         Args:
             exchange: Optional exchange to filter. If None, loads all exchanges.
         """
-        if self._loaded and self._is_cache_valid():
-            logger.debug("Using cached instrument master (age < %d hours)", self._config.cache_ttl_hours)
+        if self._loaded:
+            logger.debug("Instrument master already loaded: %d entries", len(self._lookup))
             return
 
-        # Try to load from cache first
-        if self._cache_file.exists() and self._is_cache_valid():
+        # Try to load from cache first (even if expired)
+        if self._cache_file.exists():
             try:
                 csv_content = self._cache_file.read_text(encoding="utf-8")
                 self._lookup = self._parse_csv(csv_content)
                 self._loaded = True
-                self._load_time = time.time()
-                logger.debug("Loaded instrument master from cache: %d entries", len(self._lookup))
+                # Use file modification time for age calculation
+                self._load_time = self._cache_file.stat().st_mtime
+                age_hours = (time.time() - self._load_time) / 3600 if self._load_time else 0
+                if age_hours >= self._config.cache_ttl_hours:
+                    logger.warning(
+                        "Using expired instrument master cache (age: %.1f hours, TTL: %d hours). "
+                        "Call refresh() to update from API.",
+                        age_hours, self._config.cache_ttl_hours
+                    )
+                else:
+                    logger.debug("Loaded instrument master from cache: %d entries (age: %.1f hours)",
+                                len(self._lookup), age_hours)
                 return
             except Exception as e:
                 logger.warning("Failed to load cached instrument master: %s", e)
 
-        # Download fresh
-        logger.info("Downloading instrument master from Zerodha (exchange=%s)...", exchange or "all")
+        # No cache file exists - must download (requires auth)
+        logger.info("No instrument master cache found. Downloading from Zerodha (exchange=%s)...", exchange or "all")
+        self.refresh(exchange)
+
+    def refresh(self, exchange: str | None = None) -> None:
+        """Force fresh download of instrument master from Zerodha API.
+
+        This method requires valid authentication (access_token in config).
+        Call once per session before fetching new data from API.
+
+        Args:
+            exchange: Optional exchange to filter. If None, downloads all exchanges.
+
+        Raises:
+            ZerodhaInstrumentMasterError: If download fails or auth is missing.
+        """
+        logger.info("Refreshing instrument master from Zerodha (exchange=%s)...", exchange or "all")
         csv_content = self._download_csv(exchange)
 
         # Save to cache
@@ -209,7 +237,7 @@ class InstrumentMaster:
         self._lookup = self._parse_csv(csv_content)
         self._loaded = True
         self._load_time = time.time()
-        logger.info("Instrument master loaded: %d entries", len(self._lookup))
+        logger.info("Instrument master refreshed: %d entries", len(self._lookup))
 
     def resolve_symbol(self, symbol: str, exchange: str | None = None) -> str:
         """Resolve trading symbol to instrument_token.
