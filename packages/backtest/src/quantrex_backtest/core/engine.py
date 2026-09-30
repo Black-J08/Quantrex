@@ -249,7 +249,7 @@ class BacktestEngine:
             for tf in required_timeframes:
                 try:
                     indicators = self._strategy.compute_indicators(
-                        all_raw_data[symbol][tf], timeframe=tf
+                        all_raw_data[symbol][tf], timeframe=tf, symbol=symbol
                     )
                     # Validate length matches
                     if len(indicators) != len(all_raw_data[symbol][tf]):

@@ -340,14 +340,22 @@ class ResearchEngine:
         # Structure: {component: {symbol: {timeframe: List[Dict[indicator_name -> value]]}}}
         all_indicators: Dict[ResearchComponent, Dict[str, Dict[str, List[Dict[str, float | int | None]]]]] = {}
         
+        # Track component instance state to detect mutation across symbols (dev-mode warning)
+        import os
+        dev_mode = os.environ.get("QUANTREX_DEV_MODE", "").lower() in ("1", "true", "yes")
+        component_state_snapshots: Dict[ResearchComponent, Dict[str, Any]] = {}
+        
         for component in self.research_components:
             all_indicators[component] = {}
+            if dev_mode:
+                # Snapshot instance __dict__ before first symbol
+                component_state_snapshots[component] = dict(component.__dict__)
             for symbol in all_raw_data:
                 all_indicators[component][symbol] = {}
                 for tf in all_raw_data[symbol]:
                     try:
                         indicators = component.compute_indicators(
-                            all_raw_data[symbol][tf], timeframe=tf
+                            all_raw_data[symbol][tf], timeframe=tf, symbol=symbol
                         )
                         # Validate length matches
                         if len(indicators) != len(all_raw_data[symbol][tf]):
@@ -372,6 +380,21 @@ class ResearchEngine:
                         raise ValueError(
                             f"Component {component.__class__.__name__}.compute_indicators failed for {symbol} timeframe {tf}: {e}"
                         ) from e
+                
+                # Dev-mode: check if component mutated instance state across symbols
+                if dev_mode and symbol != list(all_raw_data.keys())[0]:
+                    prev_state = component_state_snapshots[component]
+                    curr_state = dict(component.__dict__)
+                    if prev_state != curr_state:
+                        logger.warning(
+                            "Component %s mutated instance state during compute_indicators "
+                            "(symbol %s). This violates the purity contract and causes "
+                            "cross-symbol contamination. Use ResearchContext or return "
+                            "data in indicator mappings instead.",
+                            component.__class__.__name__, symbol
+                        )
+                        # Update snapshot for next comparison
+                        component_state_snapshots[component] = curr_state
         
         # 6. Prepare base timeframe candles for the main loop (with indicators)
         # Structure: {symbol: List[Candle]} for base timeframe only
@@ -409,6 +432,14 @@ class ResearchEngine:
         # 7. Merge base timeframe candles into single time-ordered stream for the main loop
         merged_candles = merge_candle_streams(base_candles_by_symbol)
         logger.info("Merged base candle stream: %d total candles", len(merged_candles))
+        
+        # Build per-symbol candle map for forward return calculations
+        # This ensures calculator only searches candles for the event's symbol
+        symbol_to_candles: Dict[str, List[Candle]] = {}
+        for candle in merged_candles:
+            if candle.symbol not in symbol_to_candles:
+                symbol_to_candles[candle.symbol] = []
+            symbol_to_candles[candle.symbol].append(candle)
         
         # 8. Call on_start for all components
         for component in self.research_components:
@@ -563,10 +594,10 @@ class ResearchEngine:
                 component.on_candle(candle)
             
             # Check buffered events for elapsed horizons
-            self._process_elapsed_horizons(candle, merged_candles)
+            self._process_elapsed_horizons(candle, merged_candles, symbol_to_candles)
         
         # 10. Process remaining events (horizons beyond data end)
-        self._process_remaining_events(merged_candles)
+        self._process_remaining_events(merged_candles, symbol_to_candles)
         
         # 11. Call on_stop for all components and collect results
         results = self._finalize_components(run_dir)
@@ -690,7 +721,7 @@ class ResearchEngine:
                 
                 state["current_bucket"] = None
     
-    def _process_elapsed_horizons(self, current_candle: Candle, all_candles: List[Candle]) -> None:
+    def _process_elapsed_horizons(self, current_candle: Candle, all_candles: List[Candle], symbol_to_candles: Dict[str, List[Candle]]) -> None:
         """Check buffered events for elapsed horizons and trigger calculation."""
         for component, buffer in self._event_buffers.items():
             horizons = component.get_horizons()
@@ -706,18 +737,23 @@ class ResearchEngine:
                 
                 # Only calculate when ALL horizons have elapsed
                 if len(all_elapsed) == len(horizons):
-                    series = self._calculate_returns(all_candles, buffered_event.event, all_elapsed)
+                    # Use per-symbol candles for this event's symbol
+                    event_symbol = event_candle.symbol
+                    symbol_candles = symbol_to_candles.get(event_symbol, all_candles)
+                    series = self._calculate_returns(symbol_candles, buffered_event.event, all_elapsed)
                     component.on_returns_calculated(buffered_event.event, series)
                     buffer.remove(buffered_event)
     
-    def _process_remaining_events(self, all_candles: List[Candle]) -> None:
+    def _process_remaining_events(self, all_candles: List[Candle], symbol_to_candles: Dict[str, List[Candle]]) -> None:
         """Process any remaining buffered events (horizons beyond data end -> NaN)."""
         for component, buffer in self._event_buffers.items():
             horizons = component.get_horizons()
             
             for buffered_event in buffer:
                 # Calculate all remaining horizons (will be None)
-                series = self._calculate_returns(all_candles, buffered_event.event, horizons)
+                event_symbol = buffered_event.emission_candle.symbol
+                symbol_candles = symbol_to_candles.get(event_symbol, all_candles)
+                series = self._calculate_returns(symbol_candles, buffered_event.event, horizons)
                 component.on_returns_calculated(buffered_event.event, series)
             
             buffer.clear()

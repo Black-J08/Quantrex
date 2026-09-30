@@ -135,12 +135,24 @@ class ResearchComponent(ABC):
         self,
         candles: Sequence[Mapping[str, object]],
         timeframe: str | None = None,
+        symbol: str | None = None,
     ) -> Sequence[Mapping[str, float | int | None]]:
         """Precompute technical indicators over the ordered candle history.
 
         Default: no-op (returns empty mapping per bar). Subclasses may
         override to compute RSI, SMA, etc. using pandas/numpy/ta-lib.
         The framework does not provide built-in indicator calculations.
+
+        IMPORTANT CONTRACT: This method MUST be a pure function.
+        - Do NOT mutate `self` or any instance state.
+        - Do NOT store per-symbol data in instance variables.
+        - The engine calls this method ONCE PER SYMBOL PER TIMEFRAME.
+        - The `symbol` parameter is provided for convenience.
+        - If you need per-symbol state, use the ResearchContext (self.ctx)
+          or return all data in the indicator mappings.
+        
+        Violation of this contract causes cross-symbol contamination where
+        all symbols use the last symbol's computed indicators.
 
         Args:
             candles: Sequence of raw candle row dictionaries, sorted by timestamp.

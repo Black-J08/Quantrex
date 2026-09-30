@@ -62,10 +62,10 @@ class ForwardReturnCalculator:
             # Horizon is measured from event_candle.timestamp (open time)
             target_time = event_candle.timestamp + horizon
             
-            # Search for the first candle with timestamp >= target_time
+            # Search for the first candle with timestamp >= target_time FOR THE SAME SYMBOL
             horizon_candle = None
             for i in range(event_index + 1, len(candles)):
-                if candles[i].timestamp >= target_time:
+                if candles[i].symbol == event_candle.symbol and candles[i].timestamp >= target_time:
                     horizon_candle = candles[i]
                     break
             
@@ -116,7 +116,7 @@ class ForwardReturnCalculator:
             
             horizon_candle = None
             for i in range(event_index + 1, len(candles)):
-                if candles[i].timestamp >= target_time:
+                if candles[i].symbol == event_candle.symbol and candles[i].timestamp >= target_time:
                     horizon_candle = candles[i]
                     break
             

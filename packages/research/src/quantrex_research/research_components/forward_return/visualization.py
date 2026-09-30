@@ -43,10 +43,14 @@ def plot_distribution(
     )
     
     # KDE
-    if len(returns) > 1:
-        kde = stats.gaussian_kde(returns_array)
-        x_range = np.linspace(returns_array.min(), returns_array.max(), 200)
-        ax.plot(x_range, kde(x_range), "r-", linewidth=2, label="KDE")
+    if len(returns) > 1 and returns_array.max() - returns_array.min() > 1e-10:
+        try:
+            kde = stats.gaussian_kde(returns_array)
+            x_range = np.linspace(returns_array.min(), returns_array.max(), 200)
+            ax.plot(x_range, kde(x_range), "r-", linewidth=2, label="KDE")
+        except (ValueError, np.linalg.LinAlgError):
+            # KDE failed (e.g., all values identical), skip KDE
+            pass
     
     # Normal distribution overlay
     mean = statistics.get("mean", 0)
@@ -193,10 +197,13 @@ def plot_tail_comparison(
     if len(positive_returns) > 0:
         ax1.hist(positive_returns, bins=30, density=True, alpha=0.7, 
                  color="green", edgecolor="white", label=f"Positive (n={len(positive_returns)})")
-        if len(positive_returns) > 1:
-            kde = stats.gaussian_kde(positive_returns)
-            x_range = np.linspace(positive_returns.min(), positive_returns.max(), 100)
-            ax1.plot(x_range, kde(x_range), "g-", linewidth=2)
+        if len(positive_returns) > 1 and positive_returns.max() - positive_returns.min() > 1e-10:
+            try:
+                kde = stats.gaussian_kde(positive_returns)
+                x_range = np.linspace(positive_returns.min(), positive_returns.max(), 100)
+                ax1.plot(x_range, kde(x_range), "g-", linewidth=2)
+            except (ValueError, np.linalg.LinAlgError):
+                pass
     ax1.set_xlabel("Positive Return (%)")
     ax1.set_ylabel("Density")
     ax1.set_title("Positive Returns Distribution")
@@ -207,10 +214,13 @@ def plot_tail_comparison(
     if len(negative_returns) > 0:
         ax2.hist(negative_returns, bins=30, density=True, alpha=0.7,
                  color="red", edgecolor="white", label=f"Negative (n={len(negative_returns)})")
-        if len(negative_returns) > 1:
-            kde = stats.gaussian_kde(negative_returns)
-            x_range = np.linspace(negative_returns.min(), negative_returns.max(), 100)
-            ax2.plot(x_range, kde(x_range), "r-", linewidth=2)
+        if len(negative_returns) > 1 and negative_returns.max() - negative_returns.min() > 1e-10:
+            try:
+                kde = stats.gaussian_kde(negative_returns)
+                x_range = np.linspace(negative_returns.min(), negative_returns.max(), 100)
+                ax2.plot(x_range, kde(x_range), "r-", linewidth=2)
+            except (ValueError, np.linalg.LinAlgError):
+                pass
     ax2.set_xlabel("Negative Return (%)")
     ax2.set_ylabel("Density")
     ax2.set_title("Negative Returns Distribution")

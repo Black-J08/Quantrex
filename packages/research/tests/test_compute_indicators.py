@@ -58,7 +58,7 @@ class _RecordingComponent(ForwardReturnComponent):
 class _SpreadComponent(_RecordingComponent):
     """Hand-rolled indicator: ``close - open`` (library-free, framework-agnostic)."""
 
-    def compute_indicators(self, candles, timeframe=None):
+    def compute_indicators(self, candles, timeframe=None, symbol=None):
         self.compute_calls += 1
         # Capture the exact row sequence the engine passed in so the
         # timestamp-ordering test can assert on it.
@@ -182,7 +182,7 @@ def test_engine_wraps_compute_indicators_exception():
     """
 
     class _BoomComponent(_RecordingComponent):
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             raise ValueError("indicator math blew up")
 
     rows = [_row("2024-01-01 09:30:00", 100.0, 101.0, 99.0, 100.5, 10)]
@@ -214,7 +214,7 @@ def test_engine_raises_on_length_mismatch():
     """
 
     class _BadLengthComponent(_RecordingComponent):
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             # 3 input rows, 2 returned dicts — off by one.
             return [{"spread": 0.0}] * (len(candles) - 1)
 
@@ -263,7 +263,7 @@ def test_engine_compute_indicators_multiple_timeframes():
         def on_1h_candle(self, candle: Candle) -> None:
             pass
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             self.timeframes_seen.append(timeframe)
             return [{"tf": timeframe}] * len(candles)
 
@@ -308,7 +308,7 @@ def test_engine_compute_indicators_derived_timeframe_attached():
         def on_1h_candle(self, candle: Candle) -> None:
             self.h1_candles.append(candle)
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             if timeframe == "1H":
                 return [{"h1_indicator": float(c["close"]) * 2} for c in candles]
             return [{"m1_indicator": float(c["close"]) * 1} for c in candles]
@@ -373,7 +373,7 @@ def test_compute_indicators_receives_timeframe_param():
         def get_horizons(self): return [timedelta(minutes=1)]
         def on_returns_calculated(self, event, series): pass
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             self.received_timeframe = timeframe
             return [{}] * len(candles)
 
@@ -417,7 +417,7 @@ def test_engine_compute_indicators_multi_timeframe_correctness():
         def on_1h_candle(self, candle: Candle) -> None:
             pass
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             self.timeframes_seen.append(timeframe)
             df = pd.DataFrame(candles)
             # Convert numeric columns from strings
@@ -511,7 +511,7 @@ def test_engine_compute_indicators_look_ahead_bias_prevention():
         def on_1h_candle(self, candle: Candle) -> None:
             pass
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             df = pd.DataFrame(candles)
             # Convert numeric columns from strings
             for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -592,7 +592,7 @@ def test_engine_compute_indicators_timeframe_parameter_propagation():
         def on_30m_candle(self, candle: Candle) -> None:
             pass
 
-        def compute_indicators(self, candles, timeframe=None):
+        def compute_indicators(self, candles, timeframe=None, symbol=None):
             self.received_timeframes.append(timeframe)
             return [{}] * len(candles)
 
