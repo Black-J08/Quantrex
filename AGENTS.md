@@ -3,14 +3,14 @@
 ## Project Overview
 **Quantrex** is a Python-based event-driven algorithmic trading framework for quantitative researchers.
 
-**Core Goal:** A researcher writes **one simple Python strategy script** and uses the **exact same script** for backtesting, paper/mock trading, and live trading.
+**Core Goal:** A researcher writes **one simple Python strategy script** and uses the **exact same script** for research, backtesting, and live/paper trading.
 
 **Design Philosophy:**
 - Hide infrastructure complexity behind a simple researcher-facing API
 - Researcher mainly defines strategy logic and reacts to market events
-- Make the **easy path the default** while keeping the underlying architecture robust and fast enough for large-scale backtests and real-time trading
+- Keep the underlying architecture robust and fast enough for large-scale backtests and real-time trading
 - Complexity lives inside the framework, not inside the strategy script
-
+- Always research and follow industry-standard practices where applicable, but adopt them only when they are relevant and beneficial to the current project’s requirements and architecture.
 
 ## Pillars of Implementation
 Every solution you propose or implement must be vetted through the search tools to ensure it meets the following four pillars:
@@ -19,6 +19,7 @@ Every solution you propose or implement must be vetted through the search tools 
 * **Redundancy:** High availability, failover mechanisms, no single points of failure (SPOFs), and data replication.
 * **Scalability:** Horizontal scaling capabilities, stateless design patterns, and efficient resource utilization.
 * **High Performance:** Optimized data structures, caching strategies, low-latency communication protocols, and minimized I/O bottlenecks.
+* **Modularity & DRY:** Avoid duplicate code and functionality; abstract shared behavior where appropriate, enforce clear separation of responsibilities between modules and submodules, and structure components for independent development, testing, and future scalability.
 
 ## Search Workflow
 1. **Query Formulation:** Use specific queries combining your target technology with keywords like `"production ready"`, `"error handling best practices"`, `"scalability best practices"`, `"performance optimization"`, `"caching strategy"` or `"industry standard"`.
@@ -28,7 +29,7 @@ Every solution you propose or implement must be vetted through the search tools 
 
 ## Logging & Error Tracking Standards
 
-Use the standard library [`logging`](https://docs.python.org/3/library/logging.html) module via the `quantrex_core.logging` facade: `get_logger(name)` for module-scoped loggers, `setup_logging(level, log_file)` at the process entry point. Importing `quantrex_core.logging` has no side effects.
+Use the standard library [`logging`](https://docs.python.org/3/library/logging.html) module via the `core.logging` facade.
 
 ### Severity Levels
 Use the standard levels.
@@ -40,6 +41,9 @@ Use the standard levels.
 | **WARNING (30)** | Non-critical issues or potential anomalies. |
 | **ERROR (40)** | Errors that prevent an operation from completing with exc_info=True always. |
 | **CRITICAL (50)** | System-breaking failures requiring immediate attention. |
+
+## Debug Logging
+Add debug logs at appropriate locations after each major or sub-major task to aid troubleshooting and observability.
 
 ### Format
 * Use lazy `%`-formatting: `logger.info("foo %s", x)` — never f-strings at the call site.
@@ -53,10 +57,10 @@ Use the standard levels.
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
 
 Before implementing:
-* State your assumptions explicitly. If uncertain, ask.
-* If multiple interpretations exist, present them - don't pick silently.
+* State your assumptions explicitly. If uncertain, use the questions tool to ASK.
+* If multiple interpretations exist, present them - don't pick silently, ASK.
 * If a simpler approach exists, say so. Push back when warranted.
-* If something is unclear, stop. Name what's confusing. Ask.
+* If something is unclear, stop. Name what's confusing. ASK.
 
 ## Object-Oriented Design
 
@@ -95,9 +99,13 @@ When your changes create orphans:
 
 The test: Every changed line should trace directly to the user's request.
 
+## File Reading and Editing
+Use dedicated file/edit/refactor tools whenever available; don't edit via shell commands unless the user explicitly requests terminal editing or no suitable tool exists. Never overwrite a whole file when a surgical edit works. **Always use correct line numbers when reading or writing to a file.** Use `multi_replace_string_in_file` for multiple independent edits across files. After editing: re-read relevant sections as needed, verify imports/references, check formatting, check for accidental changes. Avoid unnecessary temp files; remove any before finishing.
+
 ## Dependency Architecture
 
 * Eliminate circular dependencies through proper architecture; never use workarounds such as typing.TYPE_CHECKING, deferred imports, local imports, or lazy imports solely to break circular imports.
+* **Never lazy import modules** — import at module top level.
 * Prefer architectural separation, dependency inversion, shared core modules, and protocols/interfaces where appropriate.
 
 ## Type Hinting
@@ -107,9 +115,15 @@ The test: Every changed line should trace directly to the user's request.
 * Structure modules so annotations resolve naturally without deferred evaluation.
 * Use `typing.Self` where appropriate for class methods.
 
+## Type Checking
+
+* **Always** run `uv run mypy` on the project codebase and fix all errors before completing any task.
+
 ## Naming, Module Organization & Responsibility
 
 Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Architecture, Domain-Driven Design where appropriate, and the Python packaging recommendations from the Python ecosystem). Organize code so that each file, class, and function has a single, well-defined responsibility.
+
+* **Always** create sub-folders when required for new modules or packages — never place files directly in a parent directory if a sub-folder structure is appropriate.
 
 ## Monorepo & Python Packaging (uv + pyproject.toml)
 
@@ -122,41 +136,3 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 **Per member:** each member's `pyproject.toml` contains only `[project]` (with `requires-python`) and `[build-system]` (with `uv_build`). Cross-member dependencies are listed as bare names in `[project] dependencies` and resolved via the root's `[tool.uv.sources]`. Pin the interpreter at the workspace root with `.python-version`.
 
 **Not allowed (deprecated):** `uv sync --dev`, `[project.optional-dependencies] dev`, `[tool.uv.dev-dependencies]`, `[tool.setuptools.packages.find]`, per-member `[tool.uv.sources]`, any non-`uv_build` build backend, manual venv activation.
-
-
-### Monorepo Layout
-```
-quantrex/
-├── packages/
-│   ├── core/               # quantrex-core
-│   │   ├── src/
-│   │   ├── tests/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   ├── data/               # quantrex-data
-│   │   ├── src/
-│   │   ├── tests/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   ├── backtest/           # quantrex-backtest
-│   │   ├── src/
-│   │   ├── tests/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   ├── live/               # quantrex-live
-│   │   ├── src/
-│   │   ├── tests/
-│   │   ├── pyproject.toml
-│   │   └── README.md
-│   └── test-support/       # quantrex-test-support
-│       ├── src/
-│       ├── tests/
-│       ├── pyproject.toml
-│       └── README.md
-├── pyproject.toml          # virtual workspace root
-├── uv.lock                 # single lockfile for all
-├── .python-version         # workspace-wide Python pin
-├── .gitignore
-├── AGENTS.md
-└── README.md
-```

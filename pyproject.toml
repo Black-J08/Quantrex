@@ -1,17 +1,10 @@
 [project]
 name = "quantrex"
-version = "0.1.0"
+version = "0.2.0"
 description = "Quantrex algorithmic trading framework (meta-package)"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = [
-    "quantrex-core",
-    "quantrex-data",
-    "quantrex-backtest",
-    "quantrex-live",
-    "quantrex-research",
-    "quantrex-test-support",
-]
+dependencies = []
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13"]
@@ -19,17 +12,6 @@ build-backend = "uv_build"
 
 [tool.uv]
 default-groups = ["dev"]
-
-[tool.uv.workspace]
-members = ["packages/*"]
-
-[tool.uv.sources]
-quantrex-core = { workspace = true }
-quantrex-data = { workspace = true }
-quantrex-backtest = { workspace = true }
-quantrex-live = { workspace = true }
-quantrex-research = { workspace = true }
-quantrex-test-support = { workspace = true }
 
 [dependency-groups]
 dev = [

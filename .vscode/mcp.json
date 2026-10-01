@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "hindsight": {
+      "type": "http",
+      "url": "http://localhost:8888/mcp/Quantrex/"
+    }
+  }
+}

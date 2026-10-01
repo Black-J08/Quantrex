@@ -1,0 +1,5 @@
+# Hindsight Bank ID Configuration
+# Replace this with your actual bank ID (e.g., team-quantrex, personal-quantrex, etc.)
+# You can also set the HINDSIGHT_BANK_ID environment variable instead
+
+Quantrex
