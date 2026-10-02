@@ -118,6 +118,11 @@ Use dedicated file/edit/refactor tools whenever available; don't edit via shell 
 ## Type Checking
 
 * **Always** run `uv run mypy` on the project codebase and fix all errors before completing any task.
+* **Always** run `uv run ruff` alongside mypy when testing newly written code.
+
+## Testing
+
+* **Always** create new tests in the `tests/` folder when creating new or updating features.
 
 ## Naming, Module Organization & Responsibility
 
