@@ -73,7 +73,7 @@ log "Bank ID: $BANK_ID"
 
 # Recall memories relevant to the prompt
 log "Recalling memories for: $prompt"
-recalled=$(hindsight memory recall "$BANK_ID" "$prompt" --max-tokens 2000 2>&1)
+recalled=$(hindsight memory recall "$BANK_ID" "$prompt" --max-tokens 1000 2>&1)
 recall_exit_code=$?
 log "Recall exit code: $recall_exit_code"
 log "Recalled: $recalled"
@@ -81,7 +81,7 @@ log "Recalled: $recalled"
 if [ $recall_exit_code -eq 0 ] && [ -n "$recalled" ] && [ "$recalled" != "null" ]; then
   # UserPromptSubmit uses systemMessage
   output=$(jq -n \
-    --arg msg "Relevant memories from Hindsight:\n$recalled" \
+    --arg msg "Relevant memories from Hindsight:\n$recalled\n\nUse the `hindsight` memory tool to retrieve and navigate relevant long-term memories, observations, and world knowledge as needed." \
     '{continue: true, systemMessage: $msg}')
   
   log "Output: $output"
