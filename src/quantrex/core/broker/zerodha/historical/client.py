@@ -1,4 +1,4 @@
-"""Zerodha historical data provider - fetches OHLCV candles."""
+"""Zerodha historical data client - raw historical data fetching from the API."""
 
 from __future__ import annotations
 
@@ -7,15 +7,19 @@ from datetime import datetime
 from typing import Any
 
 from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
-from quantrex.core.broker.zerodha.models.models import RawCandle, ZerodhaInterval
+from quantrex.core.broker.zerodha.models.models import ZerodhaInterval
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
+from quantrex.core.models import Timeframe, TimeframeUnit
 
 logger = logging.getLogger(__name__)
 
 
-class ZerodhaHistoricalDataProvider:
-    """Provider for fetching historical OHLCV candles from Zerodha."""
+class ZerodhaHistoricalDataClient:
+    """Client for fetching raw historical data from the Zerodha API.
+
+    This client only handles vendor API communication (auth, HTTP, rate limiting).
+    Normalization of vendor responses to canonical models is handled by the data layer.
+    """
 
     def __init__(self, session: ZerodhaSession, instrument_master: InstrumentMaster | None = None):
         """Initialize historical data provider.
@@ -55,7 +59,7 @@ class ZerodhaHistoricalDataProvider:
         """Format datetime for Zerodha API (yyyy-mm-dd hh:mm:ss)."""
         return dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    async def get_candles(
+    async def get_raw_candles(
         self,
         symbol: str,
         timeframe: Timeframe,
@@ -63,8 +67,11 @@ class ZerodhaHistoricalDataProvider:
         to_date: datetime,
         continuous: bool = False,
         oi: bool = False,
-    ) -> list[OHLCVCandle]:
-        """Fetch historical OHLCV candles for a symbol.
+    ) -> dict[str, Any]:
+        """Fetch raw historical candle data from Zerodha API.
+        
+        Returns the raw JSON response from the API without normalization.
+        Normalization to canonical models is handled by the data layer.
 
         Args:
             symbol: Trading symbol (e.g., "NSE:INFY" or "INFY")
@@ -75,7 +82,7 @@ class ZerodhaHistoricalDataProvider:
             oi: Whether to include open interest data
 
         Returns:
-            List of OHLCVCandle objects
+            Raw JSON response from Zerodha API
 
         Raises:
             SymbolNotFoundError: If symbol cannot be resolved
@@ -100,7 +107,7 @@ class ZerodhaHistoricalDataProvider:
         # Make API request
         path = f"/instruments/historical/{instrument.instrument_token}/{interval.value}"
         logger.info(
-            "Fetching candles for %s (token=%d, interval=%s) from %s to %s",
+            "Fetching raw candles for %s (token=%d, interval=%s) from %s to %s",
             symbol,
             instrument.instrument_token,
             interval.value,
@@ -123,29 +130,6 @@ class ZerodhaHistoricalDataProvider:
                 raise RuntimeError(f"API error: {data.get('message', 'Unknown error')}")
 
         candles_data = data.get("data", {}).get("candles", [])
-        logger.info("Received %d candles for %s", len(candles_data), symbol)
+        logger.info("Received %d raw candles for %s", len(candles_data), symbol)
 
-        # Parse candles
-        candles = []
-        for candle_data in candles_data:
-            try:
-                raw_candle = RawCandle.from_api_response(candle_data)
-                ohlcv = self._raw_to_ohlcv(raw_candle, symbol, timeframe)
-                candles.append(ohlcv)
-            except (ValueError, IndexError, TypeError) as e:
-                logger.warning("Failed to parse candle: %s, data: %s", e, candle_data)
-                continue
-
-        return candles
-
-    def _raw_to_ohlcv(self, raw: RawCandle, symbol: str, timeframe: Timeframe) -> OHLCVCandle:
-        """Convert RawCandle to OHLCVCandle."""
-        return OHLCVCandle(
-            symbol=symbol,
-            timeframe=timeframe,
-            open=raw.open,
-            high=raw.high,
-            low=raw.low,
-            close=raw.close,
-            volume=raw.volume,
-        )
+        return data

@@ -19,10 +19,10 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from quantrex.core.broker.zerodha import (
-    ZerodhaSession,
-    ZerodhaHistoricalDataProvider,
     InstrumentMaster,
+    ZerodhaSession,
 )
+from quantrex.core.data import ZerodhaHistoricalDataProvider
 from quantrex.core.models import Timeframe, TimeframeUnit
 
 # Configure logging
