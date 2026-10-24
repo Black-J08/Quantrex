@@ -1,11 +1,7 @@
 """Data module exceptions."""
 
 from quantrex.core.data.exceptions.exceptions import (
-    CacheCorruptionError,
-    CacheError,
-    CacheMissError,
     DataError,
-    DataValidationError,
     NormalizationError,
     ProviderError,
     SymbolResolutionError,
@@ -13,11 +9,7 @@ from quantrex.core.data.exceptions.exceptions import (
 )
 
 __all__ = [
-    "CacheCorruptionError",
-    "CacheError",
-    "CacheMissError",
     "DataError",
-    "DataValidationError",
     "NormalizationError",
     "ProviderError",
     "SymbolResolutionError",

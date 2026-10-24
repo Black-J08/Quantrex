@@ -7,7 +7,7 @@ returned it, before normalization into the canonical :class:`OHLCVCandle`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from decimal import Decimal
 
 
@@ -34,11 +34,24 @@ class RawCandle:
     oi: Decimal | None = None
 
     @classmethod
-    def from_api_response(cls, data: list) -> RawCandle:
+    def from_api_response(cls, data: list, default_tz: tzinfo | None = None) -> RawCandle:
         """Create a RawCandle from a vendor API response array.
 
         Expected format: [timestamp, open, high, low, close, volume]
         Optional: [timestamp, open, high, low, close, volume, oi]
+
+        The timestamp offset supplied by the vendor is preserved as-is. A
+        timestamp without an offset is interpreted in ``default_tz`` when one
+        is given; otherwise it is rejected, because a bare wall clock cannot
+        be placed on the timeline unambiguously.
+
+        Args:
+            data: The vendor's candle array.
+            default_tz: Timezone to assume for a timestamp without an offset.
+
+        Raises:
+            ValueError: If the array is malformed or the timestamp is naive
+                and no ``default_tz`` was supplied.
         """
         if len(data) < 6:
             raise ValueError(f"Invalid candle data: expected at least 6 elements, got {len(data)}")
@@ -49,6 +62,13 @@ class RawCandle:
             timestamp = datetime.fromisoformat(ts_value)
         else:
             timestamp = datetime.fromtimestamp(ts_value, tz=UTC)
+
+        if timestamp.tzinfo is None:
+            if default_tz is None:
+                raise ValueError(
+                    "Candle timestamp has no UTC offset and no default timezone was supplied"
+                )
+            timestamp = timestamp.replace(tzinfo=default_tz)
 
         return cls(
             timestamp=timestamp,

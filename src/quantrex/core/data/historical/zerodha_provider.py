@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from quantrex.core.broker.zerodha.exceptions.exceptions import (
@@ -13,8 +14,8 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
 from quantrex.core.broker.zerodha.historical import ZerodhaHistoricalDataClient
 from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.data.cache import OHLCVCache
 from quantrex.core.data.cache.cache_key import CacheKey
+from quantrex.core.data.cache.ohlcv_cache import OHLCVCache, _missing_intervals
 from quantrex.core.data.exceptions import (
     NormalizationError,
     ProviderError,
@@ -27,12 +28,42 @@ from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
 
 logger = logging.getLogger(__name__)
 
+#: Cache format version. Bumped when the on-disk layout or the stored bar
+#: times change, so that files written by an older version are ignored.
+CACHE_VERSION = 2
+
+
+def _month_segments(from_date: datetime, to_date: datetime) -> list[tuple[datetime, datetime]]:
+    """Split a range into calendar-month aligned segments.
+
+    A month is the longest span that stays under every Zerodha per-request
+    limit (the tightest is 60 days for 1-minute candles), so each segment
+    can be fetched in a single request without being truncated.
+    """
+    segments: list[tuple[datetime, datetime]] = []
+    cursor = from_date.astimezone(UTC)
+    end = to_date.astimezone(UTC)
+
+    while cursor < end:
+        next_month = datetime(
+            cursor.year + (cursor.month == 12),
+            (cursor.month % 12) + 1,
+            1,
+            tzinfo=UTC,
+        )
+        segment_end = min(end, next_month)
+        segments.append((cursor, segment_end))
+        cursor = segment_end
+
+    return segments
+
 
 class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
     """Historical data provider for Zerodha.
 
-    Owns the full historical-data path: cache lookup, raw fetch through the
-    broker client, normalization into canonical models, and validation.
+    Owns the full historical-data path: working out which intervals are
+    already cached, fetching only the missing ones through the broker client,
+    normalizing into canonical models, and storing the result.
     """
 
     def __init__(
@@ -40,33 +71,29 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
         session: ZerodhaSession,
         instrument_master: InstrumentMaster | None = None,
         normalizer: ZerodhaNormalizer | None = None,
-        cache: OHLCVCache | None = None,
+        cache_dir: Path | str | None = None,
         *,
-        cache_version: int = 1,
+        cache_version: int = CACHE_VERSION,
     ) -> None:
         """Initialize Zerodha historical data provider.
 
         Args:
-            session: ZerodhaSession for making authenticated requests
-            instrument_master: Optional InstrumentMaster instance (creates default if not provided)
-            normalizer: Optional ZerodhaNormalizer instance (creates default if not provided)
-            cache: Optional OHLCVCache instance (creates default if not provided)
-            cache_version: Cache version used for cache keys
+            session: ZerodhaSession for making authenticated requests.
+            instrument_master: Optional InstrumentMaster (a default is created).
+            normalizer: Optional ZerodhaNormalizer (a default is created).
+            cache_dir: Directory for the on-disk cache. A default is used
+                when not supplied.
+            cache_version: Cache format version.
         """
         self._client = ZerodhaHistoricalDataClient(session, instrument_master)
         self._normalizer = normalizer or ZerodhaNormalizer()
-        self._cache = cache or OHLCVCache()
+        self._cache = OHLCVCache(cache_dir) if cache_dir is not None else OHLCVCache()
         self._cache_version = cache_version
 
     @property
     def client(self) -> ZerodhaHistoricalDataClient:
         """Get the underlying broker client."""
         return self._client
-
-    @property
-    def cache(self) -> OHLCVCache:
-        """Get the cache instance."""
-        return self._cache
 
     def supported_timeframes(self) -> list[Timeframe]:
         """Get list of supported timeframes for Zerodha."""
@@ -92,26 +119,26 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
     ) -> list[OHLCVCandle]:
         """Fetch historical OHLCV candles for a symbol.
 
-        Uses the cache-aside pattern: the cache is consulted first, and the
-        vendor API is only called on a cache miss.
+        The cache is consulted first and only the intervals that are missing
+        are requested from the vendor, so a repeated or overlapping request
+        does not re-authenticate or re-download what is already on disk.
 
         Args:
-            symbol: Trading symbol (e.g., "NSE:INFY" or "INFY")
-            timeframe: Candle timeframe
-            from_date: Start date (inclusive)
-            to_date: End date (inclusive)
+            symbol: Trading symbol (e.g., "NSE:INFY" or "INFY").
+            timeframe: Candle timeframe.
+            from_date: Start of the range (inclusive).
+            to_date: End of the range (exclusive).
             **kwargs: Provider-specific options:
-                - continuous: Whether to fetch continuous data for futures (default: False)
-                - oi: Whether to include open interest data (default: False)
+                - continuous: Whether to fetch continuous data for futures.
+                - oi: Whether to include open interest data.
 
         Returns:
-            List of OHLCVCandle objects
+            List of OHLCVCandle objects, sorted by bar time.
 
         Raises:
-            TimeframeNotSupportedError: If timeframe is not supported
-            ProviderError: If the API request or normalization fails
+            TimeframeNotSupportedError: If the timeframe is not supported.
+            ProviderError: If the API request or normalization fails.
         """
-        # Validate timeframe
         if timeframe not in self.supported_timeframes():
             raise TimeframeNotSupportedError(
                 timeframe=str(timeframe),
@@ -119,27 +146,73 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
                 supported=[str(tf) for tf in self.supported_timeframes()],
             )
 
-        # Check cache first - avoids authenticating when data is already cached
+        if from_date >= to_date:
+            raise ProviderError(
+                f"from_date must be before to_date: {from_date} >= {to_date}",
+                provider="zerodha",
+                details={"symbol": symbol, "timeframe": str(timeframe)},
+            )
+
+        continuous = bool(kwargs.pop("continuous", False))
+        oi = bool(kwargs.pop("oi", False))
+
         key = CacheKey.create(
             symbol=symbol,
             timeframe=timeframe,
             from_date=from_date,
             to_date=to_date,
+            continuous=continuous,
+            oi=oi,
             version=self._cache_version,
         )
-        cached = self._cache.get(key)
-        if cached is not None:
-            logger.debug("Cache hit for %s", key.to_filename())
-            return cached
 
-        # Cache miss - fetch raw data from the broker client
-        logger.debug("Cache miss for %s, fetching from Zerodha", key.to_filename())
+        covered = self._cache.get_coverage(key)
+        missing = _missing_intervals(key.from_date, key.to_date, covered)
+
+        if not missing:
+            logger.info("Cache hit for %s %s, no vendor request needed", symbol, timeframe)
+            return self._cache.get_candles(key)
+
+        for gap_start, gap_end in missing:
+            # Each gap is fetched one month at a time, so no single request
+            # exceeds the vendor's per-request range limit.
+            for segment_start, segment_end in _month_segments(gap_start, gap_end):
+                logger.info(
+                    "Fetching %s %s from %s to %s",
+                    symbol,
+                    timeframe,
+                    segment_start.isoformat(),
+                    segment_end.isoformat(),
+                )
+                segment_key = CacheKey.create(
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    from_date=segment_start,
+                    to_date=segment_end,
+                    continuous=continuous,
+                    oi=oi,
+                    version=self._cache_version,
+                )
+                await self._fetch_and_store(segment_key, symbol, timeframe, **kwargs)
+
+        return self._cache.get_candles(key)
+
+    async def _fetch_and_store(
+        self,
+        key: CacheKey,
+        symbol: str,
+        timeframe: Timeframe,
+        **kwargs: Any,
+    ) -> None:
+        """Fetch one interval from the vendor and store it in the cache."""
         try:
             raw_response = await self._client.get_raw_candles(
                 symbol=symbol,
                 timeframe=timeframe,
-                from_date=from_date,
-                to_date=to_date,
+                from_date=key.from_date,
+                to_date=key.to_date,
+                continuous=key.continuous,
+                oi=key.oi,
                 **kwargs,
             )
         except (SymbolNotFoundError, AmbiguousSymbolError) as e:
@@ -151,7 +224,6 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
                 details={"symbol": symbol, "timeframe": str(timeframe)},
             ) from e
 
-        # Normalize into canonical models
         try:
             candles = self._normalizer.normalize_candles(raw_response, symbol, timeframe)
         except NormalizationError as e:
@@ -161,16 +233,12 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
                 details={"symbol": symbol, "timeframe": str(timeframe)},
             ) from e
 
-        # Store in cache
-        if candles:
-            try:
-                self._cache.set(key, candles)
-                logger.debug("Cached %d candles for %s", len(candles), key.to_filename())
-            except (OSError, ValueError) as e:
-                logger.warning("Failed to cache candles for %s: %s", key.to_filename(), e)
+        try:
+            self._cache.store_candles(key, candles)
+        except (OSError, ValueError) as e:
+            logger.warning("Failed to cache candles for %s: %s", symbol, e)
 
         logger.info("Received %d candles for %s", len(candles), symbol)
-        return candles
 
     async def close(self) -> None:
         """Close provider and release resources."""

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -45,6 +44,83 @@ class TestZerodhaNormalizer:
         assert candles[0].low == Decimal("1495.0")
         assert candles[0].close == Decimal("1505.0")
         assert candles[0].volume == Decimal(100000)
+
+    def test_normalize_candles_preserves_bar_timestamp(self) -> None:
+        """Test that the vendor bar time reaches the canonical candle.
+
+        Regression test: the normalizer used to drop the vendor timestamp, so
+        every bar was stamped with the time it was fetched rather than the
+        time it closed.
+        """
+        normalizer = ZerodhaNormalizer()
+
+        raw_response = {
+            "status": "success",
+            "data": {
+                "candles": [
+                    ["2024-01-15T09:15:00+05:30", 1500.0, 1510.0, 1495.0, 1505.0, 100000],
+                    ["2024-01-15T09:16:00+05:30", 1505.0, 1515.0, 1500.0, 1510.0, 80000],
+                ],
+            },
+        }
+
+        candles = normalizer.normalize_candles(
+            raw_response,
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+        )
+
+        assert candles[0].timestamp.isoformat() == "2024-01-15T09:15:00+05:30"
+        assert candles[1].timestamp.isoformat() == "2024-01-15T09:16:00+05:30"
+
+    def test_normalize_candles_localizes_naive_timestamp_to_ist(self) -> None:
+        """Test that a vendor timestamp without an offset is read as IST.
+
+        Regression test: a naive timestamp used to reach the candle unchanged,
+        which broke the timezone-aware invariant of the canonical model.
+        """
+        normalizer = ZerodhaNormalizer()
+
+        raw_response = {
+            "status": "success",
+            "data": {
+                "candles": [
+                    ["2024-01-15T09:15:00", 1500.0, 1510.0, 1495.0, 1505.0, 100000],
+                ],
+            },
+        }
+
+        candles = normalizer.normalize_candles(
+            raw_response,
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+        )
+
+        assert len(candles) == 1
+        assert candles[0].timestamp.tzinfo is not None
+        assert candles[0].timestamp.isoformat() == "2024-01-15T09:15:00+05:30"
+
+    def test_normalize_candles_accepts_kite_compact_offset(self) -> None:
+        """Test that Kite's '+0530' offset format is parsed."""
+        normalizer = ZerodhaNormalizer()
+
+        raw_response = {
+            "status": "success",
+            "data": {
+                "candles": [
+                    ["2019-12-04T09:15:00+0530", 12009.9, 12019.35, 12001.25, 12001.5, 163275],
+                ],
+            },
+        }
+
+        candles = normalizer.normalize_candles(
+            raw_response,
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+        )
+
+        assert len(candles) == 1
+        assert candles[0].timestamp.isoformat() == "2019-12-04T09:15:00+05:30"
 
     def test_normalize_candles_with_oi(self) -> None:
         """Test normalization with open interest data."""
@@ -153,11 +229,3 @@ class TestZerodhaNormalizer:
 
         with pytest.raises(ValueError, match="Unsupported timeframe"):
             client._map_timeframe_to_interval(Timeframe(value=2, unit=TimeframeUnit.HOUR))
-
-    def test_format_datetime(self) -> None:
-        """Test datetime formatting lives on the broker client."""
-        client = ZerodhaHistoricalDataClient(MagicMock(spec=ZerodhaSession))
-
-        dt = datetime(2024, 1, 15, 9, 30, 0, tzinfo=UTC)
-        formatted = client._format_datetime(dt)
-        assert formatted == "2024-01-15 09:30:00"

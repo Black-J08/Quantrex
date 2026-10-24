@@ -1,121 +1,101 @@
-"""Cache key generation and parsing utilities."""
+"""Cache key construction.
+
+A cache key identifies one canonical OHLCV query: the symbol, the timeframe,
+the exact instants it covers, and the vendor options that change the response.
+The key also determines where the data lives on disk, so two queries that
+would produce different data can never share a file.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
-from pathlib import Path
+from datetime import UTC, datetime
+from urllib.parse import quote, unquote
 
 from quantrex.core.models.timeframe import Timeframe
 
 
 @dataclass(slots=True, frozen=True)
 class CacheKey:
-    """Structured cache key for OHLCV data."""
+    """Identity of a cached OHLCV query.
+
+    Attributes:
+        symbol: Trading symbol, e.g. ``"NSE:INFY"``.
+        timeframe: Candle timeframe.
+        from_date: Start of the covered range (inclusive).
+        to_date: End of the covered range (exclusive).
+        continuous: Whether the data comes from the continuous futures series.
+        oi: Whether the data includes open interest.
+        version: Cache format version, used to invalidate old files.
+    """
 
     symbol: str
     timeframe: Timeframe
-    from_date: date
-    to_date: date
+    from_date: datetime
+    to_date: datetime
+    continuous: bool = False
+    oi: bool = False
     version: int = 1
 
-    def to_filename(self) -> str:
-        """Convert to filename format: {symbol}_{timeframe}_{from_date}_{to_date}_v{version}.feather"""
-        tf_str = str(self.timeframe)
-        from_str = self.from_date.isoformat()
-        to_str = self.to_date.isoformat()
-        # Sanitize symbol for filesystem (replace : and / with _)
-        safe_symbol = self.symbol.replace(":", "_").replace("/", "_")
-        return f"{safe_symbol}_{tf_str}_{from_str}_{to_str}_v{self.version}.feather"
+    def __post_init__(self) -> None:
+        """Validate the key components."""
+        if not self.symbol:
+            raise ValueError("symbol cannot be empty")
+        if self.symbol in {".", ".."}:
+            raise ValueError(f"symbol cannot be a path segment: {self.symbol!r}")
+        if self.from_date >= self.to_date:
+            raise ValueError("from_date must be before to_date")
 
-    def to_path(self, base_dir: Path) -> Path:
-        """Get full path for this cache key."""
-        safe_symbol = self.symbol.replace(":", "_").replace("/", "_")
-        tf_str = str(self.timeframe)
-        return base_dir / safe_symbol / tf_str / self.to_filename()
+    @staticmethod
+    def encode_symbol(symbol: str) -> str:
+        """Encode a symbol for use as a single path segment.
 
-    @classmethod
-    def from_filename(cls, filename: str) -> CacheKey | None:
-        """Parse cache key from filename.
-        
-        Expected format: {symbol}_{timeframe}_{from_date}_{to_date}_v{version}.feather
+        Percent-encoding keeps the mapping reversible and keeps ``:`` and
+        ``/`` out of the path, so ``"NSE:INFY"`` and ``"NSE_INFY"`` cannot
+        collide.
         """
-        if not filename.endswith(".feather"):
-            return None
-        
-        stem = filename[:-8]  # Remove .feather
-        parts = stem.split("_")
-        
-        if len(parts) < 5:
-            return None
-        
-        # Last part is version (vN)
-        version_part = parts[-1]
-        if not version_part.startswith("v"):
-            return None
-        try:
-            version = int(version_part[1:])
-        except ValueError:
-            return None
-        
-        # Date parts are the last two before version
-        to_date_str = parts[-2]
-        from_date_str = parts[-3]
-        
-        # Timeframe is the part before from_date
-        tf_str = parts[-4]
-        
-        # Symbol is everything before timeframe (may contain underscores)
-        symbol_parts = parts[:-4]
-        safe_symbol = "_".join(symbol_parts)
-        # Restore original symbol format (replace _ with : for exchange:symbol)
-        symbol = safe_symbol.replace("_", ":", 1) if "_" in safe_symbol else safe_symbol
-        
-        try:
-            from_date = date.fromisoformat(from_date_str)
-            to_date = date.fromisoformat(to_date_str)
-            timeframe = Timeframe.from_string(tf_str)
-        except (ValueError, IndexError):
-            return None
-        
-        return cls(
-            symbol=symbol,
-            timeframe=timeframe,
-            from_date=from_date,
-            to_date=to_date,
-            version=version,
-        )
+        return quote(symbol, safe="")
+
+    @staticmethod
+    def decode_symbol(encoded: str) -> str:
+        """Decode a symbol previously encoded by :meth:`encode_symbol`."""
+        return unquote(encoded)
+
+    def series_name(self) -> str:
+        """Render the name of the directory holding this series' data.
+
+        The name carries the timeframe, the vendor options and the format
+        version, so data fetched under different options, or written by an
+        older version, is kept in a separate place.
+        """
+        flags = f"c{int(self.continuous)}o{int(self.oi)}"
+        return f"{self.timeframe}_{flags}_v{self.version}"
 
     @classmethod
     def create(
         cls,
         symbol: str,
         timeframe: Timeframe,
-        from_date: date | datetime,
-        to_date: date | datetime,
+        from_date: datetime,
+        to_date: datetime,
+        continuous: bool = False,
+        oi: bool = False,
         version: int = 1,
     ) -> CacheKey:
-        """Create a cache key from components."""
-        if isinstance(from_date, datetime):
-            from_date = from_date.date()
-        if isinstance(to_date, datetime):
-            to_date = to_date.date()
-        
+        """Create a cache key from components.
+
+        Instants are normalized to UTC, so the same moment expressed in two
+        timezones yields the same key.
+        """
+        if from_date.tzinfo is None or to_date.tzinfo is None:
+            raise ValueError("from_date and to_date must be timezone-aware")
+
         return cls(
             symbol=symbol,
             timeframe=timeframe,
-            from_date=from_date,
-            to_date=to_date,
+            from_date=from_date.astimezone(UTC),
+            to_date=to_date.astimezone(UTC),
+            continuous=continuous,
+            oi=oi,
             version=version,
         )
-
-
-def generate_cache_key(
-    symbol: str,
-    timeframe: Timeframe,
-    from_date: date | datetime,
-    to_date: date | datetime,
-    version: int = 1,
-) -> CacheKey:
-    """Convenience function to create a cache key."""
-    return CacheKey.create(symbol, timeframe, from_date, to_date, version)

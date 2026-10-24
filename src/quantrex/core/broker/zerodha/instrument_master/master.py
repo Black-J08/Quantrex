@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
 import aiofiles
 
@@ -24,6 +23,7 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
 )
 from quantrex.core.broker.zerodha.instrument_master.models import ZerodhaInstrument
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
+from quantrex.core.broker.zerodha.timezone import IST
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,6 @@ DEFAULT_CACHE_DIR = Path.home() / ".quantrex" / "cache" / "zerodha"
 CACHE_CSV_FILENAME = "instruments.csv"
 CACHE_META_FILENAME = "metadata.json"
 # 8:30 AM IST = 03:00 UTC (Kite generates instrument master daily around this time)
-IST = ZoneInfo("Asia/Kolkata")
 CACHE_EXPIRY_HOUR_IST = 8
 CACHE_EXPIRY_MINUTE_IST = 30
 

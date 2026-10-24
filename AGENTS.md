@@ -138,3 +138,5 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 **Use `uv` for everything: dependency resolution, virtual environments, and building.** Never use `python`, `python3`, `pip`, or manually activate venvs. Run scripts with `uv run python <script.py>` and tests with `uv run pytest tests/`. Set up or refresh the environment with `uv sync`. Dependencies live in `pyproject.toml`; versions are pinned in `uv.lock`.
 
 **Build backend:** every package uses `uv_build` (`build-backend = "uv_build"`). Do not introduce `setuptools`, `hatchling`, or any other backend.
+
+**Keep `__init__.py` minimal.** Expose only the public Research API at the package root; for other modules, expose only essential public APIs at the module or submodule level. Never use `__init__.py` as a catch-all export file, and avoid unnecessary re-exports.

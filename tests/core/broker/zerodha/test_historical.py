@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -79,7 +79,29 @@ class TestZerodhaHistoricalDataClient:
 
         dt = datetime(2024, 1, 15, 9, 30, 0, tzinfo=UTC)
         formatted = client._format_datetime(dt)
-        assert formatted == "2024-01-15 09:30:00"
+        # The API interprets request bounds as IST wall-clock time, so a UTC
+        # instant is converted to IST before rendering.
+        assert formatted == "2024-01-15 15:00:00"
+
+    def test_format_datetime_converts_to_ist(self) -> None:
+        """Test that request bounds are rendered in IST, not UTC."""
+        mock_session = MagicMock(spec=ZerodhaSession)
+        client = ZerodhaHistoricalDataClient(mock_session)
+
+        utc_dt = datetime(2024, 1, 15, 3, 45, 0, tzinfo=UTC)
+        ist_dt = datetime(2024, 1, 15, 9, 15, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+        # The same instant in two zones must produce the same request bound.
+        assert client._format_datetime(utc_dt) == "2024-01-15 09:15:00"
+        assert client._format_datetime(ist_dt) == "2024-01-15 09:15:00"
+
+    def test_format_datetime_assumes_ist_for_naive(self) -> None:
+        """Test that a naive datetime is treated as IST."""
+        mock_session = MagicMock(spec=ZerodhaSession)
+        client = ZerodhaHistoricalDataClient(mock_session)
+
+        naive = datetime(2024, 1, 15, 9, 15, 0)  # noqa: DTZ001 - naive on purpose
+        assert client._format_datetime(naive) == "2024-01-15 09:15:00"
 
     @pytest.mark.asyncio
     async def test_get_raw_candles_success(self) -> None:

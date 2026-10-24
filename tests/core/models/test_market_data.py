@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from quantrex.core.models import (
     OHLCVCandle,
@@ -274,6 +274,40 @@ class TestOHLCVCandle:
         )
         with pytest.raises(Exception):
             bar.symbol = "GOOGL"
+
+    def test_naive_timestamp_raises(self) -> None:
+        """Test that a timezone-naive timestamp is rejected.
+
+        Regression test: `OHLCVCandle` overrode `__post_init__` without
+        delegating to `Event`, so the timezone-aware invariant was silently
+        dropped and naive bar times were accepted.
+        """
+        with pytest.raises(ValueError, match="timestamp must be timezone-aware"):
+            OHLCVCandle(
+                symbol="AAPL",
+                timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+                timestamp=datetime(2024, 1, 15, 9, 15),  # noqa: DTZ001 - naive on purpose
+                open=Decimal("150"),
+                high=Decimal("151"),
+                low=Decimal("149"),
+                close=Decimal("150"),
+                volume=Decimal("1000"),
+            )
+
+    def test_explicit_timestamp_is_kept(self) -> None:
+        """Test that an explicit timezone-aware timestamp is preserved."""
+        ts = datetime(2024, 1, 15, 9, 15, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+        bar = OHLCVCandle(
+            symbol="AAPL",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+            timestamp=ts,
+            open=Decimal("150"),
+            high=Decimal("151"),
+            low=Decimal("149"),
+            close=Decimal("150"),
+            volume=Decimal("1000"),
+        )
+        assert bar.timestamp == ts
 
 
 class TestTick:

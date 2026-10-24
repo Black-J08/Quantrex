@@ -9,6 +9,7 @@ from typing import Any
 from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
 from quantrex.core.broker.zerodha.models.models import ZerodhaInterval
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
+from quantrex.core.broker.zerodha.timezone import IST
 from quantrex.core.models import Timeframe, TimeframeUnit
 
 logger = logging.getLogger(__name__)
@@ -56,8 +57,15 @@ class ZerodhaHistoricalDataClient:
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 
     def _format_datetime(self, dt: datetime) -> str:
-        """Format datetime for Zerodha API (yyyy-mm-dd hh:mm:ss)."""
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
+        """Format a datetime as an IST wall-clock string for the Zerodha API.
+
+        The API interprets `from` and `to` as Indian market time, so the
+        instant is converted to IST before its wall clock is rendered. A
+        naive datetime is taken to already be IST.
+        """
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=IST)
+        return dt.astimezone(IST).strftime("%Y-%m-%d %H:%M:%S")
 
     async def get_raw_candles(
         self,

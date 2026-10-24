@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -14,7 +14,6 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
     SymbolNotFoundError,
 )
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.data.cache import OHLCVCache
 from quantrex.core.data.exceptions import (
     ProviderError,
     SymbolResolutionError,
@@ -33,8 +32,11 @@ RAW_RESPONSE = {
     },
 }
 
-FROM_DATE = datetime(2024, 1, 15, 9, 15, tzinfo=UTC)
-TO_DATE = datetime(2024, 1, 15, 9, 16, tzinfo=UTC)
+# The vendor reports bar times in IST; the request window is given as the
+# matching instants so that the mocked bars fall inside the requested range.
+# The window is half-open, so it ends after the last mocked bar.
+FROM_DATE = datetime(2024, 1, 15, 3, 45, tzinfo=UTC)
+TO_DATE = datetime(2024, 1, 15, 3, 47, tzinfo=UTC)
 TIMEFRAME = Timeframe(value=1, unit=TimeframeUnit.MINUTE)
 
 
@@ -46,15 +48,15 @@ def make_provider(tmp_path: Path):
         mock_session = MagicMock(spec=ZerodhaSession)
         provider = ZerodhaHistoricalDataProvider(
             mock_session,
-            cache=OHLCVCache(tmp_path),
+            cache_dir=tmp_path,
         )
-        return provider, provider._client
+        return provider, provider.client
 
     return _factory
 
 
 class TestZerodhaHistoricalDataProvider:
-    """Tests for the consolidated ZerodhaHistoricalDataProvider."""
+    """Tests for the ZerodhaHistoricalDataProvider."""
 
     def test_supported_timeframes(self, make_provider) -> None:
         """Test that supported timeframes are exposed."""
@@ -88,6 +90,26 @@ class TestZerodhaHistoricalDataProvider:
         client.get_raw_candles.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_get_candles_preserves_bar_time(self, make_provider) -> None:
+        """Test that the vendor bar time reaches the returned candle.
+
+        Regression test: the normalizer dropped the vendor timestamp, so
+        every bar was stamped with the time it was fetched.
+        """
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        candles = await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+
+        assert candles[0].timestamp.isoformat() == "2024-01-15T09:15:00+05:30"
+        assert candles[1].timestamp.isoformat() == "2024-01-15T09:16:00+05:30"
+
+    @pytest.mark.asyncio
     async def test_unsupported_timeframe_raises(self, make_provider) -> None:
         """Test that an unsupported timeframe is rejected before any API call."""
         provider, client = make_provider()
@@ -99,6 +121,22 @@ class TestZerodhaHistoricalDataProvider:
                 timeframe=Timeframe(value=2, unit=TimeframeUnit.HOUR),
                 from_date=FROM_DATE,
                 to_date=TO_DATE,
+            )
+
+        client.get_raw_candles.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_inverted_range_raises(self, make_provider) -> None:
+        """Test that an inverted range is rejected before any API call."""
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        with pytest.raises(ProviderError, match="from_date must be before to_date"):
+            await provider.get_candles(
+                symbol="NSE:INFY",
+                timeframe=TIMEFRAME,
+                from_date=TO_DATE,
+                to_date=FROM_DATE,
             )
 
         client.get_raw_candles.assert_not_awaited()
@@ -169,7 +207,6 @@ class TestZerodhaHistoricalDataProviderCaching:
         provider, client = make_provider()
         client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
 
-        # First call populates the cache
         first = await provider.get_candles(
             symbol="NSE:INFY",
             timeframe=TIMEFRAME,
@@ -179,7 +216,6 @@ class TestZerodhaHistoricalDataProviderCaching:
         assert len(first) == 2
         assert client.get_raw_candles.await_count == 1
 
-        # Second call is served from the cache
         second = await provider.get_candles(
             symbol="NSE:INFY",
             timeframe=TIMEFRAME,
@@ -191,27 +227,30 @@ class TestZerodhaHistoricalDataProviderCaching:
         assert client.get_raw_candles.await_count == 1  # No second API call
 
     @pytest.mark.asyncio
-    async def test_cache_is_populated_on_miss(self, make_provider) -> None:
-        """Test that a cache miss stores the fetched candles."""
+    async def test_cached_candles_keep_their_bar_time(self, make_provider) -> None:
+        """Test that a cached candle carries the same bar time as a fresh one.
+
+        Regression test: the cache never read the timestamp column it wrote,
+        so a cached bar carried the time of the read.
+        """
         provider, client = make_provider()
         client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
 
-        await provider.get_candles(
+        first = await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+        second = await provider.get_candles(
             symbol="NSE:INFY",
             timeframe=TIMEFRAME,
             from_date=FROM_DATE,
             to_date=TO_DATE,
         )
 
-        cached = provider.cache.get_candles(
-            symbol="NSE:INFY",
-            timeframe=TIMEFRAME,
-            from_date=date(2024, 1, 15),
-            to_date=date(2024, 1, 15),
-        )
-        assert cached is not None
-        assert len(cached) == 2
-        assert cached[0].open == Decimal("1500.0")
+        assert first[0].timestamp == second[0].timestamp
+        assert second[0].timestamp.isoformat() == "2024-01-15T09:15:00+05:30"
 
     @pytest.mark.asyncio
     async def test_different_symbols_use_separate_cache_entries(self, make_provider) -> None:
@@ -254,3 +293,113 @@ class TestZerodhaHistoricalDataProviderCaching:
         )
 
         assert client.get_raw_candles.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_continuous_and_plain_use_separate_entries(self, make_provider) -> None:
+        """Test that a continuous request is not served a plain cached entry."""
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+            continuous=True,
+        )
+
+        assert client.get_raw_candles.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_overlapping_request_fetches_only_the_gap(self, make_provider) -> None:
+        """Test that an overlapping request downloads only what is missing.
+
+        The first call covers 03:45-04:00; the second asks for a wider range
+        and must fetch only the two uncovered stretches, not the whole range.
+        """
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=datetime(2024, 1, 15, 4, 0, tzinfo=UTC),
+        )
+        assert client.get_raw_candles.await_count == 1
+
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=datetime(2024, 1, 15, 2, 0, tzinfo=UTC),
+            to_date=datetime(2024, 1, 15, 6, 0, tzinfo=UTC),
+        )
+
+        # Two extra requests, one for each uncovered stretch.
+        assert client.get_raw_candles.await_count == 3
+        second_call = client.get_raw_candles.await_args_list[1]
+        third_call = client.get_raw_candles.await_args_list[2]
+        assert second_call.kwargs["from_date"] == datetime(2024, 1, 15, 2, 0, tzinfo=UTC)
+        assert second_call.kwargs["to_date"] == datetime(2024, 1, 15, 3, 45, tzinfo=UTC)
+        assert third_call.kwargs["from_date"] == datetime(2024, 1, 15, 4, 0, tzinfo=UTC)
+        assert third_call.kwargs["to_date"] == datetime(2024, 1, 15, 6, 0, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_request_spanning_months_is_split(self, make_provider) -> None:
+        """Test that a long range is fetched one month at a time.
+
+        Zerodha caps a request at 60 days for 1-minute candles, so a range
+        wider than a month must be split.
+        """
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=datetime(2024, 1, 15, 9, 15, tzinfo=UTC),
+            to_date=datetime(2024, 3, 10, 9, 15, tzinfo=UTC),
+        )
+
+        assert client.get_raw_candles.await_count == 3
+        requested = [
+            (call.kwargs["from_date"], call.kwargs["to_date"])
+            for call in client.get_raw_candles.await_args_list
+        ]
+        assert requested[0][0] == datetime(2024, 1, 15, 9, 15, tzinfo=UTC)
+        assert requested[0][1] == datetime(2024, 2, 1, tzinfo=UTC)
+        assert requested[1][0] == datetime(2024, 2, 1, tzinfo=UTC)
+        assert requested[1][1] == datetime(2024, 3, 1, tzinfo=UTC)
+        assert requested[2][0] == datetime(2024, 3, 1, tzinfo=UTC)
+        assert requested[2][1] == datetime(2024, 3, 10, 9, 15, tzinfo=UTC)
+
+    @pytest.mark.asyncio
+    async def test_empty_vendor_response_is_covered(self, make_provider) -> None:
+        """Test that a range with no bars is not requested again."""
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(
+            return_value={"status": "success", "data": {"candles": []}}
+        )
+
+        first = await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+        assert first == []
+
+        await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+
+        assert client.get_raw_candles.await_count == 1

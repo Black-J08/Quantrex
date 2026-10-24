@@ -33,6 +33,10 @@ class OHLCVCandle(Event):
 
     def __post_init__(self) -> None:
         """Validate bar fields."""
+        # `Event.__post_init__` is called explicitly rather than via zero-arg
+        # `super()`: `@dataclass(slots=True)` rebuilds the class, so the
+        # implicit `__class__` cell no longer refers to this class.
+        Event.__post_init__(self)
         if not self.symbol:
             raise ValueError("symbol cannot be empty")
         if self.open < 0:
