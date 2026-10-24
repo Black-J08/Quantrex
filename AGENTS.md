@@ -123,6 +123,9 @@ Use dedicated file/edit/refactor tools whenever available; don't edit via shell 
 ## Testing
 
 * **Always** create new tests in the `tests/` folder when creating new or updating features.
+* Every bug fix MUST include a regression test that reproduces the original defect (fails before the fix) and passes after the fix.
+* Prefer unit tests for pure logic; use integration tests with mocked external systems where boundaries matter.
+* Run tests with `uv run pytest tests/`.
 
 ## Naming, Module Organization & Responsibility
 
@@ -130,14 +133,8 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 
 * **Always** create sub-folders when required for new modules or packages — never place files directly in a parent directory if a sub-folder structure is appropriate.
 
-## Monorepo & Python Packaging (uv + pyproject.toml)
+## Python Packaging (uv + pyproject.toml)
 
-**Use `uv` for everything: dependency resolution, virtual environments, and building.** Never use `python`, `python3`, `pip`, or manually activate venvs. Run scripts with `uv run python <script.py>` and tests with `uv run --package <name> pytest packages/<name>/tests`. Set up or refresh the environment with `uv sync` (the root declares `default-groups = ["dev"]`, so dev tools install automatically). Dependencies live in `pyproject.toml`; versions are pinned in `uv.lock`.
+**Use `uv` for everything: dependency resolution, virtual environments, and building.** Never use `python`, `python3`, `pip`, or manually activate venvs. Run scripts with `uv run python <script.py>` and tests with `uv run pytest tests/`. Set up or refresh the environment with `uv sync`. Dependencies live in `pyproject.toml`; versions are pinned in `uv.lock`.
 
-**Build backend:** every package uses `uv_build` (`build-backend = "uv_build"`). `uv_build` defaults `module_root` to `src/`, so no `[tool.setuptools.packages.find]` is needed. Do not introduce `setuptools`, `hatchling`, or any other backend.
-
-**Workspace:** the root `pyproject.toml` is a virtual workspace root (no `[project]` table). It declares `[tool.uv.workspace] members = ["packages/*"]`, `[tool.uv.sources]` with `{ workspace = true }` for every member (inherited by all members — do not redeclare sources per member), and `[dependency-groups] dev` (PEP 735) for pytest, pytest-cov, and any other dev tooling. Do not add `[project.optional-dependencies]` for dev tools; extras are reserved for opt-in feature flags.
-
-**Per member:** each member's `pyproject.toml` contains only `[project]` (with `requires-python`) and `[build-system]` (with `uv_build`). Cross-member dependencies are listed as bare names in `[project] dependencies` and resolved via the root's `[tool.uv.sources]`. Pin the interpreter at the workspace root with `.python-version`.
-
-**Not allowed (deprecated):** `uv sync --dev`, `[project.optional-dependencies] dev`, `[tool.uv.dev-dependencies]`, `[tool.setuptools.packages.find]`, per-member `[tool.uv.sources]`, any non-`uv_build` build backend, manual venv activation.
+**Build backend:** every package uses `uv_build` (`build-backend = "uv_build"`). Do not introduce `setuptools`, `hatchling`, or any other backend.
