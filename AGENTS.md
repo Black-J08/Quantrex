@@ -133,6 +133,10 @@ Adhere to widely accepted software engineering principles (e.g. SOLID, Clean Arc
 
 * **Always** create sub-folders when required for new modules or packages — never place files directly in a parent directory if a sub-folder structure is appropriate.
 
+Keep all models and data classes in a single, clearly defined location. Avoid duplicate definitions or scattering them across modules; import and reuse the canonical definitions wherever needed.
+
+Keep all project constraints and instructions consolidated in a single authoritative location. Avoid duplicating them across files; reference the source of truth when needed.
+
 ## Python Packaging (uv + pyproject.toml)
 
 **Use `uv` for everything: dependency resolution, virtual environments, and building.** Never use `python`, `python3`, `pip`, or manually activate venvs. Run scripts with `uv run python <script.py>` and tests with `uv run pytest tests/`. Set up or refresh the environment with `uv sync`. Dependencies live in `pyproject.toml`; versions are pinned in `uv.lock`.
