@@ -120,6 +120,12 @@ Use dedicated file/edit/refactor tools whenever available; don't edit via shell 
 * **Always** run `uv run mypy` on the project codebase and fix all errors before completing any task.
 * **Always** run `uv run ruff` alongside mypy when testing newly written code.
 
+### Lint Suppression Rules
+* **`# noqa` directives are strictly prohibited.** Do not suppress any Ruff lint rule.
+* Fix the underlying issue instead of working around it with `# noqa`.
+* If a lint rule fires, the code must be changed to satisfy the rule — never weakened or bypassed.
+* All Ruff checks must pass without any suppressions.
+
 ## Testing
 
 * **Always** create new tests in the `tests/` folder when creating new or updating features.
