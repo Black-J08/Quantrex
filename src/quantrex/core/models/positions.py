@@ -55,4 +55,4 @@ class Position:
         if self.current_price < 0:
             raise ValueError("current_price cannot be negative")
         if self.entry_time.tzinfo is None:
-            raise ValueError("entry_time must be timezone-aware UTC")
+            raise ValueError("entry_time must be timezone-aware")

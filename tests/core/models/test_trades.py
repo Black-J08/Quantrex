@@ -6,7 +6,7 @@ import pytest
 from decimal import Decimal
 from datetime import datetime, timezone
 
-from quantrex.core.models import Trade
+from quantrex.core.models import OrderSide, Trade
 
 
 class TestTrade:
@@ -18,7 +18,7 @@ class TestTrade:
         exit_time = datetime.now(timezone.utc)
         trade = Trade(
             symbol="AAPL",
-            side="BUY",
+            side=OrderSide.BUY,
             quantity=Decimal("100"),
             entry_price=Decimal("150.0"),
             exit_price=Decimal("155.0"),
@@ -29,7 +29,7 @@ class TestTrade:
             pnl=Decimal("500.0"),
         )
         assert trade.symbol == "AAPL"
-        assert trade.side == "BUY"
+        assert trade.side == OrderSide.BUY
         assert trade.quantity == Decimal("100")
         assert trade.entry_price == Decimal("150.0")
         assert trade.exit_price == Decimal("155.0")
@@ -43,7 +43,7 @@ class TestTrade:
         """Test trade with SELL side."""
         trade = Trade(
             symbol="AAPL",
-            side="SELL",
+            side=OrderSide.SELL,
             quantity=Decimal("100"),
             entry_price=Decimal("155.0"),
             exit_price=Decimal("150.0"),
@@ -51,28 +51,14 @@ class TestTrade:
             exit_time=datetime.now(timezone.utc),
             pnl=Decimal("500.0"),
         )
-        assert trade.side == "SELL"
+        assert trade.side == OrderSide.SELL
 
     def test_empty_symbol_raises(self) -> None:
         """Test that empty symbol raises."""
         with pytest.raises(ValueError, match="symbol cannot be empty"):
             Trade(
                 symbol="",
-                side="BUY",
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
-            )
-
-    def test_invalid_side_raises(self) -> None:
-        """Test that invalid side raises."""
-        with pytest.raises(ValueError, match="side must be 'BUY' or 'SELL'"):
-            Trade(
-                symbol="AAPL",
-                side="INVALID",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -86,7 +72,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="quantity must be positive"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("0"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -100,7 +86,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="quantity must be positive"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("-100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -114,7 +100,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="entry_price cannot be negative"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("-150"),
                 exit_price=Decimal("155"),
@@ -128,7 +114,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="exit_price cannot be negative"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("-155"),
@@ -142,7 +128,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="timezone-aware"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -156,7 +142,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="timezone-aware"):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -172,7 +158,7 @@ class TestTrade:
         with pytest.raises(ValueError, match="exit_time must be >="):
             Trade(
                 symbol="AAPL",
-                side="BUY",
+                side=OrderSide.BUY,
                 quantity=Decimal("100"),
                 entry_price=Decimal("150"),
                 exit_price=Decimal("155"),
@@ -185,7 +171,7 @@ class TestTrade:
         """Test that entry_reason and exit_reason are optional."""
         trade = Trade(
             symbol="AAPL",
-            side="BUY",
+            side=OrderSide.BUY,
             quantity=Decimal("100"),
             entry_price=Decimal("150"),
             exit_price=Decimal("155"),
@@ -199,7 +185,7 @@ class TestTrade:
     def test_immutability(self) -> None:
         trade = Trade(
             symbol="AAPL",
-            side="BUY",
+            side=OrderSide.BUY,
             quantity=Decimal("100"),
             entry_price=Decimal("150"),
             exit_price=Decimal("155"),

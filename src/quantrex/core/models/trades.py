@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 
+from quantrex.core.models.orders import OrderSide
+
 
 @dataclass(slots=True, kw_only=True, frozen=True)
 class Trade:
@@ -15,7 +17,7 @@ class Trade:
     Attributes:
         id: Unique trade identifier.
         symbol: Instrument symbol.
-        side: Trade side (BUY/SELL).
+        side: Trade side (OrderSide.BUY/OrderSide.SELL).
         quantity: Trade quantity.
         entry_price: Entry price.
         exit_price: Exit price.
@@ -28,7 +30,7 @@ class Trade:
 
     id: uuid.UUID = field(default_factory=uuid.uuid4)
     symbol: str
-    side: str
+    side: OrderSide
     quantity: Decimal
     entry_price: Decimal
     exit_price: Decimal
@@ -42,8 +44,6 @@ class Trade:
         """Validate trade fields."""
         if not self.symbol:
             raise ValueError("symbol cannot be empty")
-        if self.side not in ("BUY", "SELL"):
-            raise ValueError("side must be 'BUY' or 'SELL'")
         if self.quantity <= 0:
             raise ValueError("quantity must be positive")
         if self.entry_price < 0:
