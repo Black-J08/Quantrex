@@ -1,0 +1,14 @@
+- seperate token bucket rate limiter in core/ module
+- async historical chunk with rate limiter for speedy download
+- update framework timeframe to zerodha timeframe management as it can also be odd
+- No intermediate candle data model
+- cache historical ohlc with not necessary authentication if cache available
+- use mongoDB with docker for cache and access_token rather than  
+- all models in models/ module only
+- support for all timeframe by resampling from 1-minute data or 1-day data
+- support for OI
+- no need of generate_cache_key
+- __init__.py only exposes public researcher facing API
+- add docs and examples
+- collective space for exceptions and models per module
+- timeframe should not be pre defined anywhere as 1 minute and 1 day (that's all needed) data can be resampled to any timeframe needed
