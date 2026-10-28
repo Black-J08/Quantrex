@@ -65,6 +65,24 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
     Owns the full historical-data path: working out which intervals are
     already cached, fetching only the missing ones through the broker client,
     normalizing into canonical models, and storing the result.
+
+    Resource ownership:
+        - The researcher creates and owns the ``ZerodhaSession`` and is
+          responsible for closing it (``await session.close()``) when done.
+          This provider does *not* close the session.
+        - ``InstrumentMaster`` is created internally by default when not
+          supplied, and is owned by this provider.
+        - ``ZerodhaNormalizer`` and the on-disk ``OHLCVCache`` are owned by
+          this provider.
+
+    Example::
+
+        session = ZerodhaSession()
+        provider = ZerodhaHistoricalDataProvider(session)
+        try:
+            candles = await provider.get_candles(...)
+        finally:
+            await session.close()
     """
 
     def __init__(
@@ -79,17 +97,29 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
         """Initialize Zerodha historical data provider.
 
         Args:
-            session: ZerodhaSession for making authenticated requests.
-            instrument_master: Optional InstrumentMaster (a default is created).
+            session: ZerodhaSession for making authenticated requests. The
+                researcher owns this session and is responsible for closing it.
+            instrument_master: Optional InstrumentMaster (a default is created
+                internally and owned by this provider).
             normalizer: Optional ZerodhaNormalizer (a default is created).
             cache_dir: Directory for the on-disk cache. A default is used
                 when not supplied.
             cache_version: Cache format version.
         """
+        self._session = session
         self._client = ZerodhaHistoricalDataClient(session, instrument_master)
         self._normalizer = normalizer or ZerodhaNormalizer()
         self._cache = OHLCVCache(cache_dir) if cache_dir is not None else OHLCVCache()
         self._cache_version = cache_version
+
+    @property
+    def session(self) -> ZerodhaSession:
+        """Get the underlying broker session.
+
+        The researcher owns the session lifecycle and is responsible for
+        closing it when done. This provider does not close the session.
+        """
+        return self._session
 
     @property
     def client(self) -> ZerodhaHistoricalDataClient:
@@ -242,6 +272,10 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
         logger.info("Received %d candles for %s", len(candles), symbol)
 
     async def close(self) -> None:
-        """Close provider and release resources."""
-        # Session is managed externally, just log
-        logger.debug("ZerodhaHistoricalDataProvider closed")
+        """Close provider and release resources.
+
+        This provider does *not* close the underlying ``ZerodhaSession`` —
+        session lifecycle is owned by the researcher. Call
+        ``await session.close()`` separately when finished.
+        """
+        logger.debug("ZerodhaHistoricalDataProvider closed (session managed externally)")

@@ -13,6 +13,7 @@ from quantrex.core.broker.exceptions.exceptions import (
     AmbiguousSymbolError,
     SymbolNotFoundError,
 )
+from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
 from quantrex.core.data.exceptions.exceptions import (
     ProviderError,
@@ -20,6 +21,7 @@ from quantrex.core.data.exceptions.exceptions import (
     TimeframeNotSupportedError,
 )
 from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
+from quantrex.core.data.normalization.zerodha import ZerodhaNormalizer
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
@@ -404,6 +406,64 @@ class TestZerodhaHistoricalDataProviderCaching:
         )
 
         assert client.get_raw_candles.await_count == 1
+
+
+class TestProviderLifecycle:
+    """Tests for provider resource ownership and lifecycle responsibilities."""
+
+    def test_session_is_required(self) -> None:
+        """Test that constructing a provider without a session raises TypeError."""
+        with pytest.raises(TypeError, match="missing.*session"):
+            ZerodhaHistoricalDataProvider()  # type: ignore[call-arg]
+
+    def test_instrument_master_auto_created_internally(self) -> None:
+        """Test that InstrumentMaster is created internally when not supplied."""
+        mock_session = MagicMock(spec=ZerodhaSession)
+        provider = ZerodhaHistoricalDataProvider(mock_session)
+
+        # The client should have created an InstrumentMaster internally.
+        assert provider.client._instrument_master is not None
+        assert provider.client._instrument_master._session is mock_session
+
+    def test_session_property_returns_passed_session(self) -> None:
+        """Test that the session property returns the session passed in."""
+        mock_session = MagicMock(spec=ZerodhaSession)
+        provider = ZerodhaHistoricalDataProvider(mock_session)
+
+        assert provider.session is mock_session
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_close_user_session(self) -> None:
+        """Test that provider.close() does not close a user-provided session.
+
+        Session lifecycle is owned by the researcher; the provider must not
+        close a session it did not create.
+        """
+        mock_session = MagicMock(spec=ZerodhaSession)
+        mock_session.close = AsyncMock()
+        provider = ZerodhaHistoricalDataProvider(mock_session)
+
+        await provider.close()
+
+        mock_session.close.assert_not_awaited()
+
+    def test_dependency_injection_still_works(self, tmp_path: Path) -> None:
+        """Test that explicit instrument_master, normalizer, and cache_dir
+        are still accepted and used.
+        """
+        mock_session = MagicMock(spec=ZerodhaSession)
+        mock_instrument_master = MagicMock(spec=InstrumentMaster)
+        mock_normalizer = MagicMock(spec=ZerodhaNormalizer)
+
+        provider = ZerodhaHistoricalDataProvider(
+            mock_session,
+            instrument_master=mock_instrument_master,
+            normalizer=mock_normalizer,
+            cache_dir=tmp_path,
+        )
+
+        assert provider.client._instrument_master is mock_instrument_master
+        assert provider._normalizer is mock_normalizer
 
 
 def test_broker_exceptions_importable_from_broker_location() -> None:

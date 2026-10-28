@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Example script demonstrating Zerodha broker usage with Instrument Master.
+"""Example script demonstrating the simplified Zerodha historical data API.
 
 This script demonstrates:
-1. Creating a ZerodhaSession
-2. Creating an InstrumentMaster for on-demand instrument resolution
+1. Creating a ZerodhaSession (researcher-owned lifecycle)
+2. Creating a ZerodhaHistoricalDataProvider with just the session
+   (InstrumentMaster is created internally by default)
 3. Fetching historical OHLCV candles (triggers on-demand instrument master refresh)
 4. The lazy authentication flow (triggered on first API request)
+5. Closing the session when finished
 
 Requirements:
 - Set ZERODHA_API_KEY, ZERODHA_API_SECRET, and ZERODHA_REDIRECT_URL in .env file
@@ -18,7 +20,6 @@ import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
 
-from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
 from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
@@ -40,18 +41,10 @@ async def main() -> None:
     session = ZerodhaSession()
     logger.info("Created ZerodhaSession (authentication not yet triggered)")
 
-    # Create instrument master for on-demand instrument resolution
-    # This will download and cache the instrument master on first use
-    instrument_master = InstrumentMaster(session)
-    logger.info("Created InstrumentMaster (on-demand refresh enabled)")
-
-    # Create historical data provider with instrument master
-    provider = ZerodhaHistoricalDataProvider(session, instrument_master)
-    logger.info("Created ZerodhaHistoricalDataProvider")
-
-    # Show instrument master stats
-    stats = instrument_master.get_stats()
-    logger.info("Instrument master stats: %s", stats)
+    # Create historical data provider with just the session.
+    # InstrumentMaster is created internally by default (on-demand refresh enabled).
+    provider = ZerodhaHistoricalDataProvider(session)
+    logger.info("Created ZerodhaHistoricalDataProvider (instrument master auto-created)")
 
     # Define time range (last 7 days)
     to_date = datetime.now(UTC)
@@ -117,10 +110,6 @@ async def main() -> None:
             to_date=to_date,
         )
         logger.info("Successfully fetched %d candles for INFY", len(candles_ts))
-
-        # Show updated instrument master stats
-        stats = instrument_master.get_stats()
-        logger.info("Updated instrument master stats: %s", stats)
 
     except Exception as e:
         logger.error("Error fetching candles: %s", e)
