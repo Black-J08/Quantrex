@@ -2,23 +2,20 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, date
+from datetime import date, datetime
 from decimal import Decimal
-from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
+
+import pytest
 
 IST = ZoneInfo("Asia/Kolkata")
 
+from quantrex.core.broker.zerodha.exceptions.exceptions import InstrumentMasterError
 from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
 from quantrex.core.broker.zerodha.instrument_master.models import ZerodhaInstrument
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.broker.zerodha.exceptions.exceptions import (
-    SymbolNotFoundError,
-    AmbiguousSymbolError,
-    InstrumentMasterError,
-)
+from quantrex.core.exceptions import AmbiguousSymbolError, SymbolNotFoundError
 
 
 class TestZerodhaInstrument:
@@ -100,7 +97,7 @@ class TestZerodhaInstrument:
 
         assert instrument.instrument_token == 5720578
         assert instrument.expiry == date(2015, 12, 31)
-        assert instrument.strike == Decimal("9500")
+        assert instrument.strike == Decimal(9500)
         assert instrument.instrument_type == "CE"
         assert instrument.segment == "NFO-OPT"
 
@@ -124,7 +121,7 @@ class TestInstrumentMaster:
                 exchange_token=1594,
                 tradingsymbol="INFY",
                 name="INFOSYS",
-                last_price=Decimal("1500"),
+                last_price=Decimal(1500),
                 expiry=None,
                 strike=None,
                 tick_size=Decimal("0.05"),
@@ -138,7 +135,7 @@ class TestInstrumentMaster:
                 exchange_token=1595,
                 tradingsymbol="RELIANCE",
                 name="RELIANCE",
-                last_price=Decimal("2500"),
+                last_price=Decimal(2500),
                 expiry=None,
                 strike=None,
                 tick_size=Decimal("0.05"),
@@ -152,7 +149,7 @@ class TestInstrumentMaster:
                 exchange_token=1596,
                 tradingsymbol="INFY",
                 name="INFOSYS BSE",
-                last_price=Decimal("1500"),
+                last_price=Decimal(1500),
                 expiry=None,
                 strike=None,
                 tick_size=Decimal("0.05"),
@@ -310,7 +307,6 @@ class TestInstrumentMaster:
         """Test successful refresh from API."""
         # Create mock response with gzipped CSV
         import gzip
-        import io
 
         csv_content = """instrument_token,exchange_token,tradingsymbol,name,last_price,expiry,strike,tick_size,lot_size,instrument_type,segment,exchange
 408065,1594,INFY,INFOSYS,1500.0,,,0.05,1,EQ,NSE,NSE

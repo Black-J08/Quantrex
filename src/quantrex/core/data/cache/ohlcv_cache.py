@@ -67,7 +67,7 @@ def _merge_intervals(
     return merged
 
 
-def _missing_intervals(
+def missing_intervals(
     start: datetime,
     end: datetime,
     covered: list[tuple[datetime, datetime]],

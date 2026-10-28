@@ -229,3 +229,36 @@ class TestZerodhaNormalizer:
 
         with pytest.raises(ValueError, match="Unsupported timeframe"):
             client._map_timeframe_to_interval(Timeframe(value=2, unit=TimeframeUnit.HOUR))
+
+    def test_ist_comes_from_models_not_broker(self) -> None:
+        """Regression test: IST timezone is imported from quantrex.core.models,
+        not from broker/zerodha/timezone.py.
+
+        This ensures the data layer does not depend on broker-specific timezone
+        facts, preserving broker segregation.
+        """
+        from quantrex.core import models
+
+        assert hasattr(models, "IST")
+        from zoneinfo import ZoneInfo
+
+        assert models.IST == ZoneInfo("Asia/Kolkata")
+
+        normalizer = ZerodhaNormalizer()
+        raw_response = {
+            "status": "success",
+            "data": {
+                "candles": [
+                    ["2024-01-15T09:15:00", 1500.0, 1510.0, 1495.0, 1505.0, 100000],
+                ],
+            },
+        }
+
+        candles = normalizer.normalize_candles(
+            raw_response,
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+        )
+
+        assert len(candles) == 1
+        assert candles[0].timestamp.tzinfo == ZoneInfo("Asia/Kolkata")

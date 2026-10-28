@@ -98,32 +98,8 @@ class ZerodhaDataError(ZerodhaError):
         super().__init__(message, error_type="DataException", status_code=status_code)
 
 
-# Instrument Master Exceptions
 class InstrumentMasterError(ZerodhaError):
     """Base exception for instrument master errors."""
 
     def __init__(self, message: str = "Instrument master error"):
         super().__init__(message, error_type="InstrumentMasterException")
-
-
-class SymbolNotFoundError(InstrumentMasterError):
-    """Raised when a symbol cannot be resolved."""
-
-    def __init__(self, symbol: str, suggestions: list[str] | None = None):
-        self.symbol = symbol
-        self.suggestions = suggestions or []
-        msg = f"Symbol not found: {symbol}"
-        if self.suggestions:
-            msg += f". Did you mean: {', '.join(self.suggestions[:5])}?"
-        super().__init__(msg)
-
-
-class AmbiguousSymbolError(InstrumentMasterError):
-    """Raised when a tradingsymbol maps to multiple exchanges."""
-
-    def __init__(self, tradingsymbol: str, candidates: list):
-        self.tradingsymbol = tradingsymbol
-        self.candidates = candidates
-        exchanges = [f"{c.exchange}:{c.tradingsymbol}" for c in candidates]
-        msg = f"Ambiguous symbol '{tradingsymbol}' matches multiple exchanges: {', '.join(exchanges)}"
-        super().__init__(msg)

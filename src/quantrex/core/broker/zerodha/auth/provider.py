@@ -135,8 +135,6 @@ class ZerodhaAuthProvider:
     async def _exchange_token(self, request_token: str) -> TokenInfo:
         """Exchange request_token for access_token via Zerodha API.
 
-        Uses httpx directly to avoid circular import with ZerodhaSession.
-
         Args:
             request_token: One-time token from OAuth callback
 

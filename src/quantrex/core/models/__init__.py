@@ -19,9 +19,11 @@ from quantrex.core.models.positions import Position, PositionSide
 from quantrex.core.models.raw_candle import RawCandle
 from quantrex.core.models.signals import Signal, SignalType
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
+from quantrex.core.models.timezone import IST
 from quantrex.core.models.trades import Trade
 
 __all__ = [
+    "IST",
     "AssetClass",
     "ContractSpec",
     "ContractType",

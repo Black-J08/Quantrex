@@ -1,6 +1,7 @@
 """Zerodha exceptions module."""
 
 from quantrex.core.broker.zerodha.exceptions.exceptions import (
+    InstrumentMasterError,
     ZerodhaAuthError,
     ZerodhaError,
     ZerodhaNetworkError,
@@ -10,6 +11,7 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
 )
 
 __all__ = [
+    "InstrumentMasterError",
     "ZerodhaAuthError",
     "ZerodhaError",
     "ZerodhaNetworkError",

@@ -5,10 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from quantrex.core.broker.zerodha.timezone import IST
 from quantrex.core.data.exceptions import NormalizationError
 from quantrex.core.data.normalization.base import Normalizer
-from quantrex.core.models import OHLCVCandle, RawCandle, Timeframe
+from quantrex.core.models import IST, OHLCVCandle, RawCandle, Timeframe
 
 logger = logging.getLogger(__name__)
 
