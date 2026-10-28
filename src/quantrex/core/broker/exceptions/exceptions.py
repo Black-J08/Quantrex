@@ -1,8 +1,7 @@
-"""Shared exceptions for Quantrex.
+"""Broker-level exceptions for Quantrex.
 
-These exceptions are owned by neither the broker nor the data module.
-Both modules import from here, keeping exception ownership neutral and
-preserving clear module segregation.
+These exceptions are owned by the broker module and are raised when
+vendor-specific symbol resolution fails.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from typing import Any
 
 
 class SymbolNotFoundError(Exception):
-    """Raised when a symbol cannot be resolved."""
+    """Raised when a symbol cannot be resolved by the broker layer."""
 
     def __init__(self, symbol: str, suggestions: list[str] | None = None):
         self.symbol = symbol

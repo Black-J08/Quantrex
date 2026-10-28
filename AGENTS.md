@@ -155,7 +155,25 @@ Keep all project constraints and instructions consolidated in a single authorita
 
 All internal imports (source, tests, examples) must use exact module paths rather than importing through a package's `__init__.py`. This makes dependencies visible, traceable, and resilient to refactoring.
 
-**Rules:**
 * Never import a symbol from a package `__init__.py` if that symbol is defined in a submodule. Import from the submodule directly.
 * Every symbol has exactly one canonical location — its defining module. `__init__.py` files must not re-export symbols from submodules.
 * All internal `__init__.py` files contain only a docstring — no imports, no `__all__`, no re-exports.
+
+## Exception & Model Organization Conventions
+
+### Exceptions
+
+Exceptions are owned by the module responsible for the error domain. There is no shared/neutral exception package.
+
+* Each module defines its own exceptions; no module owns exceptions for another module.
+* Symbol resolution errors raised by broker code (e.g., instrument master lookup) use `broker/exceptions` classes (`SymbolNotFoundError`, `AmbiguousSymbolError`).
+* Data-layer symbol resolution errors use `data/exceptions` classes (`SymbolResolutionError`).
+* Vendor-specific errors (Zerodha auth, rate limits, network, etc.) use `broker/zerodha/exceptions` classes.
+* Never create a shared `core/exceptions/` package — exceptions must have a clear owning module.
+
+### Models
+
+* Canonical models live in `core/models/` and are engine-agnostic.
+* Vendor-specific models live under their vendor's `models/` module.
+* Never duplicate model definitions — import and reuse the canonical definitions.
+* `__init__.py` files contain only a docstring — no re-exports.

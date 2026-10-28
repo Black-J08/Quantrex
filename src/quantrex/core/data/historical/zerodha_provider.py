@@ -7,6 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from quantrex.core.broker.exceptions.exceptions import (
+    AmbiguousSymbolError,
+    SymbolNotFoundError,
+)
 from quantrex.core.broker.zerodha.historical.client import ZerodhaHistoricalDataClient
 from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
@@ -20,10 +24,6 @@ from quantrex.core.data.exceptions.exceptions import (
 )
 from quantrex.core.data.historical.provider import HistoricalDataProvider
 from quantrex.core.data.normalization.zerodha import ZerodhaNormalizer
-from quantrex.core.exceptions.exceptions import (
-    AmbiguousSymbolError,
-    SymbolNotFoundError,
-)
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
