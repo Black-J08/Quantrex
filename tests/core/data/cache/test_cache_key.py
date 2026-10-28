@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta, timezone
 import pytest
 
 from quantrex.core.data.cache.cache_key import CacheKey
-from quantrex.core.models import Timeframe, TimeframeUnit
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 TIMEFRAME = Timeframe(value=1, unit=TimeframeUnit.MINUTE)
 FROM_DATE = datetime(2024, 1, 15, 9, 15, tzinfo=UTC)

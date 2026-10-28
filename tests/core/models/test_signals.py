@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
 from decimal import Decimal
 
-from quantrex.core.models import (
+import pytest
+
+from quantrex.core.models.signals import (
     Signal,
     SignalType,
 )
@@ -30,12 +31,12 @@ class TestSignal:
             symbol="AAPL",
             signal_type=SignalType.ENTRY_LONG,
             price=Decimal("150.0"),
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
         )
         assert signal.symbol == "AAPL"
         assert signal.signal_type == SignalType.ENTRY_LONG
         assert signal.price == Decimal("150.0")
-        assert signal.quantity == Decimal("100")
+        assert signal.quantity == Decimal(100)
 
     def test_entry_short_creation(self) -> None:
         """Test creating an entry short signal."""
@@ -43,7 +44,7 @@ class TestSignal:
             symbol="AAPL",
             signal_type=SignalType.ENTRY_SHORT,
             price=Decimal("150.0"),
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
         )
         assert signal.signal_type == SignalType.ENTRY_SHORT
 
@@ -91,7 +92,7 @@ class TestSignal:
                 symbol="AAPL",
                 signal_type=SignalType.ENTRY_LONG,
                 price=Decimal("150.0"),
-                quantity=Decimal("0"),
+                quantity=Decimal(0),
             )
 
     def test_negative_quantity_raises(self) -> None:
@@ -101,7 +102,7 @@ class TestSignal:
                 symbol="AAPL",
                 signal_type=SignalType.ENTRY_LONG,
                 price=Decimal("150.0"),
-                quantity=Decimal("-100"),
+                quantity=Decimal(-100),
             )
 
     def test_optional_quantity(self) -> None:

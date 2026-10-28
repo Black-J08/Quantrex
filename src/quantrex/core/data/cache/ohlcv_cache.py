@@ -25,7 +25,8 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from pyarrow import feather  # type: ignore[import-untyped]
 
 from quantrex.core.data.cache.cache_key import CacheKey
-from quantrex.core.models import OHLCVCandle, Timeframe
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe
 
 logger = logging.getLogger(__name__)
 

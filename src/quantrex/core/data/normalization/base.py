@@ -5,7 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
-from quantrex.core.models import OHLCVCandle, Timeframe
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe
 
 
 class Normalizer(ABC):

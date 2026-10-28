@@ -12,10 +12,13 @@ import pytest
 IST = ZoneInfo("Asia/Kolkata")
 
 from quantrex.core.broker.zerodha.exceptions.exceptions import InstrumentMasterError
-from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
+from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.instrument_master.models import ZerodhaInstrument
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.exceptions import AmbiguousSymbolError, SymbolNotFoundError
+from quantrex.core.exceptions.exceptions import (
+    AmbiguousSymbolError,
+    SymbolNotFoundError,
+)
 
 
 class TestZerodhaInstrument:

@@ -7,21 +7,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from quantrex.core.broker.zerodha.historical import ZerodhaHistoricalDataClient
-from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
+from quantrex.core.broker.zerodha.historical.client import ZerodhaHistoricalDataClient
+from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
 from quantrex.core.data.cache.cache_key import CacheKey
 from quantrex.core.data.cache.ohlcv_cache import OHLCVCache, missing_intervals
-from quantrex.core.data.exceptions import (
+from quantrex.core.data.exceptions.exceptions import (
     NormalizationError,
     ProviderError,
     SymbolResolutionError,
     TimeframeNotSupportedError,
 )
 from quantrex.core.data.historical.provider import HistoricalDataProvider
-from quantrex.core.data.normalization import ZerodhaNormalizer
-from quantrex.core.exceptions import AmbiguousSymbolError, SymbolNotFoundError
-from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
+from quantrex.core.data.normalization.zerodha import ZerodhaNormalizer
+from quantrex.core.exceptions.exceptions import (
+    AmbiguousSymbolError,
+    SymbolNotFoundError,
+)
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 logger = logging.getLogger(__name__)
 

@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 from decimal import Decimal
-from datetime import datetime, timezone
 
-from quantrex.core.models import (
+import pytest
+
+from quantrex.core.models.orders import (
     Order,
-    OrderType,
     OrderSide,
     OrderStatus,
+    OrderType,
 )
 
 
@@ -51,12 +52,12 @@ class TestOrder:
             symbol="AAPL",
             side=OrderSide.BUY,
             type=OrderType.MARKET,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
         )
         assert order.symbol == "AAPL"
         assert order.side == OrderSide.BUY
         assert order.type == OrderType.MARKET
-        assert order.quantity == Decimal("100")
+        assert order.quantity == Decimal(100)
         assert order.price is None
         assert order.status == OrderStatus.PENDING
 
@@ -66,7 +67,7 @@ class TestOrder:
             symbol="AAPL",
             side=OrderSide.BUY,
             type=OrderType.LIMIT,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             price=Decimal("150.0"),
         )
         assert order.type == OrderType.LIMIT
@@ -78,7 +79,7 @@ class TestOrder:
             symbol="AAPL",
             side=OrderSide.SELL,
             type=OrderType.STOP,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             price=Decimal("145.0"),
         )
         assert order.type == OrderType.STOP
@@ -90,7 +91,7 @@ class TestOrder:
             symbol="AAPL",
             side=OrderSide.BUY,
             type=OrderType.STOP_LIMIT,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             price=Decimal("155.0"),
         )
         assert order.type == OrderType.STOP_LIMIT
@@ -103,7 +104,7 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.LIMIT,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
             )
 
     def test_stop_limit_without_price_raises(self) -> None:
@@ -113,7 +114,7 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.STOP_LIMIT,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
             )
 
     def test_negative_price_raises(self) -> None:
@@ -123,8 +124,8 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.LIMIT,
-                quantity=Decimal("100"),
-                price=Decimal("-150"),
+                quantity=Decimal(100),
+                price=Decimal(-150),
             )
 
     def test_zero_quantity_raises(self) -> None:
@@ -134,7 +135,7 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
-                quantity=Decimal("0"),
+                quantity=Decimal(0),
             )
 
     def test_negative_quantity_raises(self) -> None:
@@ -144,7 +145,7 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
-                quantity=Decimal("-100"),
+                quantity=Decimal(-100),
             )
 
     def test_empty_symbol_raises(self) -> None:
@@ -154,7 +155,7 @@ class TestOrder:
                 symbol="",
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
             )
 
     def test_naive_created_at_raises(self) -> None:
@@ -164,7 +165,7 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 created_at=datetime.now(),
             )
 
@@ -175,18 +176,18 @@ class TestOrder:
                 symbol="AAPL",
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 updated_at=datetime.now(),
             )
 
     def test_custom_timestamps(self) -> None:
         """Test custom timestamps."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         order = Order(
             symbol="AAPL",
             side=OrderSide.BUY,
             type=OrderType.MARKET,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             created_at=ts,
             updated_at=ts,
         )
@@ -198,7 +199,7 @@ class TestOrder:
             symbol="AAPL",
             side=OrderSide.BUY,
             type=OrderType.MARKET,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
         )
         with pytest.raises(Exception):
             order.symbol = "GOOGL"

@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
-from decimal import Decimal
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 
-from quantrex.core.models import (
-    OHLCVCandle,
-    Tick,
-    Timeframe,
-    TimeframeUnit,
-)
+import pytest
+
+from quantrex.core.models.market_data import OHLCVCandle, Tick
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 
 class TestTimeframe:
@@ -96,7 +93,7 @@ class TestOHLCVCandle:
             high=Decimal("151.0"),
             low=Decimal("149.0"),
             close=Decimal("150.5"),
-            volume=Decimal("1000"),
+            volume=Decimal(1000),
         )
         assert bar.symbol == "AAPL"
         assert bar.timeframe.value == 1
@@ -105,18 +102,18 @@ class TestOHLCVCandle:
         assert bar.high == Decimal("151.0")
         assert bar.low == Decimal("149.0")
         assert bar.close == Decimal("150.5")
-        assert bar.volume == Decimal("1000")
+        assert bar.volume == Decimal(1000)
 
     def test_empty_symbol_raises(self) -> None:
         with pytest.raises(ValueError, match="symbol cannot be empty"):
             OHLCVCandle(
                 symbol="",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_negative_open_raises(self) -> None:
@@ -124,11 +121,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("-150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(-150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_negative_high_raises(self) -> None:
@@ -136,11 +133,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("-151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(-151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_negative_low_raises(self) -> None:
@@ -148,11 +145,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("-149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(-149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_negative_close_raises(self) -> None:
@@ -160,11 +157,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("-150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(-150),
+                volume=Decimal(1000),
             )
 
     def test_negative_volume_raises(self) -> None:
@@ -172,11 +169,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("-1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(-1000),
             )
 
     def test_high_less_than_low_raises(self) -> None:
@@ -184,11 +181,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("149"),
-                low=Decimal("151"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(149),
+                low=Decimal(151),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_high_less_than_open_raises(self) -> None:
@@ -196,11 +193,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("152"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(152),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_high_less_than_close_raises(self) -> None:
@@ -208,11 +205,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("152"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(152),
+                volume=Decimal(1000),
             )
 
     def test_low_greater_than_open_raises(self) -> None:
@@ -220,11 +217,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("148"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(148),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_low_greater_than_close_raises(self) -> None:
@@ -232,11 +229,11 @@ class TestOHLCVCandle:
             OHLCVCandle(
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("148"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(148),
+                volume=Decimal(1000),
             )
 
     def test_valid_ohlc_relationships(self) -> None:
@@ -245,32 +242,32 @@ class TestOHLCVCandle:
         OHLCVCandle(
             symbol="AAPL",
             timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-            open=Decimal("150"),
-            high=Decimal("150"),
-            low=Decimal("149"),
-            close=Decimal("150"),
-            volume=Decimal("1000"),
+            open=Decimal(150),
+            high=Decimal(150),
+            low=Decimal(149),
+            close=Decimal(150),
+            volume=Decimal(1000),
         )
         # Low = Open = Close < High
         OHLCVCandle(
             symbol="AAPL",
             timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-            open=Decimal("150"),
-            high=Decimal("151"),
-            low=Decimal("150"),
-            close=Decimal("150"),
-            volume=Decimal("1000"),
+            open=Decimal(150),
+            high=Decimal(151),
+            low=Decimal(150),
+            close=Decimal(150),
+            volume=Decimal(1000),
         )
 
     def test_immutability(self) -> None:
         bar = OHLCVCandle(
             symbol="AAPL",
             timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-            open=Decimal("150"),
-            high=Decimal("151"),
-            low=Decimal("149"),
-            close=Decimal("150"),
-            volume=Decimal("1000"),
+            open=Decimal(150),
+            high=Decimal(151),
+            low=Decimal(149),
+            close=Decimal(150),
+            volume=Decimal(1000),
         )
         with pytest.raises(Exception):
             bar.symbol = "GOOGL"
@@ -287,11 +284,11 @@ class TestOHLCVCandle:
                 symbol="AAPL",
                 timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
                 timestamp=datetime(2024, 1, 15, 9, 15),  # noqa: DTZ001 - naive on purpose
-                open=Decimal("150"),
-                high=Decimal("151"),
-                low=Decimal("149"),
-                close=Decimal("150"),
-                volume=Decimal("1000"),
+                open=Decimal(150),
+                high=Decimal(151),
+                low=Decimal(149),
+                close=Decimal(150),
+                volume=Decimal(1000),
             )
 
     def test_explicit_timestamp_is_kept(self) -> None:
@@ -301,11 +298,11 @@ class TestOHLCVCandle:
             symbol="AAPL",
             timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
             timestamp=ts,
-            open=Decimal("150"),
-            high=Decimal("151"),
-            low=Decimal("149"),
-            close=Decimal("150"),
-            volume=Decimal("1000"),
+            open=Decimal(150),
+            high=Decimal(151),
+            low=Decimal(149),
+            close=Decimal(150),
+            volume=Decimal(1000),
         )
         assert bar.timestamp == ts
 
@@ -323,13 +320,13 @@ class TestTick:
 
     def test_empty_symbol_raises(self) -> None:
         with pytest.raises(ValueError, match="symbol cannot be empty"):
-            Tick(symbol="", price=Decimal("150"))
+            Tick(symbol="", price=Decimal(150))
 
     def test_negative_price_raises(self) -> None:
         with pytest.raises(ValueError, match="price cannot be negative"):
-            Tick(symbol="AAPL", price=Decimal("-150"))
+            Tick(symbol="AAPL", price=Decimal(-150))
 
     def test_immutability(self) -> None:
-        tick = Tick(symbol="AAPL", price=Decimal("150"))
+        tick = Tick(symbol="AAPL", price=Decimal(150))
         with pytest.raises(Exception):
             tick.symbol = "GOOGL"

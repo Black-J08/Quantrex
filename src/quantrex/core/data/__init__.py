@@ -7,34 +7,15 @@ This module provides:
 Canonical models (candles, ticks, timeframes) live in
 :mod:`quantrex.core.models`. The on-disk cache is an internal implementation
 detail of the providers and is deliberately not exported.
+
+Only ``ZerodhaHistoricalDataProvider`` is re-exported here as the data
+module's public entry point.
 """
 
-from quantrex.core.data.exceptions import (
-    DataError,
-    NormalizationError,
-    ProviderError,
-    SymbolResolutionError,
-    TimeframeNotSupportedError,
-)
-from quantrex.core.data.historical import (
-    HistoricalDataProvider,
-    ZerodhaHistoricalDataProvider,
-)
-from quantrex.core.data.normalization import (
-    Normalizer,
-    ZerodhaNormalizer,
-)
+from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
 
 __all__ = [
-    "DataError",
-    "HistoricalDataProvider",
-    "NormalizationError",
-    "Normalizer",
-    "ProviderError",
-    "SymbolResolutionError",
-    "TimeframeNotSupportedError",
     "ZerodhaHistoricalDataProvider",
-    "ZerodhaNormalizer",
 ]
 
 __version__ = "0.1.0"

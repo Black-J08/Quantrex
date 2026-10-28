@@ -9,8 +9,9 @@ import pytest
 
 from quantrex.core.broker.zerodha.historical.client import ZerodhaHistoricalDataClient
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.data.normalization import ZerodhaNormalizer
-from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
+from quantrex.core.data.normalization.zerodha import ZerodhaNormalizer
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 
 class TestZerodhaNormalizer:
@@ -231,18 +232,17 @@ class TestZerodhaNormalizer:
             client._map_timeframe_to_interval(Timeframe(value=2, unit=TimeframeUnit.HOUR))
 
     def test_ist_comes_from_models_not_broker(self) -> None:
-        """Regression test: IST timezone is imported from quantrex.core.models,
+        """Regression test: IST timezone is imported from quantrex.core.models.timezone,
         not from broker/zerodha/timezone.py.
 
         This ensures the data layer does not depend on broker-specific timezone
         facts, preserving broker segregation.
         """
-        from quantrex.core import models
-
-        assert hasattr(models, "IST")
         from zoneinfo import ZoneInfo
 
-        assert models.IST == ZoneInfo("Asia/Kolkata")
+        from quantrex.core.models.timezone import IST
+
+        assert IST == ZoneInfo("Asia/Kolkata")
 
         normalizer = ZerodhaNormalizer()
         raw_response = {

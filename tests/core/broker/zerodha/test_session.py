@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
 
-from quantrex.core.broker.zerodha.session.session import (
-    ZerodhaSession,
-    RateLimiter,
-)
+import pytest
+
 from quantrex.core.broker.zerodha.auth.token_store import TokenInfo
 from quantrex.core.broker.zerodha.exceptions.exceptions import (
+    ZerodhaInputError,
     ZerodhaNetworkError,
-    ZerodhaTokenExpiredError,
+    ZerodhaNotFoundError,
     ZerodhaRateLimitError,
     ZerodhaServerError,
-    ZerodhaInputError,
-    ZerodhaNotFoundError,
 )
-from datetime import datetime, timezone, timedelta
+from quantrex.core.broker.zerodha.session.session import (
+    RateLimiter,
+    ZerodhaSession,
+)
 
 
 class TestRateLimiter:
@@ -116,7 +116,7 @@ class TestZerodhaSession:
         )
 
         # Set a valid cached token
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="cached_token",
             user_id="user123",
@@ -138,7 +138,7 @@ class TestZerodhaSession:
         )
 
         # Set an expired cached token
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         token_info = TokenInfo(
             access_token="expired_token",
             user_id="user123",
@@ -148,7 +148,7 @@ class TestZerodhaSession:
         session._token_info = token_info
 
         # Mock auth provider to return new token
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         new_token_info = TokenInfo(
             access_token="new_token",
             user_id="user123",
@@ -171,7 +171,7 @@ class TestZerodhaSession:
             redirect_url="http://localhost:8765/callback",
         )
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="file_token",
             user_id="user123",
@@ -194,7 +194,7 @@ class TestZerodhaSession:
         )
 
         # Mock token
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="valid_token",
             user_id="user123",
@@ -222,7 +222,7 @@ class TestZerodhaSession:
         )
 
         # Mock token
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="valid_token",
             user_id="user123",
@@ -261,7 +261,7 @@ class TestZerodhaSession:
             redirect_url="http://localhost:8765/callback",
         )
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="valid_token",
             user_id="user123",
@@ -284,7 +284,7 @@ class TestZerodhaSession:
             redirect_url="http://localhost:8765/callback",
         )
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="valid_token",
             user_id="user123",

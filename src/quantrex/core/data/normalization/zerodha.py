@@ -5,9 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from quantrex.core.data.exceptions import NormalizationError
+from quantrex.core.data.exceptions.exceptions import NormalizationError
 from quantrex.core.data.normalization.base import Normalizer
-from quantrex.core.models import IST, OHLCVCandle, RawCandle, Timeframe
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.raw_candle import RawCandle
+from quantrex.core.models.timeframe import Timeframe
+from quantrex.core.models.timezone import IST
 
 logger = logging.getLogger(__name__)
 

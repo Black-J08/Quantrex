@@ -16,14 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from quantrex.core.broker.zerodha import (
-    InstrumentMaster,
-    ZerodhaSession,
-)
-from quantrex.core.data import ZerodhaHistoricalDataProvider
-from quantrex.core.models import Timeframe, TimeframeUnit
+from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
+from quantrex.core.broker.zerodha.session.session import ZerodhaSession
+from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 # Configure logging
 logging.basicConfig(
@@ -56,7 +54,7 @@ async def main() -> None:
     logger.info("Instrument master stats: %s", stats)
 
     # Define time range (last 7 days)
-    to_date = datetime.now(timezone.utc)
+    to_date = datetime.now(UTC)
     from_date = to_date - timedelta(days=7)
 
     # Fetch 1-minute candles for INFY

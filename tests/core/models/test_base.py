@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 
-from quantrex.core.models import Event
+import pytest
+
+from quantrex.core.models.base import Event
 
 
 class TestEvent:
@@ -20,7 +21,7 @@ class TestEvent:
 
     def test_custom_timestamp(self) -> None:
         """Test Event creation with custom timestamp."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         event = Event(timestamp=ts)
         assert event.timestamp == ts
 

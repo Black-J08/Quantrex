@@ -10,14 +10,18 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.data.exceptions import (
+from quantrex.core.data.exceptions.exceptions import (
     ProviderError,
     SymbolResolutionError,
     TimeframeNotSupportedError,
 )
-from quantrex.core.data.historical import ZerodhaHistoricalDataProvider
-from quantrex.core.exceptions import AmbiguousSymbolError, SymbolNotFoundError
-from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
+from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
+from quantrex.core.exceptions.exceptions import (
+    AmbiguousSymbolError,
+    SymbolNotFoundError,
+)
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 RAW_RESPONSE = {
     "status": "success",
@@ -404,12 +408,15 @@ class TestZerodhaHistoricalDataProviderCaching:
 
 def test_shared_exceptions_importable_from_neutral_location() -> None:
     """Regression test: SymbolNotFoundError and AmbiguousSymbolError are
-    importable from quantrex.core.exceptions (neutral shared location),
+    importable from quantrex.core.exceptions.exceptions (neutral shared location),
     not owned by broker or data.
 
     This preserves broker segregation — neither module owns these exceptions.
     """
-    from quantrex.core.exceptions import AmbiguousSymbolError, SymbolNotFoundError
+    from quantrex.core.exceptions.exceptions import (
+        AmbiguousSymbolError,
+        SymbolNotFoundError,
+    )
 
     assert SymbolNotFoundError("NSE:UNKNOWN").symbol == "NSE:UNKNOWN"
     assert AmbiguousSymbolError("INFY", []).tradingsymbol == "INFY"

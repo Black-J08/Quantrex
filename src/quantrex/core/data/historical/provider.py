@@ -6,7 +6,8 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Self
 
-from quantrex.core.models import OHLCVCandle, Timeframe
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe
 
 
 class HistoricalDataProvider(ABC):

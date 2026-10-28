@@ -9,10 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from quantrex.core.broker.zerodha.historical.client import ZerodhaHistoricalDataClient
-from quantrex.core.broker.zerodha.instrument_master import InstrumentMaster
+from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.instrument_master.models import ZerodhaInstrument
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.models import Timeframe, TimeframeUnit
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 
 class TestZerodhaHistoricalDataClient:
@@ -292,7 +292,7 @@ class TestZerodhaHistoricalDataClient:
     @pytest.mark.asyncio
     async def test_get_raw_candles_symbol_not_found(self) -> None:
         """Test handling symbol not found error."""
-        from quantrex.core.exceptions import SymbolNotFoundError
+        from quantrex.core.exceptions.exceptions import SymbolNotFoundError
 
         mock_session = MagicMock(spec=ZerodhaSession)
         mock_master = AsyncMock(spec=InstrumentMaster)
@@ -313,7 +313,7 @@ class TestZerodhaHistoricalDataClient:
     @pytest.mark.asyncio
     async def test_get_raw_candles_ambiguous_symbol(self) -> None:
         """Test handling ambiguous symbol error."""
-        from quantrex.core.exceptions import AmbiguousSymbolError
+        from quantrex.core.exceptions.exceptions import AmbiguousSymbolError
 
         mock_session = MagicMock(spec=ZerodhaSession)
         mock_master = AsyncMock(spec=InstrumentMaster)

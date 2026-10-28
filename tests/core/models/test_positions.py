@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 from decimal import Decimal
-from datetime import datetime, timezone
 
-from quantrex.core.models import (
+import pytest
+
+from quantrex.core.models.positions import (
     Position,
     PositionSide,
 )
@@ -28,14 +29,14 @@ class TestPosition:
         pos = Position(
             symbol="AAPL",
             side=PositionSide.LONG,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             entry_price=Decimal("150.0"),
             current_price=Decimal("151.0"),
             unrealized_pnl=Decimal("100.0"),
         )
         assert pos.symbol == "AAPL"
         assert pos.side == PositionSide.LONG
-        assert pos.quantity == Decimal("100")
+        assert pos.quantity == Decimal(100)
         assert pos.entry_price == Decimal("150.0")
         assert pos.current_price == Decimal("151.0")
         assert pos.unrealized_pnl == Decimal("100.0")
@@ -45,13 +46,13 @@ class TestPosition:
         pos = Position(
             symbol="AAPL",
             side=PositionSide.SHORT,
-            quantity=Decimal("-100"),
+            quantity=Decimal(-100),
             entry_price=Decimal("150.0"),
             current_price=Decimal("149.0"),
             unrealized_pnl=Decimal("100.0"),
         )
         assert pos.side == PositionSide.SHORT
-        assert pos.quantity == Decimal("-100")
+        assert pos.quantity == Decimal(-100)
 
     def test_long_with_negative_quantity_raises(self) -> None:
         """Test that long position with negative quantity raises."""
@@ -59,7 +60,7 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.LONG,
-                quantity=Decimal("-100"),
+                quantity=Decimal(-100),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -71,7 +72,7 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.LONG,
-                quantity=Decimal("0"),
+                quantity=Decimal(0),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -83,7 +84,7 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.SHORT,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("149.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -95,7 +96,7 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.SHORT,
-                quantity=Decimal("0"),
+                quantity=Decimal(0),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("149.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -107,8 +108,8 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.LONG,
-                quantity=Decimal("100"),
-                entry_price=Decimal("-150"),
+                quantity=Decimal(100),
+                entry_price=Decimal(-150),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
             )
@@ -119,9 +120,9 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.LONG,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 entry_price=Decimal("150.0"),
-                current_price=Decimal("-151"),
+                current_price=Decimal(-151),
                 unrealized_pnl=Decimal("100.0"),
             )
 
@@ -131,7 +132,7 @@ class TestPosition:
             Position(
                 symbol="",
                 side=PositionSide.LONG,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -143,7 +144,7 @@ class TestPosition:
             Position(
                 symbol="AAPL",
                 side=PositionSide.LONG,
-                quantity=Decimal("100"),
+                quantity=Decimal(100),
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
@@ -152,11 +153,11 @@ class TestPosition:
 
     def test_custom_entry_time(self) -> None:
         """Test custom entry_time."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         pos = Position(
             symbol="AAPL",
             side=PositionSide.LONG,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             entry_price=Decimal("150.0"),
             current_price=Decimal("151.0"),
             unrealized_pnl=Decimal("100.0"),
@@ -168,7 +169,7 @@ class TestPosition:
         pos = Position(
             symbol="AAPL",
             side=PositionSide.LONG,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             entry_price=Decimal("150.0"),
             current_price=Decimal("151.0"),
             unrealized_pnl=Decimal("100.0"),

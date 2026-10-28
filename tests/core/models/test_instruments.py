@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import pytest
 from decimal import Decimal
 
-from quantrex.core.models import (
+import pytest
+
+from quantrex.core.models.instruments import (
     AssetClass,
-    ContractType,
-    OptionType,
     ContractSpec,
+    ContractType,
     InstrumentSpec,
+    OptionType,
 )
 
 
@@ -59,11 +60,11 @@ class TestContractSpec:
             contract_type=ContractType.OPTION,
             expiration="2024-12-26",
             option_type=OptionType.CALL,
-            strike=Decimal("24000"),
+            strike=Decimal(24000),
         )
         assert spec.contract_type == ContractType.OPTION
         assert spec.option_type == OptionType.CALL
-        assert spec.strike == Decimal("24000")
+        assert spec.strike == Decimal(24000)
 
     def test_future_with_option_type_raises(self) -> None:
         """Test that future with option_type raises."""
@@ -80,7 +81,7 @@ class TestContractSpec:
             ContractSpec(
                 contract_type=ContractType.FUTURE,
                 expiration="2024-12-26",
-                strike=Decimal("24000"),
+                strike=Decimal(24000),
             )
 
     def test_option_without_option_type_raises(self) -> None:
@@ -89,7 +90,7 @@ class TestContractSpec:
             ContractSpec(
                 contract_type=ContractType.OPTION,
                 expiration="2024-12-26",
-                strike=Decimal("24000"),
+                strike=Decimal(24000),
             )
 
     def test_option_without_strike_raises(self) -> None:
@@ -146,7 +147,7 @@ class TestInstrumentSpec:
             contract_type=ContractType.OPTION,
             expiration="2024-12-26",
             option_type=OptionType.CALL,
-            strike=Decimal("24000"),
+            strike=Decimal(24000),
         )
         inst = InstrumentSpec(
             symbol="NIFTY24DEC24000CE",

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 from decimal import Decimal
-from datetime import datetime, timezone
 
-from quantrex.core.models import OrderSide, Trade
+import pytest
+
+from quantrex.core.models.orders import OrderSide
+from quantrex.core.models.trades import Trade
 
 
 class TestTrade:
@@ -14,12 +16,12 @@ class TestTrade:
 
     def test_valid_creation(self) -> None:
         """Test creating a valid trade."""
-        entry_time = datetime.now(timezone.utc)
-        exit_time = datetime.now(timezone.utc)
+        entry_time = datetime.now(UTC)
+        exit_time = datetime.now(UTC)
         trade = Trade(
             symbol="AAPL",
             side=OrderSide.BUY,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             entry_price=Decimal("150.0"),
             exit_price=Decimal("155.0"),
             entry_time=entry_time,
@@ -30,7 +32,7 @@ class TestTrade:
         )
         assert trade.symbol == "AAPL"
         assert trade.side == OrderSide.BUY
-        assert trade.quantity == Decimal("100")
+        assert trade.quantity == Decimal(100)
         assert trade.entry_price == Decimal("150.0")
         assert trade.exit_price == Decimal("155.0")
         assert trade.entry_time == entry_time
@@ -44,11 +46,11 @@ class TestTrade:
         trade = Trade(
             symbol="AAPL",
             side=OrderSide.SELL,
-            quantity=Decimal("100"),
+            quantity=Decimal(100),
             entry_price=Decimal("155.0"),
             exit_price=Decimal("150.0"),
-            entry_time=datetime.now(timezone.utc),
-            exit_time=datetime.now(timezone.utc),
+            entry_time=datetime.now(UTC),
+            exit_time=datetime.now(UTC),
             pnl=Decimal("500.0"),
         )
         assert trade.side == OrderSide.SELL
@@ -59,12 +61,12 @@ class TestTrade:
             Trade(
                 symbol="",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                quantity=Decimal(100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
+                entry_time=datetime.now(UTC),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_zero_quantity_raises(self) -> None:
@@ -73,12 +75,12 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("0"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                quantity=Decimal(0),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
+                entry_time=datetime.now(UTC),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_negative_quantity_raises(self) -> None:
@@ -87,12 +89,12 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("-100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                quantity=Decimal(-100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
+                entry_time=datetime.now(UTC),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_negative_entry_price_raises(self) -> None:
@@ -101,12 +103,12 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("-150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                quantity=Decimal(100),
+                entry_price=Decimal(-150),
+                exit_price=Decimal(155),
+                entry_time=datetime.now(UTC),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_negative_exit_price_raises(self) -> None:
@@ -115,12 +117,12 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("-155"),
-                entry_time=datetime.now(timezone.utc),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                quantity=Decimal(100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(-155),
+                entry_time=datetime.now(UTC),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_naive_entry_time_raises(self) -> None:
@@ -129,12 +131,12 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
+                quantity=Decimal(100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
                 entry_time=datetime.now(),
-                exit_time=datetime.now(timezone.utc),
-                pnl=Decimal("500"),
+                exit_time=datetime.now(UTC),
+                pnl=Decimal(500),
             )
 
     def test_naive_exit_time_raises(self) -> None:
@@ -143,28 +145,28 @@ class TestTrade:
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
-                entry_time=datetime.now(timezone.utc),
+                quantity=Decimal(100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
+                entry_time=datetime.now(UTC),
                 exit_time=datetime.now(),
-                pnl=Decimal("500"),
+                pnl=Decimal(500),
             )
 
     def test_exit_before_entry_raises(self) -> None:
         """Test that exit_time before entry_time raises."""
-        entry_time = datetime.now(timezone.utc)
+        entry_time = datetime.now(UTC)
         exit_time = entry_time.replace(hour=entry_time.hour - 1)
         with pytest.raises(ValueError, match="exit_time must be >="):
             Trade(
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                quantity=Decimal("100"),
-                entry_price=Decimal("150"),
-                exit_price=Decimal("155"),
+                quantity=Decimal(100),
+                entry_price=Decimal(150),
+                exit_price=Decimal(155),
                 entry_time=entry_time,
                 exit_time=exit_time,
-                pnl=Decimal("500"),
+                pnl=Decimal(500),
             )
 
     def test_optional_reasons(self) -> None:
@@ -172,12 +174,12 @@ class TestTrade:
         trade = Trade(
             symbol="AAPL",
             side=OrderSide.BUY,
-            quantity=Decimal("100"),
-            entry_price=Decimal("150"),
-            exit_price=Decimal("155"),
-            entry_time=datetime.now(timezone.utc),
-            exit_time=datetime.now(timezone.utc),
-            pnl=Decimal("500"),
+            quantity=Decimal(100),
+            entry_price=Decimal(150),
+            exit_price=Decimal(155),
+            entry_time=datetime.now(UTC),
+            exit_time=datetime.now(UTC),
+            pnl=Decimal(500),
         )
         assert trade.entry_reason is None
         assert trade.exit_reason is None
@@ -186,12 +188,12 @@ class TestTrade:
         trade = Trade(
             symbol="AAPL",
             side=OrderSide.BUY,
-            quantity=Decimal("100"),
-            entry_price=Decimal("150"),
-            exit_price=Decimal("155"),
-            entry_time=datetime.now(timezone.utc),
-            exit_time=datetime.now(timezone.utc),
-            pnl=Decimal("500"),
+            quantity=Decimal(100),
+            entry_price=Decimal(150),
+            exit_price=Decimal(155),
+            entry_time=datetime.now(UTC),
+            exit_time=datetime.now(UTC),
+            pnl=Decimal(500),
         )
         with pytest.raises(Exception):
             trade.symbol = "GOOGL"

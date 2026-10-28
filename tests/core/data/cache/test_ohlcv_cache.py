@@ -8,7 +8,8 @@ from pathlib import Path
 
 from quantrex.core.data.cache.cache_key import CacheKey
 from quantrex.core.data.cache.ohlcv_cache import OHLCVCache
-from quantrex.core.models import OHLCVCandle, Timeframe, TimeframeUnit
+from quantrex.core.models.market_data import OHLCVCandle
+from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 TIMEFRAME = Timeframe(value=1, unit=TimeframeUnit.MINUTE)
 FROM_DATE = datetime(2024, 1, 15, 9, 15, tzinfo=UTC)

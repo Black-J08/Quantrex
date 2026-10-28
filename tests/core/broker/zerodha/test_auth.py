@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone, timedelta
 
-from quantrex.core.broker.zerodha.auth.token_store import TokenInfo, TokenStore
+import pytest
+
+from quantrex.core.broker.zerodha.auth.callback_server import (
+    CallbackResult,
+    CallbackServer,
+)
 from quantrex.core.broker.zerodha.auth.provider import ZerodhaAuthProvider
-from quantrex.core.broker.zerodha.auth.callback_server import CallbackServer, CallbackResult
-from quantrex.core.broker.zerodha.exceptions.exceptions import ZerodhaAuthError, ZerodhaNetworkError
+from quantrex.core.broker.zerodha.auth.token_store import TokenInfo, TokenStore
+from quantrex.core.broker.zerodha.exceptions.exceptions import (
+    ZerodhaAuthError,
+    ZerodhaNetworkError,
+)
 
 
 class TestTokenStore:
@@ -20,7 +27,7 @@ class TestTokenStore:
         token_file = tmp_path / "token.json"
         store = TokenStore(token_file)
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -58,7 +65,7 @@ class TestTokenStore:
         token_file = tmp_path / "token.json"
         store = TokenStore(token_file)
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -81,10 +88,10 @@ class TestTokenStore:
         assert expiry.minute == 0
         assert expiry.second == 0
         assert expiry.microsecond == 0
-        assert expiry.tzinfo == timezone.utc
+        assert expiry.tzinfo == UTC
 
         # Should be tomorrow
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         assert expiry.date() == (now + timedelta(days=1)).date()
 
 
@@ -93,7 +100,7 @@ class TestTokenInfo:
 
     def test_is_expired_false(self) -> None:
         """Test is_expired returns False for future expiry."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -104,7 +111,7 @@ class TestTokenInfo:
 
     def test_is_expired_true(self) -> None:
         """Test is_expired returns True for past expiry."""
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -115,7 +122,7 @@ class TestTokenInfo:
 
     def test_is_valid_true(self) -> None:
         """Test is_valid returns True for valid token."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -126,7 +133,7 @@ class TestTokenInfo:
 
     def test_is_valid_false_empty_token(self) -> None:
         """Test is_valid returns False for empty token."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="",
             user_id="user123",
@@ -137,7 +144,7 @@ class TestTokenInfo:
 
     def test_is_valid_false_expired(self) -> None:
         """Test is_valid returns False for expired token."""
-        past = datetime.now(timezone.utc) - timedelta(hours=1)
+        past = datetime.now(UTC) - timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -148,7 +155,7 @@ class TestTokenInfo:
 
     def test_to_dict_and_from_dict(self) -> None:
         """Test serialization round-trip."""
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="test_token",
             user_id="user123",
@@ -235,7 +242,7 @@ class TestZerodhaAuthProvider:
             token_path=str(token_file),
         )
 
-        future = datetime.now(timezone.utc) + timedelta(hours=1)
+        future = datetime.now(UTC) + timedelta(hours=1)
         token_info = TokenInfo(
             access_token="stored_token",
             user_id="user123",

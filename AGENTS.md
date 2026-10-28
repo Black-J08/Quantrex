@@ -150,3 +150,12 @@ Keep all project constraints and instructions consolidated in a single authorita
 **Build backend:** every package uses `uv_build` (`build-backend = "uv_build"`). Do not introduce `setuptools`, `hatchling`, or any other backend.
 
 **Keep `__init__.py` minimal.** Expose only the public Research API at the package root; for other modules, expose only essential public APIs at the module or submodule level. Never use `__init__.py` as a catch-all export file, and avoid unnecessary re-exports.
+
+### Explicit Imports from Exact Module Paths
+
+All internal imports (source, tests, examples) must use exact module paths rather than importing through a package's `__init__.py`. This makes dependencies visible, traceable, and resilient to refactoring.
+
+**Rules:**
+* Never import a symbol from a package `__init__.py` if that symbol is defined in a submodule. Import from the submodule directly.
+* Every symbol has exactly one canonical location — its defining module. `__init__.py` files must not re-export symbols from submodules.
+* All internal `__init__.py` files contain only a docstring — no imports, no `__all__`, no re-exports.

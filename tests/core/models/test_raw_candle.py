@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from quantrex.core.models import RawCandle
+from quantrex.core.models.raw_candle import RawCandle
 
 IST = ZoneInfo("Asia/Kolkata")
 
