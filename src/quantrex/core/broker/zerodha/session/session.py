@@ -174,8 +174,8 @@ class ZerodhaSession:
         apply_rate_limit: bool = False,
     ) -> httpx.Response:
         """Make an authenticated HTTP request with retry on 403."""
-        if apply_rate_limit:
-            await self._historical_limiter.acquire()
+        if apply_rate_limit and not self._historical_limiter.try_consume():
+            raise ZerodhaRateLimitError("Rate limit exceeded")
 
         access_token = await self._get_valid_token()
         request_headers = {"Authorization": self._build_auth_header(access_token)}
