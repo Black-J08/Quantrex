@@ -177,7 +177,7 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
 
         if not missing:
             logger.info("Cache hit for %s %s, no vendor request needed", symbol, timeframe)
-            return self._cache.get_candles(key)
+            return self._cache.get_cached_candles(key)
 
         for gap_start, gap_end in missing:
             # The client splits each missing interval into month-aligned
@@ -201,7 +201,7 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
             )
             await self._fetch_and_store(segment_key, symbol, timeframe, **kwargs)
 
-        return self._cache.get_candles(key)
+        return self._cache.get_cached_candles(key)
 
     async def _fetch_and_store(
         self,

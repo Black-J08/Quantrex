@@ -100,11 +100,11 @@ class ZerodhaAuthProvider:
         # Try loading existing token first
         token_info = await self.load_token()
         if token_info and token_info.is_valid():
-            logger.info("Using existing credentials")
+            logger.info("Using existing")
             return token_info
 
         # Need to authenticate
-        logger.info("Starting authentication flow...")
+        logger.info("Starting flow...")
 
         async with CallbackServer(port=self.callback_port, host=self.callback_host) as callback_server:
             # Build login URL with our callback
@@ -129,7 +129,7 @@ class ZerodhaAuthProvider:
             # Save token
             self.token_store.save(token_info)
 
-            logger.info("Authentication complete")
+            logger.info("Complete")
             return token_info
 
     async def _exchange_token(self, request_token: str) -> TokenInfo:
@@ -155,8 +155,8 @@ class ZerodhaAuthProvider:
                     },
                 )
             except httpx.RequestError as e:
-                logger.error("Token exchange failed")
-                raise ZerodhaNetworkError(f"Token exchange failed: {e}", original_error=e) from e
+                logger.error("Exchange failed")
+                raise ZerodhaNetworkError(f"Exchange failed: {e}", original_error=e) from e
 
         data = response.json()
 

@@ -7,6 +7,8 @@
 - timeframe should not be pre defined anywhere as 1 minute and 1 day (that's all needed) data can be resampled to any timeframe needed
 - fix mypy and ruff issues in tests/
 - running pytest opens up browser when testing auth flow, any way to avoid that?
+- single IST timezone declaration needed
+- market timing and calendar is defined per data vendor (brokers)
 
 - create kernel module -> research and backtest module -> live module (research, backtest and live shares the same strategy)
 

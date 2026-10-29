@@ -271,7 +271,7 @@ class OHLCVCache:
             intervals.extend(self._read_coverage(path))
         return _merge_intervals(intervals)
 
-    def get_candles(self, key: CacheKey) -> list[OHLCVCandle]:
+    def get_cached_candles(self, key: CacheKey) -> list[OHLCVCandle]:
         """Return the cached candles within the key's range.
 
         Args:

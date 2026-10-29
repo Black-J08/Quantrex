@@ -75,9 +75,9 @@ class TokenStore:
             temp_path.replace(self.token_path)
             # Set restrictive permissions
             os.chmod(self.token_path, 0o600)
-            logger.debug("Token saved")
+            logger.debug("Saved")
         except Exception:
-            logger.error("Failed to save token")
+            logger.error("Failed to save")
             raise
 
     def load(self) -> TokenInfo | None:
@@ -87,24 +87,24 @@ class TokenStore:
             TokenInfo if valid token exists, None otherwise
         """
         if not self.token_path.exists():
-            logger.debug("Token file does not exist")
+            logger.debug("File does not exist")
             return None
 
         try:
             with open(self.token_path) as f:
                 data = json.load(f)
             token_info = TokenInfo.from_dict(data)
-            logger.debug("Token loaded")
+            logger.debug("Loaded")
             return token_info
         except (json.JSONDecodeError, KeyError, ValueError):
-            logger.warning("Invalid token file, will re-authenticate")
+            logger.warning("Invalid file, will re-authenticate")
             return None
 
     def delete(self) -> None:
         """Delete token file."""
         if self.token_path.exists():
             self.token_path.unlink()
-            logger.debug("Token file deleted")
+            logger.debug("File deleted")
 
     def compute_expiry(self) -> datetime:
         """Compute token expiry (6 AM next day in UTC)."""

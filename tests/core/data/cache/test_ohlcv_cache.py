@@ -67,7 +67,7 @@ class TestOHLCVCache:
         ]
 
         cache.store_candles(key, candles)
-        retrieved = cache.get_candles(key)
+        retrieved = cache.get_cached_candles(key)
 
         assert len(retrieved) == 2
         assert retrieved[0].symbol == "NSE:INFY"
@@ -89,7 +89,7 @@ class TestOHLCVCache:
         bar_time = datetime(2024, 1, 15, 9, 15, tzinfo=UTC)
 
         cache.store_candles(key, [make_candle(bar_time)])
-        retrieved = cache.get_candles(key)
+        retrieved = cache.get_cached_candles(key)
 
         assert retrieved[0].timestamp == bar_time
 
@@ -135,7 +135,7 @@ class TestOHLCVCache:
         cache.store_candles(key, [])
 
         assert cache.get_coverage(key) == [(FROM_DATE, TO_DATE)]
-        assert cache.get_candles(key) == []
+        assert cache.get_cached_candles(key) == []
 
     def test_overlapping_fetch_merges_without_duplicates(self, tmp_path: Path) -> None:
         """Test that a second, overlapping fetch merges into the same file."""
@@ -159,7 +159,7 @@ class TestOHLCVCache:
             from_date=FROM_DATE,
             to_date=FROM_DATE + timedelta(minutes=5),
         )
-        retrieved = cache.get_candles(everything)
+        retrieved = cache.get_cached_candles(everything)
 
         assert len(retrieved) == 3
         assert [c.timestamp for c in retrieved] == sorted(c.timestamp for c in retrieved)
@@ -197,8 +197,8 @@ class TestOHLCVCache:
         files = list(tmp_path.rglob("*.feather"))
         assert len(files) == 2
 
-        assert len(cache.get_candles(plain)) == 1
-        assert len(cache.get_candles(continuous)) == 1
+        assert len(cache.get_cached_candles(plain)) == 1
+        assert len(cache.get_cached_candles(continuous)) == 1
 
     def test_version_uses_separate_series(self, tmp_path: Path) -> None:
         """Test that data written by a different version is not reused."""
@@ -222,7 +222,7 @@ class TestOHLCVCache:
             to_date=datetime(2024, 1, 16, 10, 0, tzinfo=UTC),
         )
 
-        assert cache.get_candles(later) == []
+        assert cache.get_cached_candles(later) == []
 
     def test_corrupt_file_is_discarded(self, tmp_path: Path) -> None:
         """Test that a corrupt file is removed and reported as a miss."""
@@ -233,7 +233,7 @@ class TestOHLCVCache:
         for path in tmp_path.rglob("*.feather"):
             path.write_bytes(b"not a feather file")
 
-        assert cache.get_candles(key) == []
+        assert cache.get_cached_candles(key) == []
 
     def test_invalidate_removes_the_series(self, tmp_path: Path) -> None:
         """Test that invalidating a series deletes its files."""
@@ -244,7 +244,7 @@ class TestOHLCVCache:
         count = cache.invalidate(key)
 
         assert count == 1
-        assert cache.get_candles(key) == []
+        assert cache.get_cached_candles(key) == []
         assert cache.get_coverage(key) == []
 
     def test_invalidate_leaves_other_series(self, tmp_path: Path) -> None:
@@ -257,8 +257,8 @@ class TestOHLCVCache:
 
         cache.invalidate(infy)
 
-        assert cache.get_candles(infy) == []
-        assert len(cache.get_candles(reliance)) == 1
+        assert cache.get_cached_candles(infy) == []
+        assert len(cache.get_cached_candles(reliance)) == 1
 
     def test_clear_removes_everything(self, tmp_path: Path) -> None:
         """Test that clearing removes all cached files."""

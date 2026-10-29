@@ -157,7 +157,7 @@ class ZerodhaSession:
                 return token_info.access_token
 
             # Need to authenticate
-            logger.info("No valid token found, starting authentication...")
+            logger.info("No valid access found, starting flow...")
             token_info = await self._auth_provider.authenticate()
             self._token_info = token_info
             return token_info.access_token
@@ -199,7 +199,7 @@ class ZerodhaSession:
 
         # Handle 403 - token expired, retry once with fresh token
         if response.status_code == 403:
-            logger.warning("Received 403, token may be expired, retrying with fresh token")
+            logger.warning("Received 403, access may be expired, retrying with fresh")
             async with self._token_lock:
                 self._token_info = None  # Force re-auth
             access_token = await self._get_valid_token()

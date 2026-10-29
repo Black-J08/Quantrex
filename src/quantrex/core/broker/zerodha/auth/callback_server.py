@@ -51,13 +51,13 @@ class CallbackServer:
 
         if error:
             self._result = CallbackResult(error=error)
-            logger.error("OAuth callback error")
+            logger.error("Callback error")
         elif request_token:
             self._result = CallbackResult(request_token=request_token)
-            logger.info("OAuth callback received")
+            logger.info("Received")
         else:
             self._result = CallbackResult(error="No request_token in callback")
-            logger.error("OAuth callback missing token")
+            logger.error("Callback missing")
 
         self._event.set()
         return web.Response(text="Authentication complete. You can close this window.")

@@ -392,5 +392,5 @@ class TestZerodhaAuthProvider:
                 mock_client.post.side_effect = httpx.RequestError("Connection failed")
                 mock_client_class.return_value = mock_client
 
-                with pytest.raises(ZerodhaNetworkError, match="Token exchange failed"):
+                with pytest.raises(ZerodhaNetworkError, match="Exchange failed"):
                     await provider.authenticate()
