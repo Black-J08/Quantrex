@@ -214,15 +214,25 @@ class TestZerodhaNormalizer:
         assert len(candles) == 1
 
     def test_map_timeframe_to_interval(self) -> None:
-        """Test timeframe to interval mapping lives on the broker client."""
+        """Test timeframe to interval mapping lives on the broker client.
+
+        Only canonical source timeframes (1m and 1d) are mapped. Derived
+        timeframes are resampled from 1m data in the data layer.
+        """
         client = ZerodhaHistoricalDataClient(MagicMock(spec=ZerodhaSession))
 
         assert client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.MINUTE)).value == "minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=5, unit=TimeframeUnit.MINUTE)).value == "5minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=15, unit=TimeframeUnit.MINUTE)).value == "15minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=60, unit=TimeframeUnit.MINUTE)).value == "60minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.HOUR)).value == "60minute"
         assert client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.DAY)).value == "day"
+
+        # Non-canonical intervals are not mapped.
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=5, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=15, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=60, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.HOUR))
 
     def test_map_timeframe_to_interval_unsupported(self) -> None:
         """Test unsupported timeframe raises error on the broker client."""

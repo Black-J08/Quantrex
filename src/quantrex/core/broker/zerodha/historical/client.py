@@ -33,26 +33,18 @@ class ZerodhaHistoricalDataClient:
         self._instrument_master = instrument_master or InstrumentMaster(session)
 
     def _map_timeframe_to_interval(self, timeframe: Timeframe) -> ZerodhaInterval:
-        """Map Quantrex Timeframe to Zerodha interval."""
-        if timeframe.unit == TimeframeUnit.MINUTE:
-            if timeframe.value == 1:
-                return ZerodhaInterval.MINUTE
-            if timeframe.value == 3:
-                return ZerodhaInterval.THREE_MINUTE
-            if timeframe.value == 5:
-                return ZerodhaInterval.FIVE_MINUTE
-            if timeframe.value == 10:
-                return ZerodhaInterval.TEN_MINUTE
-            if timeframe.value == 15:
-                return ZerodhaInterval.FIFTEEN_MINUTE
-            if timeframe.value == 30:
-                return ZerodhaInterval.THIRTY_MINUTE
-            if timeframe.value == 60:
-                return ZerodhaInterval.SIXTY_MINUTE
-        if timeframe.unit == TimeframeUnit.HOUR and timeframe.value == 1:
-            return ZerodhaInterval.SIXTY_MINUTE
+        """Map Quantrex Timeframe to Zerodha interval.
+
+        Only canonical source timeframes (1m and 1d) are mapped. Derived
+        timeframes are resampled from 1-minute data in the data layer and
+        never reach this method.
+        """
+        if timeframe.unit == TimeframeUnit.MINUTE and timeframe.value == 1:
+            return ZerodhaInterval.MINUTE
         if timeframe.unit == TimeframeUnit.DAY and timeframe.value == 1:
             return ZerodhaInterval.DAY
+
+        raise ValueError(f"Unsupported timeframe: {timeframe}")
 
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 

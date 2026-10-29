@@ -35,24 +35,35 @@ class TestZerodhaHistoricalDataClient:
         assert client._instrument_master is mock_master
 
     def test_map_timeframe_to_interval_minute(self) -> None:
-        """Test mapping minute timeframes."""
+        """Test mapping minute timeframes (only 1m is canonical)."""
         mock_session = MagicMock(spec=ZerodhaSession)
         client = ZerodhaHistoricalDataClient(mock_session)
 
         assert client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.MINUTE)).value == "minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=3, unit=TimeframeUnit.MINUTE)).value == "3minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=5, unit=TimeframeUnit.MINUTE)).value == "5minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=10, unit=TimeframeUnit.MINUTE)).value == "10minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=15, unit=TimeframeUnit.MINUTE)).value == "15minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=30, unit=TimeframeUnit.MINUTE)).value == "30minute"
-        assert client._map_timeframe_to_interval(Timeframe(value=60, unit=TimeframeUnit.MINUTE)).value == "60minute"
+
+        # Non-canonical minute intervals are not mapped; they are resampled
+        # from 1m data in the data layer.
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=3, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=5, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=10, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=15, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=30, unit=TimeframeUnit.MINUTE))
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=60, unit=TimeframeUnit.MINUTE))
 
     def test_map_timeframe_to_interval_hour(self) -> None:
-        """Test mapping hour timeframe."""
+        """Test mapping hour timeframe (1h is not canonical; raises)."""
         mock_session = MagicMock(spec=ZerodhaSession)
         client = ZerodhaHistoricalDataClient(mock_session)
 
-        assert client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.HOUR)).value == "60minute"
+        # 1h is derived from 1m via resampling, not mapped directly.
+        with pytest.raises(ValueError, match="Unsupported timeframe"):
+            client._map_timeframe_to_interval(Timeframe(value=1, unit=TimeframeUnit.HOUR))
 
     def test_map_timeframe_to_interval_day(self) -> None:
         """Test mapping day timeframe."""

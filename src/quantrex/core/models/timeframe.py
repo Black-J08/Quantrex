@@ -98,3 +98,51 @@ class Timeframe:
 
     def __ge__(self, other: Timeframe) -> bool:
         return self == other or self > other
+
+    def is_derivable_from(self, source: Timeframe) -> bool:
+        """Check if this timeframe can be derived from a canonical source timeframe.
+
+        A timeframe is derivable if it is a whole-number multiple of the source.
+        For example, 45m is derivable from 1m (45 × 1m), and 1w is derivable from
+        1d (7 × 1d). A timeframe is always derivable from itself.
+
+        Args:
+            source: The canonical source timeframe (1m or 1d).
+
+        Returns:
+            True if this timeframe is a whole-number multiple of source.
+        """
+        if self.unit == source.unit:
+            return self.value % source.value == 0
+
+        # Cross-unit derivation: e.g., 1d from 1m, 1w from 1d
+        source_seconds = source.to_timedelta().total_seconds()
+        target_seconds = self.to_timedelta().total_seconds()
+        if source_seconds <= 0:
+            return False
+        ratio = target_seconds / source_seconds
+        return ratio == int(ratio)
+
+    def to_pandas_freq(self) -> str:
+        """Convert this timeframe to a Pandas frequency string.
+
+        Examples:
+            1m -> "1min"
+            45m -> "45min"
+            1h -> "1h"
+            1d -> "1D"
+            1w -> "1W"
+            1M -> "1ME" (month end)
+
+        Returns:
+            Pandas-compatible frequency string.
+        """
+        unit_map = {
+            TimeframeUnit.MINUTE: "min",
+            TimeframeUnit.HOUR: "h",
+            TimeframeUnit.DAY: "D",
+            TimeframeUnit.WEEK: "W",
+            TimeframeUnit.MONTH: "ME",
+        }
+        pandas_unit = unit_map[self.unit]
+        return f"{self.value}{pandas_unit}"

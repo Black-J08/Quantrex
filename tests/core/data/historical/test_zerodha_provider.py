@@ -62,12 +62,14 @@ class TestZerodhaHistoricalDataProvider:
     """Tests for the ZerodhaHistoricalDataProvider."""
 
     def test_supported_timeframes(self, make_provider) -> None:
-        """Test that supported timeframes are exposed."""
+        """Test that only canonical source timeframes are exposed."""
         provider, _ = make_provider()
 
         timeframes = provider.supported_timeframes()
-        assert TIMEFRAME in timeframes
-        assert Timeframe(value=1, unit=TimeframeUnit.DAY) in timeframes
+        assert timeframes == [
+            Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+            Timeframe(value=1, unit=TimeframeUnit.DAY),
+        ]
 
     @pytest.mark.asyncio
     async def test_get_candles_normalizes_response(self, make_provider) -> None:
@@ -114,14 +116,14 @@ class TestZerodhaHistoricalDataProvider:
 
     @pytest.mark.asyncio
     async def test_unsupported_timeframe_raises(self, make_provider) -> None:
-        """Test that an unsupported timeframe is rejected before any API call."""
+        """Test that a non-derivable timeframe is rejected before any API call."""
         provider, client = make_provider()
         client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
 
         with pytest.raises(TimeframeNotSupportedError):
             await provider.get_candles(
                 symbol="NSE:INFY",
-                timeframe=Timeframe(value=2, unit=TimeframeUnit.HOUR),
+                timeframe=Timeframe(value=30, unit=TimeframeUnit.SECOND),
                 from_date=FROM_DATE,
                 to_date=TO_DATE,
             )
@@ -199,6 +201,50 @@ class TestZerodhaHistoricalDataProvider:
                 from_date=FROM_DATE,
                 to_date=TO_DATE,
             )
+
+    @pytest.mark.asyncio
+    async def test_derived_timeframe_fetches_1m_and_resamples(self, make_provider) -> None:
+        """Test that a derived timeframe (e.g., 45m) fetches 1m and resamples."""
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        target = Timeframe(value=45, unit=TimeframeUnit.MINUTE)
+        candles = await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=target,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+
+        # 1m source was fetched from vendor
+        client.get_raw_candles.assert_awaited_once()
+        # Resampled to 45m: two 1m candles collapse into one 45m candle
+        assert len(candles) == 1
+        assert candles[0].timeframe == target
+        assert candles[0].open == Decimal("1500.0")
+        assert candles[0].high == Decimal("1515.0")
+        assert candles[0].low == Decimal("1495.0")
+        assert candles[0].close == Decimal("1510.0")
+        assert candles[0].volume == Decimal(180000)
+
+    @pytest.mark.asyncio
+    async def test_canonical_timeframe_fetches_directly(self, make_provider) -> None:
+        """Test that a canonical timeframe (1m) fetches directly without resampling."""
+        provider, client = make_provider()
+        client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
+
+        candles = await provider.get_candles(
+            symbol="NSE:INFY",
+            timeframe=TIMEFRAME,
+            from_date=FROM_DATE,
+            to_date=TO_DATE,
+        )
+
+        assert len(candles) == 2
+        client.get_raw_candles.assert_awaited_once()
+        # No resampling: bar times preserved exactly
+        assert candles[0].timestamp.isoformat() == "2024-01-15T09:15:00+05:30"
+        assert candles[1].timestamp.isoformat() == "2024-01-15T09:16:00+05:30"
 
 
 class TestZerodhaHistoricalDataProviderCaching:
@@ -278,7 +324,11 @@ class TestZerodhaHistoricalDataProviderCaching:
 
     @pytest.mark.asyncio
     async def test_different_timeframes_use_separate_cache_entries(self, make_provider) -> None:
-        """Test that cache entries are keyed per timeframe."""
+        """Test that cache entries are keyed per timeframe.
+
+        Derived timeframes (e.g., 5m) are resampled from cached 1m data, so
+        no additional vendor call is needed when 1m is already cached.
+        """
         provider, client = make_provider()
         client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
 
@@ -295,7 +345,8 @@ class TestZerodhaHistoricalDataProviderCaching:
             to_date=TO_DATE,
         )
 
-        assert client.get_raw_candles.await_count == 2
+        # 1m fetched once; 5m derived from cached 1m (no second API call)
+        assert client.get_raw_candles.await_count == 1
 
     @pytest.mark.asyncio
     async def test_continuous_and_plain_use_separate_entries(self, make_provider) -> None:

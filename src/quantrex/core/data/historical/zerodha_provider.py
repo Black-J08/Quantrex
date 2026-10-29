@@ -24,6 +24,7 @@ from quantrex.core.data.exceptions.exceptions import (
 )
 from quantrex.core.data.historical.provider import HistoricalDataProvider
 from quantrex.core.data.normalization.zerodha import ZerodhaNormalizer
+from quantrex.core.data.resampling.resampler import Resampler
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
@@ -86,6 +87,7 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
         self._normalizer = normalizer or ZerodhaNormalizer()
         self._cache = OHLCVCache(cache_dir) if cache_dir is not None else OHLCVCache()
         self._cache_version = cache_version
+        self._resampler = Resampler()
 
     @property
     def session(self) -> ZerodhaSession:
@@ -102,16 +104,13 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
         return self._client
 
     def supported_timeframes(self) -> list[Timeframe]:
-        """Get list of supported timeframes for Zerodha."""
+        """Get list of canonical source timeframes for Zerodha.
+
+        Only 1-minute and 1-day data are canonical sources. All other
+        timeframes are derived through resampling.
+        """
         return [
             Timeframe(value=1, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=3, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=5, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=10, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=15, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=30, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=60, unit=TimeframeUnit.MINUTE),
-            Timeframe(value=1, unit=TimeframeUnit.HOUR),
             Timeframe(value=1, unit=TimeframeUnit.DAY),
         ]
 
@@ -142,16 +141,10 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
             List of OHLCVCandle objects, sorted by bar time.
 
         Raises:
-            TimeframeNotSupportedError: If the timeframe is not supported.
+            TimeframeNotSupportedError: If the timeframe cannot be derived
+                from a canonical source (1m or 1d).
             ProviderError: If the API request or normalization fails.
         """
-        if timeframe not in self.supported_timeframes():
-            raise TimeframeNotSupportedError(
-                timeframe=str(timeframe),
-                provider="zerodha",
-                supported=[str(tf) for tf in self.supported_timeframes()],
-            )
-
         if from_date >= to_date:
             raise ProviderError(
                 f"from_date must be before to_date: {from_date} >= {to_date}",
@@ -159,6 +152,40 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
                 details={"symbol": symbol, "timeframe": str(timeframe)},
             )
 
+        # Canonical source timeframes are fetched directly from the vendor.
+        if timeframe in self.supported_timeframes():
+            return await self._fetch_canonical(
+                symbol, timeframe, from_date, to_date, **kwargs
+            )
+
+        # Derived timeframes are resampled from 1-minute source data.
+        if timeframe.is_derivable_from(
+            Timeframe(value=1, unit=TimeframeUnit.MINUTE)
+        ):
+            source_candles = await self._fetch_canonical(
+                symbol,
+                Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+                from_date,
+                to_date,
+                **kwargs,
+            )
+            return self._resampler.resample(source_candles, timeframe)
+
+        raise TimeframeNotSupportedError(
+            timeframe=str(timeframe),
+            provider="zerodha",
+            supported=["1m", "1d"],
+        )
+
+    async def _fetch_canonical(
+        self,
+        symbol: str,
+        timeframe: Timeframe,
+        from_date: datetime,
+        to_date: datetime,
+        **kwargs: Any,
+    ) -> list[OHLCVCandle]:
+        """Fetch canonical (1m or 1d) candles from vendor with caching."""
         continuous = bool(kwargs.pop("continuous", False))
         oi = bool(kwargs.pop("oi", False))
 
