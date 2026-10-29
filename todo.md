@@ -9,6 +9,8 @@
 - timeframe should not be pre defined anywhere as 1 minute and 1 day (that's all needed) data can be resampled to any timeframe needed
 - fix ruff issues in tests/ and examples/
 
+- create kernel module -> research and backtest module -> live module (research, backtest and live shares the same strategy)
+
 
 - cli support for commands
 - use STOP and STOP LIMIT orders
