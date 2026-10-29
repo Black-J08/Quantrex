@@ -24,11 +24,6 @@ from quantrex.core.broker.zerodha.session.session import ZerodhaSession
 from quantrex.core.data.historical.zerodha_provider import ZerodhaHistoricalDataProvider
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 

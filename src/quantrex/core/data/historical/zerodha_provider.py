@@ -243,6 +243,11 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
             self._cache.store_candles(key, candles)
         except (OSError, ValueError) as e:
             logger.warning("Failed to cache candles for %s: %s", symbol, e)
+            raise ProviderError(
+                f"Cache write failed for {symbol}",
+                provider="zerodha",
+                details={"symbol": symbol, "timeframe": str(timeframe)},
+            ) from e
 
         logger.info("Received %d candles for %s", len(candles), symbol)
 

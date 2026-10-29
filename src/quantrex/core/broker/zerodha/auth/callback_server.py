@@ -12,6 +12,8 @@ from aiohttp import web
 
 logger = logging.getLogger(__name__)
 
+CALLBACK_URL_TEMPLATE = "http://{host}:{port}{path}"
+
 
 @dataclass(slots=True)
 class CallbackResult:
@@ -49,13 +51,13 @@ class CallbackServer:
 
         if error:
             self._result = CallbackResult(error=error)
-            logger.error("OAuth error: %s", error)
+            logger.error("OAuth callback error")
         elif request_token:
             self._result = CallbackResult(request_token=request_token)
-            logger.info("Received request_token: %s", request_token)
+            logger.info("OAuth callback received")
         else:
             self._result = CallbackResult(error="No request_token in callback")
-            logger.error("No request_token in callback")
+            logger.error("OAuth callback missing token")
 
         self._event.set()
         return web.Response(text="Authentication complete. You can close this window.")
@@ -89,12 +91,12 @@ class CallbackServer:
             await asyncio.wait_for(self._event.wait(), timeout=timeout)
         except TimeoutError:
             self._result = CallbackResult(error="Callback timeout")
-            logger.error("Callback timeout after %s seconds", timeout)
+            logger.error("Callback timeout")
         return self._result
 
     def get_callback_url(self) -> str:
         """Get the callback URL."""
-        return f"http://{self.host}:{self.port}{self.path}"
+        return CALLBACK_URL_TEMPLATE.format(host=self.host, port=self.port, path=self.path)
 
     async def __aenter__(self) -> Self:
         await self.start()

@@ -138,8 +138,8 @@ class OHLCVCache:
             logger.warning("Failed to read cache file %s: %s", path, e)
             try:
                 path.unlink()
-            except OSError:
-                pass
+            except OSError as unlink_error:
+                logger.warning("Failed to delete corrupt cache file %s: %s", path, unlink_error)
             return None
 
     def _read_coverage(self, path: Path) -> list[tuple[datetime, datetime]]:
@@ -171,7 +171,8 @@ class OHLCVCache:
                     datetime.fromisoformat(start),
                     datetime.fromisoformat(end),
                 ))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
+                logger.warning("Skipping malformed coverage interval: %s", e)
                 continue
         return _merge_intervals(intervals)
 
@@ -202,8 +203,8 @@ class OHLCVCache:
             except Exception:
                 try:
                     tmp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                except OSError as unlink_error:
+                    logger.warning("Failed to delete temp cache file %s: %s", tmp_path, unlink_error)
                 raise
 
     @staticmethod
@@ -384,8 +385,8 @@ class OHLCVCache:
         try:
             directory.rmdir()
             directory.parent.rmdir()
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("Failed to remove cache directories for %s: %s", key.symbol, e)
 
         logger.info("Invalidated %d cache files for %s/%s", count, key.symbol, key.timeframe)
         return count
@@ -407,7 +408,10 @@ class OHLCVCache:
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", path, e)
 
-        shutil.rmtree(self._base_dir, ignore_errors=True)
+        try:
+            shutil.rmtree(self._base_dir)
+        except OSError as e:
+            logger.warning("Failed to remove cache directory %s: %s", self._base_dir, e)
         logger.info("Cleared %d cache files", count)
         return count
 

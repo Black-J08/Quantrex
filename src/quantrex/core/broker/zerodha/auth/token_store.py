@@ -29,7 +29,7 @@ class TokenInfo:
         """Check if token is valid (not expired and not empty)."""
         return bool(self.access_token) and not self.is_expired()
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, str]:
         """Convert to dictionary for JSON serialization."""
         return {
             "access_token": self.access_token,
@@ -75,9 +75,9 @@ class TokenStore:
             temp_path.replace(self.token_path)
             # Set restrictive permissions
             os.chmod(self.token_path, 0o600)
-            logger.debug("Token saved to %s", self.token_path)
-        except Exception as e:
-            logger.error("Failed to save token: %s", e)
+            logger.debug("Token saved")
+        except Exception:
+            logger.error("Failed to save token")
             raise
 
     def load(self) -> TokenInfo | None:
@@ -87,24 +87,24 @@ class TokenStore:
             TokenInfo if valid token exists, None otherwise
         """
         if not self.token_path.exists():
-            logger.debug("Token file does not exist: %s", self.token_path)
+            logger.debug("Token file does not exist")
             return None
 
         try:
             with open(self.token_path) as f:
                 data = json.load(f)
             token_info = TokenInfo.from_dict(data)
-            logger.debug("Token loaded from %s", self.token_path)
+            logger.debug("Token loaded")
             return token_info
-        except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.warning("Invalid token file, will re-authenticate: %s", e)
+        except (json.JSONDecodeError, KeyError, ValueError):
+            logger.warning("Invalid token file, will re-authenticate")
             return None
 
     def delete(self) -> None:
         """Delete token file."""
         if self.token_path.exists():
             self.token_path.unlink()
-            logger.debug("Token file deleted: %s", self.token_path)
+            logger.debug("Token file deleted")
 
     def compute_expiry(self) -> datetime:
         """Compute token expiry (6 AM next day in UTC)."""

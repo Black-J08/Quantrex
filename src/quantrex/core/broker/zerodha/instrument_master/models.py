@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True, frozen=True)
@@ -41,8 +44,9 @@ class ZerodhaInstrument:
         if row.get("expiry"):
             try:
                 expiry = date.fromisoformat(row["expiry"])
-            except ValueError:
-                pass  # Invalid date, leave as None
+            except ValueError as e:
+                logger.warning("Invalid expiry date in CSV row: %s", e)
+                # Invalid date, leave as None
 
         # Parse numeric fields
         last_price = Decimal(row["last_price"]) if row.get("last_price") else Decimal(0)
