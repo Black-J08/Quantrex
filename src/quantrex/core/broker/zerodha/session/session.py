@@ -29,7 +29,6 @@ logger = logging.getLogger(__name__)
 # Constants
 BASE_URL = "https://api.kite.trade"
 DEFAULT_TIMEOUT = 30.0
-HISTORICAL_RATE_LIMIT = 3.0  # requests per second
 
 
 @dataclass(slots=True, frozen=True)
@@ -134,8 +133,11 @@ class ZerodhaSession:
             headers={"X-Kite-Version": "3"},
         )
 
-        # Rate limiter for historical data
-        self._historical_limiter = SlidingWindowRateLimiter(HISTORICAL_RATE_LIMIT)
+        # Shared rate limiters, keyed by endpoint name.
+        # All clients using this session share the same limiter instances,
+        # so concurrent requests across clients are paced together.
+        self._limiters: dict[str, SlidingWindowRateLimiter] = {}
+        self._limiters["historical"] = SlidingWindowRateLimiter(3.0)
 
         # Token cache
         self._token_info: TokenInfo | None = None
@@ -171,12 +173,13 @@ class ZerodhaSession:
         params: dict[str, Any] | None = None,
         json: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
-        apply_rate_limit: bool = False,
     ) -> httpx.Response:
-        """Make an authenticated HTTP request with retry on 403."""
-        if apply_rate_limit and not self._historical_limiter.try_consume():
-            raise ZerodhaRateLimitError("Rate limit exceeded")
+        """Make an authenticated HTTP request with retry on 403.
 
+        Rate limiting is not enforced here — clients are responsible for
+        acquiring capacity from the appropriate shared limiter (e.g.,
+        ``session.historical_limiter.acquire()``) before making a request.
+        """
         access_token = await self._get_valid_token()
         request_headers = {"Authorization": self._build_auth_header(access_token)}
         if headers:
@@ -240,10 +243,9 @@ class ZerodhaSession:
         self,
         path: str,
         params: dict[str, Any] | None = None,
-        apply_rate_limit: bool = False,
     ) -> httpx.Response:
         """Make a GET request."""
-        return await self._request("GET", path, params=params, apply_rate_limit=apply_rate_limit)
+        return await self._request("GET", path, params=params)
 
     async def post(
         self,
@@ -261,6 +263,16 @@ class ZerodhaSession:
     ) -> httpx.Response:
         """Make a DELETE request."""
         return await self._request("DELETE", path, params=params)
+
+    @property
+    def historical_limiter(self) -> SlidingWindowRateLimiter:
+        """Shared rate limiter for historical data endpoints.
+
+        All clients using this session share the same limiter instance, so
+        concurrent requests across clients are paced together at the
+        configured rate (3 requests per second).
+        """
+        return self._limiters["historical"]
 
     async def close(self) -> None:
         """Close the HTTP client."""

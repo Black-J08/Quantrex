@@ -354,11 +354,11 @@ class TestZerodhaHistoricalDataProviderCaching:
         assert third_call.kwargs["to_date"] == datetime(2024, 1, 15, 6, 0, tzinfo=UTC)
 
     @pytest.mark.asyncio
-    async def test_request_spanning_months_is_split(self, make_provider) -> None:
-        """Test that a long range is fetched one month at a time.
+    async def test_request_spanning_months_delegates_chunking_to_client(self, make_provider) -> None:
+        """Test that a long range is passed to the client as a single call.
 
-        Zerodha caps a request at 60 days for 1-minute candles, so a range
-        wider than a month must be split.
+        The client splits the range into month-aligned segments internally
+        and acquires rate-limit capacity before each segment request.
         """
         provider, client = make_provider()
         client.get_raw_candles = AsyncMock(return_value=RAW_RESPONSE)
@@ -370,17 +370,12 @@ class TestZerodhaHistoricalDataProviderCaching:
             to_date=datetime(2024, 3, 10, 9, 15, tzinfo=UTC),
         )
 
-        assert client.get_raw_candles.await_count == 3
-        requested = [
-            (call.kwargs["from_date"], call.kwargs["to_date"])
-            for call in client.get_raw_candles.await_args_list
-        ]
-        assert requested[0][0] == datetime(2024, 1, 15, 9, 15, tzinfo=UTC)
-        assert requested[0][1] == datetime(2024, 2, 1, tzinfo=UTC)
-        assert requested[1][0] == datetime(2024, 2, 1, tzinfo=UTC)
-        assert requested[1][1] == datetime(2024, 3, 1, tzinfo=UTC)
-        assert requested[2][0] == datetime(2024, 3, 1, tzinfo=UTC)
-        assert requested[2][1] == datetime(2024, 3, 10, 9, 15, tzinfo=UTC)
+        # Provider calls client once per missing interval (full range);
+        # chunking happens inside the client.
+        client.get_raw_candles.assert_awaited_once()
+        call_kwargs = client.get_raw_candles.await_args.kwargs
+        assert call_kwargs["from_date"] == datetime(2024, 1, 15, 9, 15, tzinfo=UTC)
+        assert call_kwargs["to_date"] == datetime(2024, 3, 10, 9, 15, tzinfo=UTC)
 
     @pytest.mark.asyncio
     async def test_empty_vendor_response_is_covered(self, make_provider) -> None:

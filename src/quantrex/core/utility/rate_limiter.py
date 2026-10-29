@@ -1,6 +1,8 @@
 """Sliding window rate limiter utility."""
 
 from __future__ import annotations
+
+import asyncio
 import threading
 import time
 from collections import deque
@@ -31,7 +33,7 @@ class SlidingWindowRateLimiter:
 
     _WINDOW_SECONDS = 1.0
 
-    def __init__(self, rate: int):
+    def __init__(self, rate: float):
         if rate <= 0:
             raise ValueError("rate must be a positive number")
         self.rate = rate
@@ -77,3 +79,38 @@ class SlidingWindowRateLimiter:
 
             self._timestamps.extend([now] * tokens)
             return True
+
+    async def acquire(self, tokens: int = 1) -> None:
+        """Acquire rate-limit capacity, waiting until sufficient tokens are available.
+
+        Unlike :meth:`try_consume`, this method blocks asynchronously until the
+        requested tokens fit within the sliding window, then consumes them.
+        A rejected call has no side effect on limiter state.
+
+        Args:
+            tokens: Number of tokens to acquire (default 1).
+
+        Raises:
+            ValueError: If ``tokens`` is not positive or exceeds ``rate``.
+        """
+        if tokens <= 0:
+            raise ValueError("tokens must be a positive integer")
+        if tokens > self.rate:
+            raise ValueError(f"tokens ({tokens}) cannot exceed rate ({self.rate})")
+
+        while True:
+            if self.try_consume(tokens):
+                return
+
+            # Compute how long to wait until the oldest timestamp leaves the window.
+            with self._lock:
+                if not self._timestamps:
+                    # Window is empty but try_consume returned False — shouldn't happen,
+                    # but avoid a busy loop.
+                    continue
+                oldest = self._timestamps[0]
+
+            now = time.monotonic()
+            wait_until = oldest + self._WINDOW_SECONDS
+            sleep_for = max(wait_until - now, 1e-6)
+            await asyncio.sleep(sleep_for)

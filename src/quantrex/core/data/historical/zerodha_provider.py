@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,31 +32,6 @@ logger = logging.getLogger(__name__)
 #: Cache format version. Bumped when the on-disk layout or the stored bar
 #: times change, so that files written by an older version are ignored.
 CACHE_VERSION = 2
-
-
-def _month_segments(from_date: datetime, to_date: datetime) -> list[tuple[datetime, datetime]]:
-    """Split a range into calendar-month aligned segments.
-
-    A month is the longest span that stays under every Zerodha per-request
-    limit (the tightest is 60 days for 1-minute candles), so each segment
-    can be fetched in a single request without being truncated.
-    """
-    segments: list[tuple[datetime, datetime]] = []
-    cursor = from_date.astimezone(UTC)
-    end = to_date.astimezone(UTC)
-
-    while cursor < end:
-        next_month = datetime(
-            cursor.year + (cursor.month == 12),
-            (cursor.month % 12) + 1,
-            1,
-            tzinfo=UTC,
-        )
-        segment_end = min(end, next_month)
-        segments.append((cursor, segment_end))
-        cursor = segment_end
-
-    return segments
 
 
 class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
@@ -205,26 +180,26 @@ class ZerodhaHistoricalDataProvider(HistoricalDataProvider):
             return self._cache.get_candles(key)
 
         for gap_start, gap_end in missing:
-            # Each gap is fetched one month at a time, so no single request
-            # exceeds the vendor's per-request range limit.
-            for segment_start, segment_end in _month_segments(gap_start, gap_end):
-                logger.info(
-                    "Fetching %s %s from %s to %s",
-                    symbol,
-                    timeframe,
-                    segment_start.isoformat(),
-                    segment_end.isoformat(),
-                )
-                segment_key = CacheKey.create(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    from_date=segment_start,
-                    to_date=segment_end,
-                    continuous=continuous,
-                    oi=oi,
-                    version=self._cache_version,
-                )
-                await self._fetch_and_store(segment_key, symbol, timeframe, **kwargs)
+            # The client splits each missing interval into month-aligned
+            # segments internally and acquires rate-limit capacity before
+            # each request.
+            logger.info(
+                "Fetching %s %s from %s to %s",
+                symbol,
+                timeframe,
+                gap_start.isoformat(),
+                gap_end.isoformat(),
+            )
+            segment_key = CacheKey.create(
+                symbol=symbol,
+                timeframe=timeframe,
+                from_date=gap_start,
+                to_date=gap_end,
+                continuous=continuous,
+                oi=oi,
+                version=self._cache_version,
+            )
+            await self._fetch_and_store(segment_key, symbol, timeframe, **kwargs)
 
         return self._cache.get_candles(key)
 

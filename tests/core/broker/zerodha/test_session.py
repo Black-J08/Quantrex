@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -16,6 +17,7 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
     ZerodhaServerError,
 )
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
+from quantrex.core.utility.rate_limiter import SlidingWindowRateLimiter
 
 
 class TestZerodhaSession:
@@ -306,3 +308,49 @@ class TestZerodhaSession:
             assert s is session
 
         session._client.aclose.assert_called_once()
+
+    def test_historical_limiter_returns_shared_instance(self) -> None:
+        """Test that historical_limiter returns the same instance on repeated access."""
+        session = ZerodhaSession(
+            api_key="test_key",
+            api_secret="test_secret",
+            redirect_url="http://localhost:8765/callback",
+        )
+
+        limiter1 = session.historical_limiter
+        limiter2 = session.historical_limiter
+
+        assert limiter1 is limiter2
+        assert isinstance(limiter1, SlidingWindowRateLimiter)
+
+    def test_historical_limiter_rate_is_three_per_second(self) -> None:
+        """Test that the historical limiter is configured at 3 requests per second."""
+        session = ZerodhaSession(
+            api_key="test_key",
+            api_secret="test_secret",
+            redirect_url="http://localhost:8765/callback",
+        )
+
+        assert session.historical_limiter.rate == 3.0
+
+    @pytest.mark.asyncio
+    async def test_historical_limiter_paces_concurrent_clients(self) -> None:
+        """Test that multiple clients sharing a session are paced by the same limiter."""
+        session = ZerodhaSession(
+            api_key="test_key",
+            api_secret="test_secret",
+            redirect_url="http://localhost:8765/callback",
+        )
+
+        limiter = session.historical_limiter
+        # Consume all 3 tokens
+        assert limiter.try_consume() is True
+        assert limiter.try_consume() is True
+        assert limiter.try_consume() is True
+        assert limiter.try_consume() is False
+
+        # A fourth acquire should wait for the window to expire
+        start = time.monotonic()
+        await limiter.acquire()
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.9
