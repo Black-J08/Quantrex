@@ -22,7 +22,7 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
     ZerodhaServerError,
     ZerodhaTokenExpiredError,
 )
-from quantrex.core.utility.rate_limiter import RateLimiter
+from quantrex.core.utility.rate_limiter import SlidingWindowRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ class ZerodhaSession:
         )
 
         # Rate limiter for historical data
-        self._historical_limiter = RateLimiter(HISTORICAL_RATE_LIMIT)
+        self._historical_limiter = SlidingWindowRateLimiter(HISTORICAL_RATE_LIMIT)
 
         # Token cache
         self._token_info: TokenInfo | None = None

@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from quantrex.core.utility.rate_limiter import RateLimiter
+from quantrex.core.utility.rate_limiter import SlidingWindowRateLimiter
 
 
 class TestRateLimiter:
@@ -15,7 +15,7 @@ class TestRateLimiter:
 
     def test_try_consume_immediate_under_limit(self) -> None:
         """Test consuming tokens when under the rate limit."""
-        limiter = RateLimiter(rate=10.0)
+        limiter = SlidingWindowRateLimiter(rate=10.0)
         for _ in range(10):
             assert limiter.try_consume() is True
         # 11th request exceeds the rate limit
@@ -23,14 +23,14 @@ class TestRateLimiter:
 
     def test_try_consume_false_when_window_full(self) -> None:
         """Test that try_consume returns False when the window is full."""
-        limiter = RateLimiter(rate=1.0)
+        limiter = SlidingWindowRateLimiter(rate=1.0)
         assert limiter.try_consume() is True
         assert limiter.try_consume() is False
         assert limiter.try_consume() is False
 
     def test_window_expiry_allows_new_consume(self) -> None:
         """Test that expired window entries allow new consumption."""
-        limiter = RateLimiter(rate=1.0)
+        limiter = SlidingWindowRateLimiter(rate=1.0)
         assert limiter.try_consume() is True
         assert limiter.try_consume() is False
 
@@ -40,7 +40,7 @@ class TestRateLimiter:
 
     def test_try_consume_weighted_tokens(self) -> None:
         """Test consuming multiple tokens at once."""
-        limiter = RateLimiter(rate=5.0)
+        limiter = SlidingWindowRateLimiter(rate=5.0)
         assert limiter.try_consume(tokens=3) is True
         # 3 + 3 > 5, so this should be rejected
         assert limiter.try_consume(tokens=3) is False
@@ -51,7 +51,7 @@ class TestRateLimiter:
 
     def test_try_consume_atomic_no_partial_record(self) -> None:
         """Test that a rejected consume records no timestamps."""
-        limiter = RateLimiter(rate=1.0)
+        limiter = SlidingWindowRateLimiter(rate=1.0)
         assert limiter.try_consume() is True
         # Window is full; rejected consume records nothing
         assert limiter.try_consume(tokens=2) is False
@@ -60,7 +60,7 @@ class TestRateLimiter:
 
     def test_try_consume_invalid_tokens(self) -> None:
         """Test that non-positive token counts raise ValueError."""
-        limiter = RateLimiter(rate=10.0)
+        limiter = SlidingWindowRateLimiter(rate=10.0)
         with pytest.raises(ValueError):
             limiter.try_consume(tokens=0)
         with pytest.raises(ValueError):
@@ -69,13 +69,13 @@ class TestRateLimiter:
     def test_rate_limiter_invalid_rate(self) -> None:
         """Test that non-positive rate raises ValueError."""
         with pytest.raises(ValueError):
-            RateLimiter(rate=0.0)
+            SlidingWindowRateLimiter(rate=0.0)
         with pytest.raises(ValueError):
-            RateLimiter(rate=-1.0)
+            SlidingWindowRateLimiter(rate=-1.0)
 
     def test_concurrent_try_consume_serializes(self) -> None:
         """Test that concurrent try_consume calls are serialized."""
-        limiter = RateLimiter(rate=10.0)
+        limiter = SlidingWindowRateLimiter(rate=10.0)
         results: list[bool] = []
 
         def worker() -> None:

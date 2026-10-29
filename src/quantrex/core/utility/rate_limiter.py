@@ -1,25 +1,41 @@
 """Sliding window rate limiter utility."""
 
 from __future__ import annotations
-
 import threading
 import time
 from collections import deque
 
 
-class RateLimiter:
+class SlidingWindowRateLimiter:
     """Sliding window rate limiter.
 
     Tracks request timestamps in a rolling one-second window and allows
     consumption only when the requested tokens fit within the configured
     rate. Non-blocking: returns ``False`` when the rate limit would be
-    exceeded, without recording any timestamps.
+    exceeded, without recording any timestamps. Thread-safe.
+
+    Args:
+        rate: Maximum number of tokens allowed in any rolling one-second
+            window. Must be positive.
+
+    Raises:
+        ValueError: If ``rate`` is not positive.
+
+    Example:
+        >>> limiter = RateLimiter(rate=5)
+        >>> limiter.try_consume()
+        True
+        >>> limiter.try_consume(tokens=5)  # 1 + 5 exceeds 5 within the window
+        False
     """
 
-    def __init__(self, rate: float):
+    _WINDOW_SECONDS = 1.0
+
+    def __init__(self, rate: int):
         if rate <= 0:
             raise ValueError("rate must be a positive number")
         self.rate = rate
+        # One entry per consumed token, in non-decreasing order of time.
         self._timestamps: deque[float] = deque()
         self._lock = threading.Lock()
 
@@ -28,29 +44,36 @@ class RateLimiter:
 
         Atomically checks whether the requested tokens fit within the
         sliding window and records the consumption timestamp only if
-        allowed.
+        allowed. A rejected call has no side effect on limiter state.
 
         Args:
             tokens: Number of tokens to consume (default 1).
 
         Returns:
             True if the tokens were consumed, False if the rate limit
-            would be exceeded.
+            would be exceeded. A request larger than ``rate`` can never
+            succeed and always returns False.
+
+        Raises:
+            ValueError: If ``tokens`` is not positive.
         """
         if tokens <= 0:
             raise ValueError("tokens must be a positive integer")
 
-        now = time.monotonic()
-        window_start = now - (1.0 / self.rate)
-
         with self._lock:
-            # Prune timestamps outside the sliding window
-            while self._timestamps and self._timestamps[0] < window_start:
+            # Read the clock inside the lock so concurrent callers append
+            # timestamps in order; pruning below relies on a sorted deque.
+            now = time.monotonic()
+            window_start = now - self._WINDOW_SECONDS
+
+            # Drop timestamps that have left the window. A timestamp exactly
+            # one window old is expired, so at most ``rate`` tokens are ever
+            # counted per rolling second.
+            while self._timestamps and self._timestamps[0] <= window_start:
                 self._timestamps.popleft()
 
             if len(self._timestamps) + tokens > self.rate:
                 return False
 
-            for _ in range(tokens):
-                self._timestamps.append(now)
+            self._timestamps.extend([now] * tokens)
             return True
