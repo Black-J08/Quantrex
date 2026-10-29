@@ -49,6 +49,9 @@ OHLCV_SCHEMA = pa.schema([
 #: Schema metadata key holding the JSON-encoded covered intervals.
 COVERAGE_KEY = b"coverage"
 
+#: Bytes per mebibyte, used for cache statistics display.
+BYTES_PER_MIB = 1024 * 1024
+
 
 def _month_key(dt: datetime) -> str:
     """Return the calendar month an instant belongs to, in UTC."""
@@ -152,7 +155,8 @@ class OHLCVCache:
         try:
             with pa.ipc.open_file(path) as reader:
                 metadata = reader.schema.metadata
-        except (OSError, pa.ArrowException, ValueError):
+        except (OSError, pa.ArrowException, ValueError) as e:
+            logger.warning("Failed to read coverage from cache file %s: %s", path, e)
             return []
 
         if not metadata or COVERAGE_KEY not in metadata:
@@ -160,7 +164,8 @@ class OHLCVCache:
 
         try:
             raw = json.loads(metadata[COVERAGE_KEY].decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError) as e:
+            logger.warning("Failed to decode coverage metadata from cache file %s: %s", path, e)
             return []
 
         intervals = []
@@ -435,7 +440,7 @@ class OHLCVCache:
             "base_dir": str(self._base_dir),
             "total_files": len(files),
             "total_size_bytes": total_size,
-            "total_size_mb": round(total_size / (1024 * 1024), 2),
+            "total_size_mb": round(total_size / BYTES_PER_MIB, 2),
             "symbols": len(symbols),
             "timeframes": len(timeframes),
         }

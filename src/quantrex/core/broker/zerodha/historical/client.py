@@ -9,8 +9,8 @@ from typing import Any
 from quantrex.core.broker.zerodha.instrument_master.master import InstrumentMaster
 from quantrex.core.broker.zerodha.models.models import ZerodhaInterval
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.broker.zerodha.timezone import IST
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
+from quantrex.core.models.timezone import IST
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,6 @@ class ZerodhaHistoricalDataClient:
             return ZerodhaInterval.MINUTE
         if timeframe.unit == TimeframeUnit.DAY and timeframe.value == 1:
             return ZerodhaInterval.DAY
-
-        raise ValueError(f"Unsupported timeframe: {timeframe}")
 
         raise ValueError(f"Unsupported timeframe: {timeframe}")
 

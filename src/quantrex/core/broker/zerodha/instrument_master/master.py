@@ -23,7 +23,7 @@ from quantrex.core.broker.exceptions.exceptions import (
 from quantrex.core.broker.zerodha.exceptions.exceptions import InstrumentMasterError
 from quantrex.core.broker.zerodha.instrument_master.models import ZerodhaInstrument
 from quantrex.core.broker.zerodha.session.session import ZerodhaSession
-from quantrex.core.broker.zerodha.timezone import IST
+from quantrex.core.models.timezone import IST
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,10 @@ CACHE_META_FILENAME = "metadata.json"
 # 8:30 AM IST = 03:00 UTC (Kite generates instrument master daily around this time)
 CACHE_EXPIRY_HOUR_IST = 8
 CACHE_EXPIRY_MINUTE_IST = 30
+# Owner read/write only for cache files containing instrument data
+_CACHE_FILE_MODE = 0o600
+# Seconds per hour, used for cache age calculation.
+_SECONDS_PER_HOUR = 3600
 
 
 @dataclass(slots=True)
@@ -321,9 +325,9 @@ class InstrumentMaster:
             os.replace(temp_csv, self._csv_path)
             os.replace(temp_meta, self._meta_path)
 
-            # Set restrictive permissions
-            os.chmod(self._csv_path, 0o600)
-            os.chmod(self._meta_path, 0o600)
+            # Set restrictive permissions (owner read/write only)
+            os.chmod(self._csv_path, _CACHE_FILE_MODE)
+            os.chmod(self._meta_path, _CACHE_FILE_MODE)
 
             # Swap indices (lock-free for readers)
             self._exact_index = new_exact_index
@@ -356,7 +360,8 @@ class InstrumentMaster:
             "loaded": self._loaded,
             "record_count": self._metadata.record_count if self._metadata else 0,
             "cache_age_hours": (
-                (datetime.now(IST) - datetime.fromisoformat(self._metadata.timestamp)).total_seconds() / 3600
+                (datetime.now(IST) - datetime.fromisoformat(self._metadata.timestamp)).total_seconds()
+                / _SECONDS_PER_HOUR
                 if self._metadata
                 else None
             ),

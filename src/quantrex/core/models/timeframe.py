@@ -59,13 +59,13 @@ class Timeframe:
         
         try:
             value = int(value_str)
-        except ValueError:
-            raise ValueError(f"invalid timeframe value: {value_str}")
+        except ValueError as err:
+            raise ValueError(f"invalid timeframe value: {value_str}") from err
         
         try:
             unit = TimeframeUnit(unit_str)
-        except ValueError:
-            raise ValueError(f"invalid timeframe unit: {unit_str}")
+        except ValueError as err:
+            raise ValueError(f"invalid timeframe unit: {unit_str}") from err
         
         return cls(value=value, unit=unit)
 
