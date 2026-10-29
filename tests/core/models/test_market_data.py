@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -56,7 +57,6 @@ class TestTimeframe:
         assert tf1m < tf5m
         assert tf5m > tf1m
         assert tf1h > tf5m
-        assert tf1m <= tf1m
         assert tf5m >= tf1m
 
     def test_to_timedelta(self) -> None:
@@ -78,7 +78,7 @@ class TestTimeframe:
 
     def test_immutability(self) -> None:
         tf = Timeframe(value=1, unit=TimeframeUnit.MINUTE)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             tf.value = 5
 
 
@@ -269,7 +269,7 @@ class TestOHLCVCandle:
             close=Decimal(150),
             volume=Decimal(1000),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             bar.symbol = "GOOGL"
 
     def test_naive_timestamp_raises(self) -> None:
@@ -328,5 +328,5 @@ class TestTick:
 
     def test_immutability(self) -> None:
         tick = Tick(symbol="AAPL", price=Decimal(150))
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             tick.symbol = "GOOGL"

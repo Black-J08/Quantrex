@@ -74,7 +74,7 @@ class TestZerodhaHistoricalDataClient:
 
     def test_map_timeframe_to_interval_unsupported(self) -> None:
         """Test mapping unsupported timeframe raises error."""
-        mock_session = MagicMock(spec=ZerodhaSession)
+        mock_session = MagicMock()
         client = ZerodhaHistoricalDataClient(mock_session)
 
         with pytest.raises(ValueError, match="Unsupported timeframe"):

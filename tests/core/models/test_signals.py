@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from decimal import Decimal
 
 import pytest
@@ -120,5 +121,5 @@ class TestSignal:
             signal_type=SignalType.ENTRY_LONG,
             price=Decimal("150.0"),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             signal.symbol = "GOOGL"

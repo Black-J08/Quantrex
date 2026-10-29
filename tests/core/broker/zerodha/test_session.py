@@ -181,6 +181,7 @@ class TestZerodhaSession:
         mock_response.status_code = 200
         mock_response.json.return_value = {"status": "success", "data": {}}
         session._client.request = AsyncMock(return_value=mock_response)
+        session._client.aclose = AsyncMock()
 
         response = await session.get("/test/path")
         assert response.status_code == 200

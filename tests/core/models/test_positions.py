@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -148,7 +149,7 @@ class TestPosition:
                 entry_price=Decimal("150.0"),
                 current_price=Decimal("151.0"),
                 unrealized_pnl=Decimal("100.0"),
-                entry_time=datetime.now(),
+                entry_time=datetime.now(UTC).replace(tzinfo=None),
             )
 
     def test_custom_entry_time(self) -> None:
@@ -174,5 +175,5 @@ class TestPosition:
             current_price=Decimal("151.0"),
             unrealized_pnl=Decimal("100.0"),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             pos.symbol = "GOOGL"

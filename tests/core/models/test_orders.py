@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -166,7 +167,7 @@ class TestOrder:
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
                 quantity=Decimal(100),
-                created_at=datetime.now(),
+                created_at=datetime.now(UTC).replace(tzinfo=None),
             )
 
     def test_naive_updated_at_raises(self) -> None:
@@ -177,7 +178,7 @@ class TestOrder:
                 side=OrderSide.BUY,
                 type=OrderType.MARKET,
                 quantity=Decimal(100),
-                updated_at=datetime.now(),
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
             )
 
     def test_custom_timestamps(self) -> None:
@@ -201,5 +202,5 @@ class TestOrder:
             type=OrderType.MARKET,
             quantity=Decimal(100),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             order.symbol = "GOOGL"

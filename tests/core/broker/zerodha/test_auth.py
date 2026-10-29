@@ -271,7 +271,7 @@ class TestZerodhaAuthProvider:
             mock_server = AsyncMock()
             mock_server.__aenter__.return_value = mock_server
             mock_server.wait_for_callback.return_value = CallbackResult(request_token="req_token_123")
-            mock_server.get_callback_url.return_value = "http://localhost:8768/callback"
+            mock_server.get_callback_url = MagicMock(return_value="http://localhost:8768/callback")
             mock_server_class.return_value = mock_server
 
             # Mock httpx client for token exchange
@@ -330,6 +330,7 @@ class TestZerodhaAuthProvider:
             mock_server = AsyncMock()
             mock_server.__aenter__.return_value = mock_server
             mock_server.wait_for_callback.return_value = CallbackResult(request_token=None, error=None)
+            mock_server.get_callback_url = MagicMock(return_value="http://localhost:8770/callback")
             mock_server_class.return_value = mock_server
 
             with pytest.raises(ZerodhaAuthError, match="No request_token received"):
@@ -350,7 +351,7 @@ class TestZerodhaAuthProvider:
             mock_server = AsyncMock()
             mock_server.__aenter__.return_value = mock_server
             mock_server.wait_for_callback.return_value = CallbackResult(request_token="req_token_123")
-            mock_server.get_callback_url.return_value = "http://localhost:8771/callback"
+            mock_server.get_callback_url = MagicMock(return_value="http://localhost:8771/callback")
             mock_server_class.return_value = mock_server
 
             with patch("quantrex.core.broker.zerodha.auth.provider.httpx.AsyncClient") as mock_client_class:

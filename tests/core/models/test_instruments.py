@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from decimal import Decimal
 
 import pytest
@@ -110,7 +111,7 @@ class TestContractSpec:
     def test_immutability(self) -> None:
         """Test that ContractSpec is frozen."""
         spec = ContractSpec(contract_type=ContractType.FUTURE, expiration="2024-12-26")
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             spec.expiration = "2025-01-01"
 
 
@@ -181,5 +182,5 @@ class TestInstrumentSpec:
     def test_immutability(self) -> None:
         """Test that InstrumentSpec is frozen."""
         inst = InstrumentSpec(symbol="AAPL", asset_class=AssetClass.EQUITY, exchange="NASDAQ")
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             inst.symbol = "GOOGL"

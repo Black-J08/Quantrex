@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
 import pytest
@@ -35,13 +36,13 @@ class TestEvent:
     def test_naive_timestamp_raises(self) -> None:
         """Test that naive datetime raises ValueError."""
         with pytest.raises(ValueError, match="timezone-aware"):
-            Event(timestamp=datetime.now())
+            Event(timestamp=datetime.now(UTC).replace(tzinfo=None))
 
     def test_immutability(self) -> None:
         """Test that Event is frozen/immutable."""
         event = Event()
-        with pytest.raises(Exception):
-            event.symbol = "TEST"  # type: ignore[attr-defined]
+        with pytest.raises(FrozenInstanceError):
+            event.event_id = "TEST"  # type: ignore[attr-defined]
 
     def test_equality(self) -> None:
         """Test Event equality based on event_id."""

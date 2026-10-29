@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -134,7 +135,7 @@ class TestTrade:
                 quantity=Decimal(100),
                 entry_price=Decimal(150),
                 exit_price=Decimal(155),
-                entry_time=datetime.now(),
+                entry_time=datetime.now(UTC).replace(tzinfo=None),
                 exit_time=datetime.now(UTC),
                 pnl=Decimal(500),
             )
@@ -149,7 +150,7 @@ class TestTrade:
                 entry_price=Decimal(150),
                 exit_price=Decimal(155),
                 entry_time=datetime.now(UTC),
-                exit_time=datetime.now(),
+                exit_time=datetime.now(UTC).replace(tzinfo=None),
                 pnl=Decimal(500),
             )
 
@@ -195,5 +196,5 @@ class TestTrade:
             exit_time=datetime.now(UTC),
             pnl=Decimal(500),
         )
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             trade.symbol = "GOOGL"
