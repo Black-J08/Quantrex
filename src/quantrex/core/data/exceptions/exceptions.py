@@ -53,3 +53,17 @@ class TimeframeNotSupportedError(DataError):
         self.timeframe = timeframe
         self.provider = provider
         self.supported = supported or []
+
+
+class CacheReadError(DataError):
+    """Raised when reading from the on-disk cache fails."""
+
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(message, details)
+
+
+class CacheWriteError(DataError):
+    """Raised when writing to the on-disk cache fails."""
+
+    def __init__(self, message: str, details: dict | None = None):
+        super().__init__(message, details)

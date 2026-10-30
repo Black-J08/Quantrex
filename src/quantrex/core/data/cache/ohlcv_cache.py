@@ -25,6 +25,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 from pyarrow import feather  # type: ignore[import-untyped]
 
 from quantrex.core.data.cache.cache_key import CacheKey
+from quantrex.core.data.exceptions.exceptions import CacheReadError, CacheWriteError
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.timeframe import Timeframe
 
@@ -143,6 +144,7 @@ class OHLCVCache:
                 path.unlink()
             except OSError as unlink_error:
                 logger.warning("Failed to delete corrupt cache file %s: %s", path, unlink_error)
+                raise CacheReadError(f"Corrupt cache file {path} and cannot be deleted: {unlink_error}") from unlink_error
             return None
 
     def _read_coverage(self, path: Path) -> list[tuple[datetime, datetime]]:
@@ -157,7 +159,7 @@ class OHLCVCache:
                 metadata = reader.schema.metadata
         except (OSError, pa.ArrowException, ValueError) as e:
             logger.warning("Failed to read coverage from cache file %s: %s", path, e)
-            return []
+            raise CacheReadError(f"Failed to read coverage from {path}: {e}") from e
 
         if not metadata or COVERAGE_KEY not in metadata:
             return []
@@ -166,7 +168,7 @@ class OHLCVCache:
             raw = json.loads(metadata[COVERAGE_KEY].decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             logger.warning("Failed to decode coverage metadata from cache file %s: %s", path, e)
-            return []
+            raise CacheReadError(f"Failed to decode coverage metadata from {path}: {e}") from e
 
         intervals = []
         for pair in raw:
@@ -210,6 +212,7 @@ class OHLCVCache:
                     tmp_path.unlink(missing_ok=True)
                 except OSError as unlink_error:
                     logger.warning("Failed to delete temp cache file %s: %s", tmp_path, unlink_error)
+                    raise CacheWriteError(f"Failed to delete temp cache file {tmp_path}: {unlink_error}") from unlink_error
                 raise
 
     @staticmethod
@@ -386,12 +389,14 @@ class OHLCVCache:
                 count += 1
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", path, e)
+                raise CacheWriteError(f"Failed to delete cache file {path}: {e}") from e
 
         try:
             directory.rmdir()
             directory.parent.rmdir()
         except OSError as e:
             logger.warning("Failed to remove cache directories for %s: %s", key.symbol, e)
+            raise CacheWriteError(f"Failed to remove cache directories for {key.symbol}: {e}") from e
 
         logger.info("Invalidated %d cache files for %s/%s", count, key.symbol, key.timeframe)
         return count
@@ -412,11 +417,13 @@ class OHLCVCache:
                 count += 1
             except OSError as e:
                 logger.warning("Failed to delete %s: %s", path, e)
+                raise CacheWriteError(f"Failed to delete cache file {path}: {e}") from e
 
         try:
             shutil.rmtree(self._base_dir)
         except OSError as e:
             logger.warning("Failed to remove cache directory %s: %s", self._base_dir, e)
+            raise CacheWriteError(f"Failed to remove cache directory {self._base_dir}: {e}") from e
         logger.info("Cleared %d cache files", count)
         return count
 

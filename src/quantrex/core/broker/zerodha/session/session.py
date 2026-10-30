@@ -63,6 +63,22 @@ class CallbackConfig:
         return cls(host=host, port=port, path=path)
 
 
+@dataclass(slots=True)
+class SessionConfig:
+    """Configuration for ZerodhaSession.
+
+    Groups all session configuration into a single object to reduce
+    constructor parameter count and improve clarity.
+    """
+
+    api_key: str | None = None
+    api_secret: str | None = None
+    token_path: str | None = None
+    redirect_url: str | None = None
+    callback_timeout: float | None = None
+    timeout: float = DEFAULT_TIMEOUT
+
+
 class ZerodhaSession:
     """HTTP session for Zerodha Kite Connect API with lazy authentication.
 
@@ -75,6 +91,8 @@ class ZerodhaSession:
 
     def __init__(
         self,
+        config: SessionConfig | None = None,
+        *,
         api_key: str | None = None,
         api_secret: str | None = None,
         token_path: str | None = None,
@@ -85,6 +103,7 @@ class ZerodhaSession:
         """Initialize Zerodha session.
 
         Args:
+            config: Optional SessionConfig providing all configuration.
             api_key: Zerodha API key (defaults to ZERODHA_API_KEY env var)
             api_secret: Zerodha API secret (defaults to ZERODHA_API_SECRET env var)
             token_path: Path to token file (defaults to ~/.quantrex/cache/zerodha/access_token)
@@ -92,6 +111,14 @@ class ZerodhaSession:
             callback_timeout: Timeout for OAuth callback in seconds (defaults to ZERODHA_CALLBACK_TIMEOUT env var or 120.0)
             timeout: Request timeout in seconds
         """
+        if config is not None:
+            api_key = config.api_key if api_key is None else api_key
+            api_secret = config.api_secret if api_secret is None else api_secret
+            token_path = config.token_path if token_path is None else token_path
+            redirect_url = config.redirect_url if redirect_url is None else redirect_url
+            callback_timeout = config.callback_timeout if callback_timeout is None else callback_timeout
+            timeout = config.timeout if timeout == DEFAULT_TIMEOUT else timeout
+
         self.api_key = api_key or os.getenv("ZERODHA_API_KEY")
         self.api_secret = api_secret or os.getenv("ZERODHA_API_SECRET")
 
@@ -203,7 +230,9 @@ class ZerodhaSession:
             async with self._token_lock:
                 self._token_info = None  # Force re-auth
             access_token = await self._get_valid_token()
-            request_headers["Authorization"] = self._build_auth_header(access_token)
+            retry_headers = {"Authorization": self._build_auth_header(access_token)}
+            if headers:
+                retry_headers.update(headers)
 
             try:
                 response = await self._client.request(
@@ -211,7 +240,7 @@ class ZerodhaSession:
                     url=path,
                     params=params,
                     json=json,
-                    headers=request_headers,
+                    headers=retry_headers,
                 )
             except httpx.RequestError as e:
                 logger.error("Retry request failed: %s", e)
