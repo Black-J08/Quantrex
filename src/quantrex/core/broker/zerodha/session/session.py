@@ -111,6 +111,40 @@ class ZerodhaSession:
             callback_timeout: Timeout for OAuth callback in seconds (defaults to ZERODHA_CALLBACK_TIMEOUT env var or 120.0)
             timeout: Request timeout in seconds
         """
+        api_key, api_secret, token_path, redirect_url, callback_timeout, timeout = self._resolve_config(
+            config,
+            api_key,
+            api_secret,
+            token_path,
+            redirect_url,
+            callback_timeout,
+            timeout,
+        )
+
+        self.api_key, self.api_secret = self._resolve_credentials(api_key, api_secret)
+        self.token_path = self._resolve_token_path(token_path)
+        self.callback_host, self.callback_port, self.callback_path, self.callback_timeout = self._resolve_callback_config(
+            redirect_url, callback_timeout
+        )
+
+        self._auth_provider = self._build_auth_provider()
+        self._client = self._build_http_client(timeout)
+        self._limiters: dict[str, SlidingWindowRateLimiter] = {}
+        self._limiters["historical"] = SlidingWindowRateLimiter(3.0)
+        self._token_info: TokenInfo | None = None
+        self._token_lock = asyncio.Lock()
+
+    @staticmethod
+    def _resolve_config(
+        config: SessionConfig | None,
+        api_key: str | None,
+        api_secret: str | None,
+        token_path: str | None,
+        redirect_url: str | None,
+        callback_timeout: float | None,
+        timeout: float,
+    ) -> tuple[str | None, str | None, str | None, str | None, float | None, float]:
+        """Merge SessionConfig with explicit keyword arguments (explicit wins)."""
         if config is not None:
             api_key = config.api_key if api_key is None else api_key
             api_secret = config.api_secret if api_secret is None else api_secret
@@ -118,33 +152,49 @@ class ZerodhaSession:
             redirect_url = config.redirect_url if redirect_url is None else redirect_url
             callback_timeout = config.callback_timeout if callback_timeout is None else callback_timeout
             timeout = config.timeout if timeout == DEFAULT_TIMEOUT else timeout
+        return api_key, api_secret, token_path, redirect_url, callback_timeout, timeout
 
-        self.api_key = api_key or os.getenv("ZERODHA_API_KEY")
-        self.api_secret = api_secret or os.getenv("ZERODHA_API_SECRET")
+    @staticmethod
+    def _resolve_credentials(
+        api_key: str | None,
+        api_secret: str | None,
+    ) -> tuple[str, str]:
+        """Resolve API key and secret from arguments or environment variables."""
+        resolved_key = api_key or os.getenv("ZERODHA_API_KEY")
+        resolved_secret = api_secret or os.getenv("ZERODHA_API_SECRET")
 
-        if not self.api_key or not self.api_secret:
+        if not resolved_key or not resolved_secret:
             raise ValueError("API key and secret are required (set ZERODHA_API_KEY and ZERODHA_API_SECRET)")
 
-        # Token storage
+        return resolved_key, resolved_secret
+
+    @staticmethod
+    def _resolve_token_path(token_path: str | None) -> Path:
+        """Resolve the token file path, creating the default cache directory if needed."""
         if token_path is None:
             cache_dir = Path.home() / ".quantrex" / "cache" / "zerodha"
             cache_dir.mkdir(parents=True, exist_ok=True)
             token_path = str(cache_dir / "access_token")
-        self.token_path = Path(token_path)
+        return Path(token_path)
 
-        # Parse redirect URL for callback configuration
+    @staticmethod
+    def _resolve_callback_config(
+        redirect_url: str | None,
+        callback_timeout: float | None,
+    ) -> tuple[str, int, str, float]:
+        """Resolve redirect URL and callback configuration from arguments or environment."""
         redirect_url = redirect_url or os.getenv("ZERODHA_REDIRECT_URL")
         if not redirect_url:
             raise ValueError("Redirect URL is required (set ZERODHA_REDIRECT_URL env var or pass redirect_url parameter)")
 
         callback_config = CallbackConfig.from_redirect_url(redirect_url)
-        self.callback_host = callback_config.host
-        self.callback_port = callback_config.port
-        self.callback_path = callback_config.path
-        self.callback_timeout = callback_timeout or float(os.getenv("ZERODHA_CALLBACK_TIMEOUT", "120.0"))
+        resolved_timeout = callback_timeout or float(os.getenv("ZERODHA_CALLBACK_TIMEOUT", "120.0"))
 
-        # Auth provider
-        self._auth_provider = ZerodhaAuthProvider(
+        return callback_config.host, callback_config.port, callback_config.path, resolved_timeout
+
+    def _build_auth_provider(self) -> ZerodhaAuthProvider:
+        """Build the Zerodha auth provider from resolved session state."""
+        return ZerodhaAuthProvider(
             api_key=self.api_key,
             api_secret=self.api_secret,
             token_path=str(self.token_path),
@@ -153,22 +203,13 @@ class ZerodhaSession:
             callback_timeout=self.callback_timeout,
         )
 
-        # HTTP client
-        self._client = httpx.AsyncClient(
+    def _build_http_client(self, timeout: float) -> httpx.AsyncClient:
+        """Build the HTTP client with base URL, timeout, and default headers."""
+        return httpx.AsyncClient(
             base_url=BASE_URL,
             timeout=timeout,
             headers={"X-Kite-Version": "3"},
         )
-
-        # Shared rate limiters, keyed by endpoint name.
-        # All clients using this session share the same limiter instances,
-        # so concurrent requests across clients are paced together.
-        self._limiters: dict[str, SlidingWindowRateLimiter] = {}
-        self._limiters["historical"] = SlidingWindowRateLimiter(3.0)
-
-        # Token cache
-        self._token_info: TokenInfo | None = None
-        self._token_lock = asyncio.Lock()
 
     async def _get_valid_token(self) -> str:
         """Get a valid access token, authenticating if necessary."""
