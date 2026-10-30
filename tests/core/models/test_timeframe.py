@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
 
 
@@ -79,3 +81,84 @@ class TestTimeframeToPandasFreq:
 
     def test_month(self) -> None:
         assert Timeframe(value=1, unit=TimeframeUnit.MONTH).to_pandas_freq() == "1ME"
+
+
+class TestTimeframeFromString:
+    """Tests for Timeframe.from_string() edge cases."""
+
+    def test_valid_minute(self) -> None:
+        """Valid minute timeframe string parses correctly."""
+        tf = Timeframe.from_string("1m")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.MINUTE
+
+    def test_valid_multi_digit_minute(self) -> None:
+        """Multi-digit minute timeframe string parses correctly."""
+        tf = Timeframe.from_string("45m")
+        assert tf.value == 45
+        assert tf.unit == TimeframeUnit.MINUTE
+
+    def test_valid_hour(self) -> None:
+        """Valid hour timeframe string parses correctly."""
+        tf = Timeframe.from_string("1h")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.HOUR
+
+    def test_valid_day(self) -> None:
+        """Valid day timeframe string parses correctly."""
+        tf = Timeframe.from_string("1d")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.DAY
+
+    def test_valid_week(self) -> None:
+        """Valid week timeframe string parses correctly."""
+        tf = Timeframe.from_string("1w")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.WEEK
+
+    def test_valid_month(self) -> None:
+        """Valid month timeframe string parses correctly."""
+        tf = Timeframe.from_string("1M")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.MONTH
+
+    def test_valid_second(self) -> None:
+        """Valid second timeframe string parses correctly."""
+        tf = Timeframe.from_string("30s")
+        assert tf.value == 30
+        assert tf.unit == TimeframeUnit.SECOND
+
+    def test_empty_string_raises(self) -> None:
+        """Empty string raises ValueError."""
+        with pytest.raises(ValueError, match="timeframe string cannot be empty"):
+            Timeframe.from_string("")
+
+    def test_no_unit_raises(self) -> None:
+        """String with no unit raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe format"):
+            Timeframe.from_string("45")
+
+    def test_invalid_unit_raises(self) -> None:
+        """Invalid unit raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe unit"):
+            Timeframe.from_string("1x")
+
+    def test_invalid_value_raises(self) -> None:
+        """Non-numeric value raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe format"):
+            Timeframe.from_string("abc")
+
+    def test_zero_value_raises(self) -> None:
+        """Zero value raises ValueError via __post_init__."""
+        with pytest.raises(ValueError, match="value must be positive"):
+            Timeframe.from_string("0m")
+
+    def test_negative_value_raises(self) -> None:
+        """Negative value raises ValueError via invalid format."""
+        with pytest.raises(ValueError, match="invalid timeframe format"):
+            Timeframe.from_string("-1m")
+
+    def test_whitespace_only_raises(self) -> None:
+        """Whitespace-only string raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe format"):
+            Timeframe.from_string("   ")

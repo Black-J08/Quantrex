@@ -77,7 +77,7 @@ class TokenStore:
             os.chmod(self.token_path, 0o600)
             logger.debug("Saved")
         except Exception:
-            logger.error("Failed to save")
+            logger.exception("Failed to save token to %s", self.token_path)
             raise
 
     def load(self) -> TokenInfo | None:
