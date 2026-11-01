@@ -1,7 +1,6 @@
-"""Historical data replay for research.
+"""Historical data replay shared by backtest and research engines.
 
 Provides a candle stream from historical data, sorted by timestamp.
-Same as backtest data feed.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ class CandleReplay:
     """Replays historical candles in timestamp order.
 
     Wraps an iterable of OHLCVCandle objects and presents them as a
-    time-sorted stream for the research event loop.
+    time-sorted stream for the engine event loop.
     """
 
     def __init__(self, candles: Iterable[OHLCVCandle]) -> None:

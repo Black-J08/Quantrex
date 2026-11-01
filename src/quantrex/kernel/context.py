@@ -2,34 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime
 
 from quantrex.core.models.market_data import OHLCVCandle
-from quantrex.core.models.orders import Order
-from quantrex.core.models.positions import Position
 
 
 class KernelContext:
-    """Execution context shared between the kernel, strategy, and engine.
+    """Execution context shared between the kernel and strategy.
 
     Provides read-only access to historical data and mutable access to
-    the current time. Order submission and position lookup are delegated
-    to callbacks supplied by the kernel (which in turn delegates to the
-    engine's execution layer).
+    the current time. The kernel owns the clock and history; the strategy
+    reads them but cannot submit orders or look up positions.
 
     Implements :class:`ContextProtocol`.
     """
 
-    def __init__(
-        self,
-        submit_order_cb: Callable[[Order], Order] | None = None,
-        get_position_cb: Callable[[str], Position | None] | None = None,
-    ) -> None:
+    def __init__(self) -> None:
         self._current_time: datetime | None = None
         self._history: list[OHLCVCandle] = []
-        self._submit_order_cb = submit_order_cb
-        self._get_position_cb = get_position_cb
 
     @property
     def current_time(self) -> datetime:
@@ -51,23 +41,3 @@ class KernelContext:
     def append_history(self, candle: OHLCVCandle) -> None:
         """Append a candle to the history (internal use by the kernel)."""
         self._history.append(candle)
-
-    def submit_order(self, order: Order) -> Order:
-        """Submit an order for execution.
-
-        Delegates to the callback supplied by the kernel.
-        """
-        if self._submit_order_cb is None:
-            msg = "submit_order is not available in this context"
-            raise NotImplementedError(msg)
-        return self._submit_order_cb(order)
-
-    def get_position(self, symbol: str) -> Position | None:
-        """Get the current position for a symbol.
-
-        Delegates to the callback supplied by the kernel.
-        """
-        if self._get_position_cb is None:
-            msg = "get_position is not available in this context"
-            raise NotImplementedError(msg)
-        return self._get_position_cb(symbol)

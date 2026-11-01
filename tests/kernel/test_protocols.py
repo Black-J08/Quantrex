@@ -4,23 +4,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID
 
-import pytest
-
-from quantrex.core.models.market_data import OHLCVCandle, Tick
-from quantrex.core.models.orders import Order, OrderSide, OrderStatus, OrderType
-from quantrex.core.models.positions import Position, PositionSide
+from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.signals import Signal, SignalType
-from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
-from quantrex.core.models.trades import Trade
-
 from quantrex.kernel.protocols import (
     ClockProtocol,
     ContextProtocol,
-    DataFeedProtocol,
-    EngineProtocol,
-    ExecutionProtocol,
     StrategyProtocol,
 )
 
@@ -33,22 +22,13 @@ class ConcreteStrategy:
             symbol=candle.symbol,
             signal_type=SignalType.ENTRY_LONG,
             price=candle.close,
-            quantity=Decimal("1"),
+            quantity=Decimal(1),
         )
 
     def on_start(self) -> None:
         pass
 
     def on_stop(self) -> None:
-        pass
-
-    def on_tick(self, tick: Tick) -> None:
-        pass
-
-    def on_order(self, order: Order) -> None:
-        pass
-
-    def on_fill(self, trade: Trade) -> None:
         pass
 
 
@@ -67,48 +47,6 @@ class ConcreteContext:
     def history(self) -> tuple[OHLCVCandle, ...]:
         return self._history
 
-    def submit_order(self, order: Order) -> Order:
-        return order
-
-    def get_position(self, symbol: str) -> Position | None:
-        return None
-
-
-class ConcreteDataFeed:
-    """A concrete data feed implementing DataFeedProtocol."""
-
-    @property
-    def islive(self) -> bool:
-        return False
-
-    def subscribe(self, symbol: str) -> None:
-        pass
-
-    def get_historical(
-        self,
-        symbol: str,
-        start: datetime,
-        end: datetime,
-        timeframe: Timeframe,
-    ) -> list[OHLCVCandle]:
-        return []
-
-
-class ConcreteExecution:
-    """A concrete execution implementing ExecutionProtocol."""
-
-    def submit_order(self, order: Order) -> Order:
-        return order
-
-    def cancel_order(self, order_id: UUID) -> None:
-        pass
-
-    def get_position(self, symbol: str) -> Position | None:
-        return None
-
-    def get_account(self) -> dict[str, object]:
-        return {}
-
 
 class ConcreteClock:
     """A concrete clock implementing ClockProtocol."""
@@ -117,33 +55,6 @@ class ConcreteClock:
         return datetime.now(UTC)
 
     def advance(self, target: datetime) -> None:
-        pass
-
-
-class ConcreteEngine:
-    """A concrete engine implementing EngineProtocol."""
-
-    def execute_signal(self, signal: Signal) -> Order:
-        return Order(
-            symbol=signal.symbol,
-            side=OrderSide.BUY,
-            type=OrderType.MARKET,
-            quantity=signal.quantity or Decimal("1"),
-        )
-
-    def get_pending_fills(self) -> list[Trade]:
-        return []
-
-    def submit_order(self, order: Order) -> Order:
-        return order
-
-    def get_position(self, symbol: str) -> Position | None:
-        return None
-
-    def on_start(self) -> None:
-        pass
-
-    def on_stop(self) -> None:
         pass
 
 
@@ -171,33 +82,9 @@ class TestContextProtocol:
         assert isinstance(ctx, ContextProtocol)
 
 
-class TestDataFeedProtocol:
-    """Tests for DataFeedProtocol runtime_checkable conformance."""
-
-    def test_concrete_datafeed_implements_protocol(self) -> None:
-        feed = ConcreteDataFeed()
-        assert isinstance(feed, DataFeedProtocol)
-
-
-class TestExecutionProtocol:
-    """Tests for ExecutionProtocol runtime_checkable conformance."""
-
-    def test_concrete_execution_implements_protocol(self) -> None:
-        exec_ = ConcreteExecution()
-        assert isinstance(exec_, ExecutionProtocol)
-
-
 class TestClockProtocol:
     """Tests for ClockProtocol runtime_checkable conformance."""
 
     def test_concrete_clock_implements_protocol(self) -> None:
         clock = ConcreteClock()
         assert isinstance(clock, ClockProtocol)
-
-
-class TestEngineProtocol:
-    """Tests for EngineProtocol runtime_checkable conformance."""
-
-    def test_concrete_engine_implements_protocol(self) -> None:
-        engine = ConcreteEngine()
-        assert isinstance(engine, EngineProtocol)

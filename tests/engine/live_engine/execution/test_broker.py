@@ -5,7 +5,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 from quantrex.core.models.orders import Order, OrderSide, OrderStatus, OrderType
-
 from quantrex.engine.live_engine.execution.broker import BrokerAdapter
 
 
@@ -20,8 +19,8 @@ class TestBrokerAdapter:
             symbol="RELIANCE",
             side=OrderSide.BUY,
             type=OrderType.MARKET,
-            quantity=Decimal("1"),
-            price=Decimal("100"),
+            quantity=Decimal(1),
+            price=Decimal(100),
         )
 
         result = broker.submit_order(order)

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from quantrex.core.models.market_data import OHLCVCandle, Tick
-from quantrex.core.models.orders import Order
+from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.signals import Signal
-from quantrex.core.models.trades import Trade
 from quantrex.kernel.protocols import StrategyProtocol
 
 
 class Strategy(StrategyProtocol):
     """Base class for trading strategies.
 
-    Subclasses must implement :meth:`on_bar`. All other hooks are
-    optional and default to no-ops.
+    Subclasses must implement :meth:`on_bar`. Decision logic only —
+    no I/O, no clock, no state lifecycle.
     """
 
     def on_bar(self, candle: OHLCVCandle) -> Signal | None:
@@ -33,12 +31,3 @@ class Strategy(StrategyProtocol):
 
     def on_stop(self) -> None:
         """Called once after the event loop ends."""
-
-    def on_tick(self, tick: Tick) -> None:
-        """Handle a new tick."""
-
-    def on_order(self, order: Order) -> None:
-        """Handle an order status update."""
-
-    def on_fill(self, trade: Trade) -> None:
-        """Handle a trade fill."""

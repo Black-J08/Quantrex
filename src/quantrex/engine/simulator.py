@@ -1,6 +1,6 @@
-"""Simulated broker execution for backtesting.
+"""Simulated broker execution shared by backtest and research engines.
 
-Fills orders at bar open/close prices and produces Trade fills.
+Fills orders at bar prices and produces Trade fills.
 """
 
 from __future__ import annotations

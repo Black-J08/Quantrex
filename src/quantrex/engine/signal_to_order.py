@@ -1,7 +1,6 @@
-"""Signal → Order processing for live trading.
+"""Signal → Order processing shared by all engines.
 
-Converts a strategy Signal into a broker Order using live-specific
-logic (e.g., default order type, quantity handling).
+Converts a strategy Signal into a broker Order using common logic.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from quantrex.core.models.signals import Signal, SignalType
 
 
 def signal_to_order(signal: Signal) -> Order:
-    """Convert a Signal to an Order for live execution.
+    """Convert a Signal to an Order for execution.
 
     Args:
         signal: The trading signal from the strategy.

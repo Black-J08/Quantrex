@@ -1,45 +1,76 @@
-"""BaseEngine — shared lifecycle hooks and engine interface.
+"""BaseEngine — shared interface for all mode-specific engines.
 
-BaseEngine defines the engine interface shared by all mode-specific
-engines (backtest, live, research). It contains only lifecycle hooks
-and the abstract :meth:`execute_signal` — no signal-to-order logic, no
-data feed logic, and no execution logic. Those are owned by each
-engine's own ``execution/`` package.
+BaseEngine defines the interface shared by all mode-specific engines
+(backtest, live, research). The engine is the only layer that differs
+between modes: it owns the kernel lifecycle, sources data, and decides
+what to do with strategy signals.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Iterator
 
-from quantrex.core.models.orders import Order
-from quantrex.core.models.positions import Position
+from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.signals import Signal
-from quantrex.core.models.trades import Trade
+from quantrex.kernel.kernel import Kernel
 
 
 class BaseEngine(ABC):
     """Base class for all trading engines.
 
-    Subclasses must implement :meth:`execute_signal` to convert strategy
-    signals into orders within their own execution workflow.
+    The engine owns the kernel lifecycle, sources data via an iterator,
+    and handles strategy signals emitted by the kernel.
     """
 
-    @abstractmethod
-    def execute_signal(self, signal: Signal) -> Order:
-        """Convert a signal to an order and submit for execution.
+    def __init__(self) -> None:
+        self._kernel: Kernel | None = None
 
-        Each engine implements this independently within its own
-        ``execution/`` package.
+    @property
+    def kernel(self) -> Kernel:
+        """The kernel owned by this engine."""
+        if self._kernel is None:
+            msg = "kernel has not been created yet"
+            raise RuntimeError(msg)
+        return self._kernel
+
+    @abstractmethod
+    def create_kernel(self, strategy) -> Kernel:
+        """Create and return a kernel for the given strategy.
+
+        The kernel's ``on_signal`` callback must be wired to
+        :meth:`on_signal` so the engine receives strategy decisions.
 
         Args:
-            signal: The trading signal from the strategy.
+            strategy: The strategy to run.
 
         Returns:
-            The resulting order.
+            A configured Kernel instance.
         """
         ...
 
-    def get_pending_fills(self) -> list[Trade]:
+    @abstractmethod
+    def data_iterator(self) -> Iterator[OHLCVCandle]:
+        """Return an iterator of market data candles/ticks.
+
+        Returns:
+            An iterator of OHLCV candles sorted by timestamp.
+        """
+        ...
+
+    @abstractmethod
+    def on_signal(self, signal: Signal) -> None:
+        """Handle a signal emitted by the kernel.
+
+        This is where the engine decides what to do with the signal:
+        convert to order, place order, or write to trade log.
+
+        Args:
+            signal: The trading signal from the strategy.
+        """
+        ...
+
+    def get_pending_fills(self) -> list:
         """Return and clear any pending trade fills.
 
         Returns:
@@ -47,30 +78,17 @@ class BaseEngine(ABC):
         """
         return []
 
-    def submit_order(self, order: Order) -> Order:
-        """Submit an order for execution.
+    def start(self, strategy) -> None:
+        """Create, configure, and start the kernel for the given strategy.
 
         Args:
-            order: The order to submit.
-
-        Returns:
-            The submitted order with updated status.
+            strategy: The strategy to run.
         """
-        return order
+        self._kernel = self.create_kernel(strategy)
+        self._kernel.run(self.data_iterator())
 
-    def get_position(self, symbol: str) -> Position | None:
-        """Get the current position for a symbol.
+    def stop(self) -> None:
+        """Stop the kernel.
 
-        Args:
-            symbol: Instrument symbol.
-
-        Returns:
-            The current position, or ``None`` if no position exists.
+        Kernel.run() completes when the data iterator is exhausted.
         """
-        return None
-
-    def on_start(self) -> None:
-        """Called once before the event loop begins."""
-
-    def on_stop(self) -> None:
-        """Called once after the event loop ends."""
