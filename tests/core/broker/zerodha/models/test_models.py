@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from quantrex.core.broker.zerodha.models.models import ZerodhaInterval
 
 

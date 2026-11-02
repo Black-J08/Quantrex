@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
@@ -162,3 +164,63 @@ class TestTimeframeFromString:
         """Whitespace-only string raises ValueError."""
         with pytest.raises(ValueError, match="invalid timeframe format"):
             Timeframe.from_string("   ")
+
+    def test_case_insensitive_unit(self) -> None:
+        """Unit is case-sensitive: 'M' is month, 'm' is minute."""
+        tf_minute = Timeframe.from_string("1m")
+        assert tf_minute.unit == TimeframeUnit.MINUTE
+        tf_month = Timeframe.from_string("1M")
+        assert tf_month.unit == TimeframeUnit.MONTH
+
+    def test_uppercase_M_is_month_not_minute(self) -> None:
+        """Uppercase 'M' parses as month, not minute."""
+        tf = Timeframe.from_string("1M")
+        assert tf.unit == TimeframeUnit.MONTH
+        assert tf != Timeframe(value=1, unit=TimeframeUnit.MINUTE)
+
+    def test_leading_zeros_in_value(self) -> None:
+        """Leading zeros in value are accepted (int() handles them)."""
+        tf = Timeframe.from_string("01m")
+        assert tf.value == 1
+        assert tf.unit == TimeframeUnit.MINUTE
+
+    def test_large_value(self) -> None:
+        """Large value parses correctly."""
+        tf = Timeframe.from_string("999999m")
+        assert tf.value == 999999
+        assert tf.unit == TimeframeUnit.MINUTE
+
+    def test_string_with_spaces_raises(self) -> None:
+        """String with spaces between value and unit raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe unit"):
+            Timeframe.from_string("1 m")
+
+    def test_single_char_string_raises(self) -> None:
+        """Single character string (no value) raises ValueError."""
+        with pytest.raises(ValueError, match="invalid timeframe format"):
+            Timeframe.from_string("m")
+
+    def test_to_timedelta_minute(self) -> None:
+        """to_timedelta() for 1 minute returns 60 seconds."""
+        delta = Timeframe(value=1, unit=TimeframeUnit.MINUTE).to_timedelta()
+        assert delta == timedelta(seconds=60)
+
+    def test_to_timedelta_hour(self) -> None:
+        """to_timedelta() for 1 hour returns 3600 seconds."""
+        delta = Timeframe(value=1, unit=TimeframeUnit.HOUR).to_timedelta()
+        assert delta == timedelta(seconds=3600)
+
+    def test_to_timedelta_day(self) -> None:
+        """to_timedelta() for 1 day returns 86400 seconds."""
+        delta = Timeframe(value=1, unit=TimeframeUnit.DAY).to_timedelta()
+        assert delta == timedelta(seconds=86400)
+
+    def test_str_representation(self) -> None:
+        """str() returns compact format like '1m', '5m', '1h', '1d'."""
+        assert str(Timeframe(value=1, unit=TimeframeUnit.MINUTE)) == "1m"
+        assert str(Timeframe(value=5, unit=TimeframeUnit.MINUTE)) == "5m"
+        assert str(Timeframe(value=1, unit=TimeframeUnit.HOUR)) == "1h"
+        assert str(Timeframe(value=1, unit=TimeframeUnit.DAY)) == "1d"
+        assert str(Timeframe(value=1, unit=TimeframeUnit.WEEK)) == "1w"
+        assert str(Timeframe(value=1, unit=TimeframeUnit.MONTH)) == "1M"
+        assert str(Timeframe(value=30, unit=TimeframeUnit.SECOND)) == "30s"

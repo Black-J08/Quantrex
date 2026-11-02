@@ -84,7 +84,7 @@ class TestBacktestEngine:
         assert engine.get_pending_fills() == []
 
     def test_inherits_base_engine(self) -> None:
-        from quantrex.engine.base import BaseEngine
+        from quantrex.engine.base_engine.base import BaseEngine
 
         engine = BacktestEngine()
         assert isinstance(engine, BaseEngine)

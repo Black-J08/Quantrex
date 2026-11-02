@@ -7,7 +7,7 @@ from decimal import Decimal
 from quantrex.core.models.orders import Order, OrderSide, OrderStatus, OrderType
 from quantrex.core.models.trades import Trade
 from quantrex.engine.backtest_engine.engine import BacktestEngine
-from quantrex.engine.simulator import Simulator
+from quantrex.engine.base_engine.simulator import Simulator
 
 
 class TestSimulator:

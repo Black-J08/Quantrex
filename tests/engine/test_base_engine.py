@@ -10,7 +10,7 @@ import pytest
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.signals import Signal, SignalType
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
-from quantrex.engine.base import BaseEngine
+from quantrex.engine.base_engine.base import BaseEngine
 from quantrex.kernel.kernel import Kernel
 
 

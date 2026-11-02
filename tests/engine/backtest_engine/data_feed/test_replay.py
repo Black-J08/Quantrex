@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from quantrex.core.models.market_data import OHLCVCandle
 from quantrex.core.models.timeframe import Timeframe, TimeframeUnit
-from quantrex.engine.data_feed.replay import CandleReplay
+from quantrex.engine.base_engine.data_feed.replay import CandleReplay
 
 
 def _make_candle(ts: datetime, close: Decimal) -> OHLCVCandle:

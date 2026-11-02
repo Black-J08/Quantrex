@@ -88,3 +88,43 @@ class TestLoggingGetLogger:
         output = stream.getvalue()
         assert "ValueError" in output
         assert "test error" in output
+
+    def test_configure_default_parameters(self) -> None:
+        """configure() with no arguments uses default level and format."""
+        stream = io.StringIO()
+        configure(stream=stream)
+        root = logging.getLogger()
+        assert root.level == logging.INFO
+        logger = get_logger("quantrex.test.defaults")
+        logger.info("default message")
+        output = stream.getvalue()
+        assert "default message" in output
+
+    def test_configure_does_not_add_duplicate_handlers(self) -> None:
+        """configure() called twice should not add duplicate handlers."""
+        stream = io.StringIO()
+        configure(level=logging.DEBUG, stream=stream)
+        handler_count_before = len(logging.getLogger().handlers)
+        configure(level=logging.DEBUG, stream=stream)
+        handler_count_after = len(logging.getLogger().handlers)
+        assert handler_count_before == handler_count_after
+
+    def test_get_logger_before_configure_returns_logger(self) -> None:
+        """get_logger() returns a logger even before configure() is called."""
+        logger = get_logger("quantrex.test.before_configure")
+        assert isinstance(logger, logging.Logger)
+        assert logger.name == "quantrex.test.before_configure"
+
+    def test_lazy_formatting_with_multiple_args(self) -> None:
+        """Lazy %-formatting works with multiple arguments."""
+        stream = io.StringIO()
+        configure(level=logging.DEBUG, stream=stream)
+        logger = get_logger("quantrex.test.multi_arg")
+        logger.info("user %s logged in from %s", "alice", "192.168.1.1")
+        output = stream.getvalue()
+        assert "user alice logged in from 192.168.1.1" in output
+
+    def test_logger_name_matches_module(self) -> None:
+        """get_logger(__name__) returns logger with correct module name."""
+        logger = get_logger("quantrex.core.logging")
+        assert logger.name == "quantrex.core.logging"

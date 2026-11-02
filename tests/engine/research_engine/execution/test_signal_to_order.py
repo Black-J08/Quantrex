@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from quantrex.core.models.orders import OrderSide, OrderType
 from quantrex.core.models.signals import Signal, SignalType
-from quantrex.engine.signal_to_order import signal_to_order
+from quantrex.engine.base_engine.signal_to_order import signal_to_order
 
 
 class TestSignalToOrder:
