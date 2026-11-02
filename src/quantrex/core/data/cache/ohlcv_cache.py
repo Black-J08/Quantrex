@@ -133,7 +133,12 @@ class OHLCVCache:
         return self._series_dir(key) / f"{month}.feather"
 
     def _read_table(self, path: Path) -> pa.Table | None:
-        """Read a Feather file, returning None when it is missing or corrupt."""
+        """Read a Feather file, returning None when missing, raising when corrupt.
+
+        A missing file is a normal cache miss and returns None. A corrupt file
+        indicates a data integrity problem and raises CacheReadError, consistent
+        with _read_coverage's throw-on-corrupt behavior.
+        """
         if not path.exists():
             return None
         try:
@@ -145,7 +150,7 @@ class OHLCVCache:
             except OSError as unlink_error:
                 logger.warning("Failed to delete corrupt cache file %s: %s", path, unlink_error)
                 raise CacheReadError(f"Corrupt cache file {path} and cannot be deleted: {unlink_error}") from unlink_error
-            return None
+            raise CacheReadError(f"Corrupt cache file {path}: {e}") from e
 
     def _read_coverage(self, path: Path) -> list[tuple[datetime, datetime]]:
         """Read the covered intervals recorded in a file's schema metadata.

@@ -66,6 +66,9 @@ class TokenStore:
 
         Args:
             token_info: Token information to save
+
+        Raises:
+            OSError: If the token cannot be written to disk.
         """
         try:
             # Write to temp file first, then rename for atomicity
@@ -75,7 +78,7 @@ class TokenStore:
             temp_path.replace(self.token_path)
             # Set restrictive permissions
             os.chmod(self.token_path, 0o600)
-            logger.debug("Saved")
+            logger.debug("Saved token to %s", self.token_path)
         except Exception:
             logger.exception("Failed to save token to %s", self.token_path)
             raise

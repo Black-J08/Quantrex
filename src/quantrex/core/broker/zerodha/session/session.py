@@ -92,67 +92,27 @@ class ZerodhaSession:
     def __init__(
         self,
         config: SessionConfig | None = None,
-        *,
-        api_key: str | None = None,
-        api_secret: str | None = None,
-        token_path: str | None = None,
-        redirect_url: str | None = None,
-        callback_timeout: float | None = None,
-        timeout: float = DEFAULT_TIMEOUT,
     ):
         """Initialize Zerodha session.
 
         Args:
-            config: Optional SessionConfig providing all configuration.
-            api_key: Zerodha API key (defaults to ZERODHA_API_KEY env var)
-            api_secret: Zerodha API secret (defaults to ZERODHA_API_SECRET env var)
-            token_path: Path to token file (defaults to ~/.quantrex/cache/zerodha/access_token)
-            redirect_url: Full redirect URL configured in Zerodha console (defaults to ZERODHA_REDIRECT_URL env var)
-            callback_timeout: Timeout for OAuth callback in seconds (defaults to ZERODHA_CALLBACK_TIMEOUT env var or 120.0)
-            timeout: Request timeout in seconds
+            config: SessionConfig providing all configuration. Fields not set
+                are resolved from environment variables.
         """
-        api_key, api_secret, token_path, redirect_url, callback_timeout, timeout = self._resolve_config(
-            config,
-            api_key,
-            api_secret,
-            token_path,
-            redirect_url,
-            callback_timeout,
-            timeout,
-        )
+        config = config or SessionConfig()
 
-        self.api_key, self.api_secret = self._resolve_credentials(api_key, api_secret)
-        self.token_path = self._resolve_token_path(token_path)
+        self.api_key, self.api_secret = self._resolve_credentials(config.api_key, config.api_secret)
+        self.token_path = self._resolve_token_path(config.token_path)
         self.callback_host, self.callback_port, self.callback_path, self.callback_timeout = self._resolve_callback_config(
-            redirect_url, callback_timeout
+            config.redirect_url, config.callback_timeout
         )
 
         self._auth_provider = self._build_auth_provider()
-        self._client = self._build_http_client(timeout)
+        self._client = self._build_http_client(config.timeout)
         self._limiters: dict[str, SlidingWindowRateLimiter] = {}
         self._limiters["historical"] = SlidingWindowRateLimiter(3.0)
         self._token_info: TokenInfo | None = None
         self._token_lock = asyncio.Lock()
-
-    @staticmethod
-    def _resolve_config(
-        config: SessionConfig | None,
-        api_key: str | None,
-        api_secret: str | None,
-        token_path: str | None,
-        redirect_url: str | None,
-        callback_timeout: float | None,
-        timeout: float,
-    ) -> tuple[str | None, str | None, str | None, str | None, float | None, float]:
-        """Merge SessionConfig with explicit keyword arguments (explicit wins)."""
-        if config is not None:
-            api_key = config.api_key if api_key is None else api_key
-            api_secret = config.api_secret if api_secret is None else api_secret
-            token_path = config.token_path if token_path is None else token_path
-            redirect_url = config.redirect_url if redirect_url is None else redirect_url
-            callback_timeout = config.callback_timeout if callback_timeout is None else callback_timeout
-            timeout = config.timeout if timeout == DEFAULT_TIMEOUT else timeout
-        return api_key, api_secret, token_path, redirect_url, callback_timeout, timeout
 
     @staticmethod
     def _resolve_credentials(

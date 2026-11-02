@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from quantrex.core.data.cache.cache_key import CacheKey
 from quantrex.core.data.cache.ohlcv_cache import OHLCVCache
 from quantrex.core.models.market_data import OHLCVCandle
@@ -224,8 +226,8 @@ class TestOHLCVCache:
 
         assert cache.get_cached_candles(later) == []
 
-    def test_corrupt_file_is_discarded(self, tmp_path: Path) -> None:
-        """Test that a corrupt file is removed and reported as a miss."""
+    def test_corrupt_file_raises(self, tmp_path: Path) -> None:
+        """Test that a corrupt file raises CacheReadError instead of silently returning empty."""
         cache = OHLCVCache(tmp_path)
         key = make_key()
         cache.store_candles(key, [make_candle(FROM_DATE)])
@@ -233,7 +235,10 @@ class TestOHLCVCache:
         for path in tmp_path.rglob("*.feather"):
             path.write_bytes(b"not a feather file")
 
-        assert cache.get_cached_candles(key) == []
+        from quantrex.core.data.exceptions.exceptions import CacheReadError
+
+        with pytest.raises(CacheReadError):
+            cache.get_cached_candles(key)
 
     def test_invalidate_removes_the_series(self, tmp_path: Path) -> None:
         """Test that invalidating a series deletes its files."""

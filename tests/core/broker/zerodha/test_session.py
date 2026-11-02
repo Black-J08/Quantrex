@@ -16,7 +16,7 @@ from quantrex.core.broker.zerodha.exceptions.exceptions import (
     ZerodhaRateLimitError,
     ZerodhaServerError,
 )
-from quantrex.core.broker.zerodha.session.session import ZerodhaSession
+from quantrex.core.broker.zerodha.session.session import SessionConfig, ZerodhaSession
 from quantrex.core.utility.rate_limiter import SlidingWindowRateLimiter
 
 
@@ -39,9 +39,11 @@ class TestZerodhaSession:
     def test_create_session_with_explicit_args(self) -> None:
         """Test creating session with explicit arguments."""
         session = ZerodhaSession(
-            api_key="explicit_key",
-            api_secret="explicit_secret",
-            redirect_url="http://localhost:9999/auth/callback",
+            SessionConfig(
+                api_key="explicit_key",
+                api_secret="explicit_secret",
+                redirect_url="http://localhost:9999/auth/callback",
+            )
         )
         assert session.api_key == "explicit_key"
         assert session.api_secret == "explicit_secret"
@@ -83,9 +85,11 @@ class TestZerodhaSession:
     async def test_get_valid_token_from_cache(self) -> None:
         """Test getting valid token from cache."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         # Set a valid cached token
@@ -105,9 +109,11 @@ class TestZerodhaSession:
     async def test_get_valid_token_expired_cache(self) -> None:
         """Test getting token when cached token is expired."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         # Set an expired cached token
@@ -139,9 +145,11 @@ class TestZerodhaSession:
     async def test_get_valid_token_from_file(self) -> None:
         """Test loading valid token from file."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         future = datetime.now(UTC) + timedelta(hours=1)
@@ -161,9 +169,11 @@ class TestZerodhaSession:
     async def test_request_success(self) -> None:
         """Test successful request."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         # Mock token
@@ -190,9 +200,11 @@ class TestZerodhaSession:
     async def test_request_403_retry(self) -> None:
         """Test request retry on 403."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         # Mock token
@@ -230,9 +242,11 @@ class TestZerodhaSession:
         """Test network error handling."""
         import httpx
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         future = datetime.now(UTC) + timedelta(hours=1)
@@ -253,9 +267,11 @@ class TestZerodhaSession:
     async def test_handle_error_responses(self) -> None:
         """Test error response handling."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         future = datetime.now(UTC) + timedelta(hours=1)
@@ -299,9 +315,11 @@ class TestZerodhaSession:
     async def test_context_manager(self) -> None:
         """Test async context manager."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
         session._client.aclose = AsyncMock()
 
@@ -313,9 +331,11 @@ class TestZerodhaSession:
     def test_historical_limiter_returns_shared_instance(self) -> None:
         """Test that historical_limiter returns the same instance on repeated access."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         limiter1 = session.historical_limiter
@@ -327,9 +347,11 @@ class TestZerodhaSession:
     def test_historical_limiter_rate_is_three_per_second(self) -> None:
         """Test that the historical limiter is configured at 3 requests per second."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         assert session.historical_limiter.rate == 3.0
@@ -338,9 +360,11 @@ class TestZerodhaSession:
     async def test_historical_limiter_paces_concurrent_clients(self) -> None:
         """Test that multiple clients sharing a session are paced by the same limiter."""
         session = ZerodhaSession(
-            api_key="test_key",
-            api_secret="test_secret",
-            redirect_url="http://localhost:8765/callback",
+            SessionConfig(
+                api_key="test_key",
+                api_secret="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
         )
 
         limiter = session.historical_limiter

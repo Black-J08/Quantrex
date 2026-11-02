@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -157,7 +157,7 @@ class TestTrade:
     def test_exit_before_entry_raises(self) -> None:
         """Test that exit_time before entry_time raises."""
         entry_time = datetime.now(UTC)
-        exit_time = entry_time.replace(hour=entry_time.hour - 1)
+        exit_time = entry_time - timedelta(hours=1)
         with pytest.raises(ValueError, match="exit_time must be >="):
             Trade(
                 symbol="AAPL",

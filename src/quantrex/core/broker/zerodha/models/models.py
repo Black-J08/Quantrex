@@ -19,21 +19,6 @@ class ZerodhaInterval(str, Enum):
     DAY = "day"
 
 
-@dataclass(slots=True, frozen=True)
-class InstrumentToken:
-    """Zerodha instrument token."""
-
-    value: int
-
-    def __str__(self) -> str:
-        return str(self.value)
-
-
-@dataclass(slots=True, frozen=True)
-class SymbolMapping:
-    """Mapping from trading symbol to Zerodha instrument token."""
-
-    symbol: str  # e.g., "NSE:INFY"
-    instrument_token: InstrumentToken
-    exchange: str
-    tradingsymbol: str
+# SymbolMapping removed: unused pass-through wrapper that added no value
+# over a plain dict or tuple. Use (symbol, instrument_token, exchange,
+# tradingsymbol) directly where needed.
