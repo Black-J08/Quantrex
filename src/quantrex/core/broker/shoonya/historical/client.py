@@ -85,11 +85,15 @@ class ShoonyaHistoricalDataClient:
         interval: ShoonyaInterval,
         start: datetime,
         end: datetime,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         """Fetch intraday candles via TPSeries endpoint.
 
         Acquires rate-limit capacity from the shared session limiter before
         making the request.
+
+        Returns:
+            Raw JSON response from the TPSeries API, or an empty list when
+            the vendor reports "no data".
         """
         await self._session.historical_limiter.acquire()
 
@@ -115,9 +119,13 @@ class ShoonyaHistoricalDataClient:
         response = await self._session.post(TP_SERIES_ENDPOINT, json=params)
         data = response.json()
 
-        # TPSeries returns a flat list on success, or an error object with stat: Not_Ok
+        # TPSeries returns a flat list on success, or an error object with stat: Not_Ok.
+        # "no data" is a valid business condition (empty result), not an error.
         if isinstance(data, dict) and data.get("stat") != "Ok":
-            raise RuntimeError(f"TPSeries API error: {data.get('emsg', 'Unknown error')}")
+            emsg = data.get("emsg", "Unknown error")
+            if "no data" in str(emsg).lower():
+                return []
+            raise RuntimeError(f"TPSeries API error: {emsg}")
 
         return data
 
@@ -127,11 +135,15 @@ class ShoonyaHistoricalDataClient:
         sym: str,
         start: datetime,
         end: datetime,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         """Fetch daily candles via EODChartData endpoint.
 
         Acquires rate-limit capacity from the shared session limiter before
         making the request.
+
+        Returns:
+            Raw JSON response from the EODChartData API, or an empty list when
+            the vendor reports "no data".
         """
         await self._session.historical_limiter.acquire()
 
@@ -153,9 +165,13 @@ class ShoonyaHistoricalDataClient:
         response = await self._session.post(EOD_CHART_DATA_ENDPOINT, json=params)
         data = response.json()
 
-        # EODChartData returns a flat list on success, or an error object with stat: Not_Ok
+        # EODChartData returns a flat list on success, or an error object with stat: Not_Ok.
+        # "no data" is a valid business condition (empty result), not an error.
         if isinstance(data, dict) and data.get("stat") != "Ok":
-            raise RuntimeError(f"EODChartData API error: {data.get('emsg', 'Unknown error')}")
+            emsg = data.get("emsg", "Unknown error")
+            if "no data" in str(emsg).lower():
+                return []
+            raise RuntimeError(f"EODChartData API error: {emsg}")
 
         return data
 
@@ -165,7 +181,7 @@ class ShoonyaHistoricalDataClient:
         timeframe: Timeframe,
         from_date: datetime,
         to_date: datetime,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         """Fetch raw historical candle data from Shoonya API.
 
         Selects the appropriate endpoint based on the timeframe:
@@ -182,7 +198,8 @@ class ShoonyaHistoricalDataClient:
             to_date: End date (inclusive)
 
         Returns:
-            Raw JSON response from Shoonya API (flat list of candle objects).
+            Raw JSON response from Shoonya API (flat list of candle objects),
+            or an empty list when the vendor reports "no data".
 
         Raises:
             SymbolNotFoundError: If symbol cannot be resolved

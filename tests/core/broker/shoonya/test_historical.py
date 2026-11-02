@@ -257,6 +257,99 @@ class TestShoonyaHistoricalDataClient:
             )
 
     @pytest.mark.asyncio
+    async def test_get_raw_candles_no_data_returns_empty_list(self) -> None:
+        """Regression test: Shoonya "no data" response returns empty list, not an error.
+
+        Shoonya TPSeries/EODChartData may return {"stat": "Not_Ok", "emsg": 'Error Occurred : 5 "no data"'}
+        when no data is available for the requested symbol/time range. This is a valid
+        business condition (empty result), not an error.
+        """
+        mock_session = MagicMock(spec=ShoonyaSession)
+        mock_session.client_id = "ABC123"
+        mock_session.historical_limiter.acquire = AsyncMock()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "stat": "Not_Ok",
+            "emsg": 'Error Occurred : 5 "no data"',
+        }
+        mock_session.post = AsyncMock(return_value=mock_response)
+
+        from_date = datetime(2024, 1, 15, tzinfo=UTC)
+        to_date = datetime(2024, 1, 16, tzinfo=UTC)
+
+        mock_instrument = ShoonyaInstrument(
+            instrument_token="2885",
+            exchange_token="1594",
+            tradingsymbol="INFY",
+            name="INFOSYS",
+            last_price=Decimal(0),
+            expiry=None,
+            strike=None,
+            tick_size=Decimal("0.05"),
+            lot_size=1,
+            instrument_type="EQ",
+            segment="NSE",
+            exchange="NSE",
+        )
+        mock_master = AsyncMock(spec=InstrumentMaster)
+        mock_master.resolve_symbol = AsyncMock(return_value=mock_instrument)
+        client = ShoonyaHistoricalDataClient(mock_session, mock_master)
+
+        raw_data = await client.get_raw_candles(
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.MINUTE),
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+        assert raw_data == []
+
+    @pytest.mark.asyncio
+    async def test_get_raw_candles_no_data_daily_returns_empty_list(self) -> None:
+        """Regression test: EODChartData "no data" response returns empty list."""
+        mock_session = MagicMock(spec=ShoonyaSession)
+        mock_session.client_id = "ABC123"
+        mock_session.historical_limiter.acquire = AsyncMock()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "stat": "Not_Ok",
+            "emsg": 'Error Occurred : 5 "no data"',
+        }
+        mock_session.post = AsyncMock(return_value=mock_response)
+
+        from_date = datetime(2024, 1, 15, tzinfo=UTC)
+        to_date = datetime(2024, 1, 16, tzinfo=UTC)
+
+        mock_instrument = ShoonyaInstrument(
+            instrument_token="2885",
+            exchange_token="1594",
+            tradingsymbol="INFY",
+            name="INFOSYS",
+            last_price=Decimal(0),
+            expiry=None,
+            strike=None,
+            tick_size=Decimal("0.05"),
+            lot_size=1,
+            instrument_type="EQ",
+            segment="NSE",
+            exchange="NSE",
+        )
+        mock_master = AsyncMock(spec=InstrumentMaster)
+        mock_master.resolve_symbol = AsyncMock(return_value=mock_instrument)
+        client = ShoonyaHistoricalDataClient(mock_session, mock_master)
+
+        raw_data = await client.get_raw_candles(
+            symbol="NSE:INFY",
+            timeframe=Timeframe(value=1, unit=TimeframeUnit.DAY),
+            from_date=from_date,
+            to_date=to_date,
+        )
+
+        assert raw_data == []
+
+    @pytest.mark.asyncio
     async def test_get_raw_candles_symbol_not_found(self) -> None:
         """Test handling symbol not found error."""
         from quantrex.core.broker.exceptions.exceptions import SymbolNotFoundError

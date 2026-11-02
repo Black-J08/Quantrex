@@ -353,6 +353,10 @@ class ShoonyaSession:
         stat = data.get("stat")
         if stat == "Not_Ok":
             emsg = data.get("emsg", "Unknown error")
+            # "no data" is a valid business condition (empty result), not an error.
+            # Let the response pass through so the client can return an empty list.
+            if "no data" in str(emsg).lower():
+                return
             self._map_shoonya_error(emsg)
         elif stat != "Ok" and stat is not None:
             # Unknown stat value — treat as error
