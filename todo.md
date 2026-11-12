@@ -6,6 +6,8 @@
 - single IST timezone declaration needed
 - market timing and calendar is defined per data vendor (brokers)
 - cache resampled timeframe data with this order: check 45m timeframe cache -> 1m timeframe cache -> fetch from broker
+- why supported timeframe is 1m and 1D in historical data provider(zerodha and shoonya)
+- two way of running backtest or live, either by running run() method or via terminal(add support for CLI)
 
 - create desloppify-subagents agent and update the hindsight agent system prompt and skill with more usage of tools
 
