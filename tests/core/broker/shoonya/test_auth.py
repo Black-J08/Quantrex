@@ -194,14 +194,18 @@ class TestShoonyaAuthProvider:
         assert checksum == expected
 
     def test_build_login_url(self) -> None:
-        """Test building authorize URL."""
+        """Test building authorize URL includes redirect_uri."""
         provider = ShoonyaAuthProvider(
             client_id="test_client",
             secret_key="test_secret",
             token_path="/tmp/token.json",
         )
         url = provider._build_login_url("http://localhost:8765/callback")
-        assert url == "https://api.shoonya.com/OAuthlogin/authorize/oauth?client_id=test_client"
+        assert url == (
+            "https://api.shoonya.com/OAuthlogin/authorize/oauth"
+            "?client_id=test_client"
+            "&redirect_uri=http%3A%2F%2Flocalhost%3A8765%2Fcallback"
+        )
 
     @pytest.mark.asyncio
     async def test_authenticate_with_valid_cached_token(self) -> None:

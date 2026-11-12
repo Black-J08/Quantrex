@@ -303,8 +303,51 @@ class ShoonyaSession:
                 logger.error("Retry request failed: %s", e)
                 raise ShoonyaNetworkError(f"Retry request failed: {e}", original_error=e) from e
 
-        # Handle Shoonya application-level errors via stat/emsg
-        self._handle_error_response(response)
+        # Handle Shoonya application-level errors via stat/emsg.
+        # If the token is expired per the application-level error (e.g. HTTP 200
+        # with stat: Not_Ok and "session expired"/"invalid session" emsg),
+        # invalidate the cached token and retry once with a fresh token.
+        try:
+            self._handle_error_response(response)
+        except ShoonyaTokenExpiredError:
+            logger.warning(
+                "Token expired per application-level error, retrying with fresh token"
+            )
+            async with self._token_lock:
+                self._token_info = None  # Force re-auth
+                # Remove the stale token file so a fresh token is obtained
+                # (Shoonya tokens never auto-expire, so is_valid() would
+                # otherwise reload the same expired token from disk).
+                try:
+                    self.token_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(
+                        "Failed to delete stale token file: %s", self.token_path
+                    )
+            access_token = await self._get_valid_token()
+            retry_headers = {
+                "Authorization": self._build_auth_header(access_token),
+                "Content-Type": "text/plain",
+            }
+            if headers:
+                retry_headers.update(headers)
+
+            try:
+                response = await self._client.request(
+                    method=method,
+                    url=path,
+                    content=body,
+                    params=params,
+                    headers=retry_headers,
+                )
+            except httpx.RequestError as e:
+                logger.error("Retry request failed: %s", e)
+                raise ShoonyaNetworkError(
+                    f"Retry request failed: {e}", original_error=e
+                ) from e
+
+            # Validate the retried response (no further retries on token expiry)
+            self._handle_error_response(response)
 
         return response
 

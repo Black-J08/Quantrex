@@ -82,8 +82,17 @@ class ShoonyaAuthProvider:
         return hashlib.sha256(data.encode()).hexdigest()
 
     def _build_login_url(self, callback_url: str) -> str:
-        """Build Shoonya OAuth authorize URL."""
-        return AUTHORIZE_URL.format(client_id=self.client_id)
+        """Build Shoonya OAuth authorize URL.
+
+        Includes the redirect_uri so Shoonya knows where to redirect back
+        with the authorization code after the user logs in.
+        """
+        from urllib.parse import quote
+
+        return (
+            f"{AUTHORIZE_URL.format(client_id=self.client_id)}"
+            f"&redirect_uri={quote(callback_url, safe='')}"
+        )
 
     async def load_token(self) -> TokenInfo | None:
         """Load token from store if valid."""

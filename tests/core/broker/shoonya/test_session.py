@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -318,3 +318,69 @@ class TestShoonyaSession:
         assert isinstance(limiter, SlidingWindowRateLimiter)
         # Same instance on repeated access
         assert session.historical_limiter is limiter
+
+    @pytest.mark.asyncio
+    async def test_request_retries_on_application_level_token_expiry(self) -> None:
+        """Regression test: _request retries once when _handle_error_response raises ShoonyaTokenExpiredError.
+
+        Shoonya can return HTTP 200 with stat: Not_Ok and "session expired"/"invalid session"
+        emsg. Previously _request only retried on HTTP 403, so application-level token expiry
+        propagated uncaught. Now it invalidates the cached token and retries once with a fresh token.
+        """
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
+        )
+
+        # First response: HTTP 200 with "session expired" emsg -> triggers retry
+        first_response = self._make_mock_response(
+            200, {"stat": "Not_Ok", "emsg": "Session Expired : Invalid Session Key"}
+        )
+        # Second response: HTTP 200 with stat: Ok -> success
+        second_response = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+
+        session._client.request = AsyncMock(
+            side_effect=[first_response, second_response]
+        )
+        session._get_valid_token = AsyncMock(return_value="fresh_token")
+
+        response = await session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+
+        assert response is second_response
+        # Token was invalidated and refreshed
+        assert session._get_valid_token.await_count == 2
+        # Two HTTP requests made (original + retry)
+        assert session._client.request.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_request_propagates_when_retry_also_token_expired(self) -> None:
+        """Edge-case test: _request propagates ShoonyaTokenExpiredError if retry also fails.
+
+        Only one retry is attempted; if the retried request also returns an application-level
+        token expiry error, the exception propagates to the caller.
+        """
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
+        )
+
+        # Both responses: HTTP 200 with "session expired" emsg
+        expired_response = self._make_mock_response(
+            200, {"stat": "Not_Ok", "emsg": "Session Expired : Invalid Session Key"}
+        )
+        session._client.request = AsyncMock(return_value=expired_response)
+        session._get_valid_token = AsyncMock(return_value="fresh_token")
+
+        with pytest.raises(ShoonyaTokenExpiredError):
+            await session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+
+        # Original request + exactly one retry
+        assert session._client.request.await_count == 2
+        # Token invalidated and refreshed once
+        assert session._get_valid_token.await_count == 2
