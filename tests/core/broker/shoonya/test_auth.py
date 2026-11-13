@@ -207,6 +207,56 @@ class TestShoonyaAuthProvider:
             "&redirect_uri=http%3A%2F%2Flocalhost%3A8765%2Fcallback"
         )
 
+    def test_build_login_url_with_oauth_client_id(self) -> None:
+        """Test building authorize URL uses OAuth client ID when provided."""
+        provider = ShoonyaAuthProvider(
+            client_id="test_client",
+            secret_key="test_secret",
+            token_path="/tmp/token.json",
+            oauth_client_id="PREFIX_test_client",
+        )
+        url = provider._build_login_url("http://localhost:8765/callback")
+        assert url == (
+            "https://api.shoonya.com/OAuthlogin/authorize/oauth"
+            "?client_id=PREFIX_test_client"
+            "&redirect_uri=http%3A%2F%2Flocalhost%3A8765%2Fcallback"
+        )
+
+    def test_build_login_url_oauth_client_id_falls_back_to_client_id(self) -> None:
+        """Test authorize URL falls back to client_id when no OAuth client ID set."""
+        provider = ShoonyaAuthProvider(
+            client_id="test_client",
+            secret_key="test_secret",
+            token_path="/tmp/token.json",
+        )
+        assert provider.oauth_client_id == "test_client"
+        url = provider._build_login_url("http://localhost:8765/callback")
+        assert url == (
+            "https://api.shoonya.com/OAuthlogin/authorize/oauth"
+            "?client_id=test_client"
+            "&redirect_uri=http%3A%2F%2Flocalhost%3A8765%2Fcallback"
+        )
+
+    def test_oauth_client_id_defaults_to_client_id(self) -> None:
+        """Test oauth_client_id attribute defaults to client_id when not provided."""
+        provider = ShoonyaAuthProvider(
+            client_id="test_client",
+            secret_key="test_secret",
+            token_path="/tmp/token.json",
+        )
+        assert provider.oauth_client_id == "test_client"
+
+    def test_oauth_client_id_is_stored_separately(self) -> None:
+        """Test oauth_client_id is stored separately from client_id."""
+        provider = ShoonyaAuthProvider(
+            client_id="test_client",
+            secret_key="test_secret",
+            token_path="/tmp/token.json",
+            oauth_client_id="PREFIX_test_client",
+        )
+        assert provider.client_id == "test_client"
+        assert provider.oauth_client_id == "PREFIX_test_client"
+
     @pytest.mark.asyncio
     async def test_authenticate_with_valid_cached_token(self) -> None:
         """Test authenticate returns cached token without re-auth."""

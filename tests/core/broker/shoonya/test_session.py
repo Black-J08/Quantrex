@@ -37,6 +37,55 @@ class TestShoonyaSession:
         assert session.callback_port == 8765
         assert session.callback_path == "/callback"
 
+    def test_create_session_with_oauth_client_id_explicit(self) -> None:
+        """Test creating session with explicit OAuth client ID."""
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                oauth_client_id="PREFIX_test_client",
+                redirect_url="http://localhost:8765/callback",
+            )
+        )
+        assert session.client_id == "test_client"
+        assert session.oauth_client_id == "PREFIX_test_client"
+
+    def test_create_session_with_oauth_client_id_from_env(self, monkeypatch) -> None:
+        """Test creating session with OAuth client ID from environment variable."""
+        monkeypatch.setenv("SHOONYA_CLIENT_ID", "test_client")
+        monkeypatch.setenv("SHOONYA_SECRET_KEY", "test_secret")
+        monkeypatch.setenv("SHOONYA_OAUTH_CLIENT_ID", "PREFIX_test_client")
+        monkeypatch.setenv("SHOONYA_REDIRECT_URL", "http://localhost:8765/callback")
+
+        session = ShoonyaSession()
+        assert session.client_id == "test_client"
+        assert session.oauth_client_id == "PREFIX_test_client"
+
+    def test_create_session_oauth_client_id_falls_back_to_client_id(self) -> None:
+        """Test OAuth client ID falls back to regular client_id when not specified."""
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
+        )
+        assert session.client_id == "test_client"
+        assert session.oauth_client_id == "test_client"
+
+    def test_create_session_oauth_client_id_env_falls_back_to_client_id(
+        self, monkeypatch
+    ) -> None:
+        """Test OAuth client ID env var falls back to client_id when not set."""
+        monkeypatch.setenv("SHOONYA_CLIENT_ID", "test_client")
+        monkeypatch.setenv("SHOONYA_SECRET_KEY", "test_secret")
+        monkeypatch.setenv("SHOONYA_REDIRECT_URL", "http://localhost:8765/callback")
+        # SHOONYA_OAUTH_CLIENT_ID not set
+
+        session = ShoonyaSession()
+        assert session.client_id == "test_client"
+        assert session.oauth_client_id == "test_client"
+
     def test_create_session_with_explicit_args(self) -> None:
         """Test creating session with explicit arguments."""
         session = ShoonyaSession(

@@ -52,6 +52,7 @@ class ShoonyaAuthProvider:
         client_id: str,
         secret_key: str,
         token_path: str,
+        oauth_client_id: str | None = None,
         callback_host: str = "127.0.0.1",
         callback_port: int = 8765,
         callback_timeout: float = 120.0,
@@ -59,14 +60,17 @@ class ShoonyaAuthProvider:
         """Initialize auth provider.
 
         Args:
-            client_id: Shoonya client ID
+            client_id: Shoonya client ID (used for API calls as uid)
             secret_key: Shoonya secret key
             token_path: Path to token file
+            oauth_client_id: OAuth client ID for the authorize URL.
+                Falls back to client_id if not provided.
             callback_host: Host for OAuth callback server
             callback_port: Port for OAuth callback server
             callback_timeout: Timeout for OAuth callback in seconds
         """
         self.client_id = client_id
+        self.oauth_client_id = oauth_client_id or client_id
         self.secret_key = secret_key
         self.token_store = TokenStore(token_path)
         self.callback_host = callback_host
@@ -84,13 +88,17 @@ class ShoonyaAuthProvider:
     def _build_login_url(self, callback_url: str) -> str:
         """Build Shoonya OAuth authorize URL.
 
+        Uses the OAuth client ID (which may have a dynamically assigned
+        prefix from Shoonya's backend) for the authorize endpoint.
+        Falls back to the regular client_id if no OAuth-specific ID is set.
+
         Includes the redirect_uri so Shoonya knows where to redirect back
         with the authorization code after the user logs in.
         """
         from urllib.parse import quote
 
         return (
-            f"{AUTHORIZE_URL.format(client_id=self.client_id)}"
+            f"{AUTHORIZE_URL.format(client_id=self.oauth_client_id)}"
             f"&redirect_uri={quote(callback_url, safe='')}"
         )
 

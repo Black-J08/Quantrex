@@ -77,6 +77,7 @@ class SessionConfig:
 
     client_id: str | None = None
     secret_key: str | None = None
+    oauth_client_id: str | None = None
     token_path: str | None = None
     redirect_url: str | None = None
     callback_timeout: float | None = None
@@ -111,6 +112,9 @@ class ShoonyaSession:
         self.client_id, self.secret_key = self._resolve_credentials(
             config.client_id, config.secret_key
         )
+        self.oauth_client_id = self._resolve_oauth_client_id(
+            config.oauth_client_id, self.client_id
+        )
         self.token_path = self._resolve_token_path(config.token_path)
         (
             self.callback_host,
@@ -142,6 +146,18 @@ class ShoonyaSession:
             )
 
         return resolved_client_id, resolved_secret_key
+
+    @staticmethod
+    def _resolve_oauth_client_id(
+        oauth_client_id: str | None,
+        client_id: str,
+    ) -> str:
+        """Resolve OAuth client ID from arguments or environment variables.
+
+        Falls back to the regular client_id if no OAuth-specific client ID
+        is provided, maintaining backward compatibility.
+        """
+        return oauth_client_id or os.getenv("SHOONYA_OAUTH_CLIENT_ID") or client_id
 
     @staticmethod
     def _resolve_token_path(token_path: str | None) -> Path:
@@ -181,6 +197,7 @@ class ShoonyaSession:
         """Build the Shoonya auth provider from resolved session state."""
         return ShoonyaAuthProvider(
             client_id=self.client_id,
+            oauth_client_id=self.oauth_client_id,
             secret_key=self.secret_key,
             token_path=str(self.token_path),
             callback_host=self.callback_host,
