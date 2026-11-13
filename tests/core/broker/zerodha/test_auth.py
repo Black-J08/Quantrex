@@ -264,6 +264,7 @@ class TestZerodhaAuthProvider:
             api_secret="test_secret",
             token_path=str(token_file),
             callback_port=8768,
+            open_browser_fn=AsyncMock(),
         )
 
         # Mock callback server to return request_token
@@ -304,6 +305,7 @@ class TestZerodhaAuthProvider:
             api_secret="test_secret",
             token_path=str(token_file),
             callback_port=8769,
+            open_browser_fn=AsyncMock(),
         )
 
         with patch("quantrex.core.broker.zerodha.auth.provider.CallbackServer") as mock_server_class:
@@ -324,6 +326,7 @@ class TestZerodhaAuthProvider:
             api_secret="test_secret",
             token_path=str(token_file),
             callback_port=8770,
+            open_browser_fn=AsyncMock(),
         )
 
         with patch("quantrex.core.broker.zerodha.auth.provider.CallbackServer") as mock_server_class:
@@ -345,6 +348,7 @@ class TestZerodhaAuthProvider:
             api_secret="test_secret",
             token_path=str(token_file),
             callback_port=8771,
+            open_browser_fn=AsyncMock(),
         )
 
         with patch("quantrex.core.broker.zerodha.auth.provider.CallbackServer") as mock_server_class:
@@ -377,6 +381,7 @@ class TestZerodhaAuthProvider:
             api_secret="test_secret",
             token_path=str(token_file),
             callback_port=8772,
+            open_browser_fn=AsyncMock(),
         )
 
         with patch("quantrex.core.broker.zerodha.auth.provider.CallbackServer") as mock_server_class:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -54,6 +55,7 @@ class ZerodhaAuthProvider:
         callback_host: str = "127.0.0.1",
         callback_port: int = 8765,
         callback_timeout: float = 120.0,
+        open_browser_fn: Callable | None = None,
     ):
         """Initialize auth provider.
 
@@ -64,6 +66,8 @@ class ZerodhaAuthProvider:
             callback_host: Host for OAuth callback server
             callback_port: Port for OAuth callback server
             callback_timeout: Timeout for OAuth callback in seconds
+            open_browser_fn: Callable to open a browser (defaults to real webbrowser.open).
+                Inject a no-op for testing to avoid launching real browsers.
         """
         self.api_key = api_key
         self.api_secret = api_secret
@@ -71,6 +75,7 @@ class ZerodhaAuthProvider:
         self.callback_host = callback_host
         self.callback_port = callback_port
         self.callback_timeout = callback_timeout
+        self._open_browser = open_browser_fn or open_browser
 
     def _compute_checksum(self, request_token: str) -> str:
         """Compute SHA-256 checksum for token exchange.
@@ -112,7 +117,7 @@ class ZerodhaAuthProvider:
             login_url = self._build_login_url(callback_url)
 
             # Open browser for user to log in
-            await open_browser(login_url)
+            await self._open_browser(login_url)
 
             # Wait for callback
             result = await callback_server.wait_for_callback(timeout=self.callback_timeout)
