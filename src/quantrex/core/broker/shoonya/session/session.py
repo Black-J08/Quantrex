@@ -215,21 +215,30 @@ class ShoonyaSession:
     async def _get_valid_token(self) -> str:
         """Get a valid access token, authenticating if necessary."""
         async with self._token_lock:
-            # Check cached token
-            if self._token_info and self._token_info.is_valid():
-                return self._token_info.access_token
+            return await self._get_valid_token_locked()
 
-            # Load from file
-            token_info = await self._auth_provider.load_token()
-            if token_info and token_info.is_valid():
-                self._token_info = token_info
-                return token_info.access_token
+    async def _get_valid_token_locked(self) -> str:
+        """Get a valid access token assuming the token lock is already held.
 
-            # Need to authenticate
-            logger.info("No valid access token found, starting flow...")
-            token_info = await self._auth_provider.authenticate()
+        Callers must hold ``self._token_lock`` before invoking this method.
+        Used internally by error-retry paths that need to invalidate the token
+        and obtain a fresh one atomically without releasing the lock.
+        """
+        # Check cached token
+        if self._token_info and self._token_info.is_valid():
+            return self._token_info.access_token
+
+        # Load from file
+        token_info = await self._auth_provider.load_token()
+        if token_info and token_info.is_valid():
             self._token_info = token_info
             return token_info.access_token
+
+        # Need to authenticate
+        logger.info("No valid access token found, starting flow...")
+        token_info = await self._auth_provider.authenticate()
+        self._token_info = token_info
+        return token_info.access_token
 
     def _build_auth_header(self, access_token: str) -> str:
         """Build Authorization header value (Shoonya uses Bearer token)."""
@@ -300,7 +309,16 @@ class ShoonyaSession:
             logger.warning("Received 403, access may be expired, retrying with fresh token")
             async with self._token_lock:
                 self._token_info = None  # Force re-auth
-            access_token = await self._get_valid_token()
+                # Remove the stale token file so a fresh token is obtained
+                # (Shoonya tokens never auto-expire, so is_valid() would
+                # otherwise reload the same expired token from disk).
+                try:
+                    self.token_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(
+                        "Failed to delete stale token file: %s", self.token_path
+                    )
+                access_token = await self._get_valid_token_locked()
             retry_headers = {
                 "Authorization": self._build_auth_header(access_token),
                 "Content-Type": "text/plain",

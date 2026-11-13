@@ -80,9 +80,12 @@ class ShoonyaAuthProvider:
     def _compute_checksum(self, auth_code: str) -> str:
         """Compute SHA-256 checksum for token exchange.
 
-        Checksum = SHA256(client_id + secret_key + auth_code)
+        Checksum = SHA256(oauth_client_id + secret_key + auth_code)
+
+        The OAuth client ID must match the one used in the authorize URL,
+        as the authorization code is tied to that specific OAuth client.
         """
-        data = f"{self.client_id}{self.secret_key}{auth_code}"
+        data = f"{self.oauth_client_id}{self.secret_key}{auth_code}"
         return hashlib.sha256(data.encode()).hexdigest()
 
     def _build_login_url(self, callback_url: str) -> str:

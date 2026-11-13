@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -61,8 +63,11 @@ class TestShoonyaSession:
         assert session.client_id == "test_client"
         assert session.oauth_client_id == "PREFIX_test_client"
 
-    def test_create_session_oauth_client_id_falls_back_to_client_id(self) -> None:
+    def test_create_session_oauth_client_id_falls_back_to_client_id(
+        self, monkeypatch
+    ) -> None:
         """Test OAuth client ID falls back to regular client_id when not specified."""
+        monkeypatch.delenv("SHOONYA_OAUTH_CLIENT_ID", raising=False)
         session = ShoonyaSession(
             SessionConfig(
                 client_id="test_client",
@@ -80,6 +85,7 @@ class TestShoonyaSession:
         monkeypatch.setenv("SHOONYA_CLIENT_ID", "test_client")
         monkeypatch.setenv("SHOONYA_SECRET_KEY", "test_secret")
         monkeypatch.setenv("SHOONYA_REDIRECT_URL", "http://localhost:8765/callback")
+        monkeypatch.delenv("SHOONYA_OAUTH_CLIENT_ID", raising=False)
         # SHOONYA_OAUTH_CLIENT_ID not set
 
         session = ShoonyaSession()
@@ -433,3 +439,515 @@ class TestShoonyaSession:
         assert session._client.request.await_count == 2
         # Token invalidated and refreshed once
         assert session._get_valid_token.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_request_403_deletes_token_file_and_retries_with_fresh_token(
+        self, tmp_path
+    ) -> None:
+        """Regression test: HTTP 403 deletes token file and retries with fresh token.
+
+        Previously the 403 handler only cleared the in-memory token but left the
+        stale token file on disk. On retry, _get_valid_token() would reload the
+        same invalid token from disk, causing a retry loop. Now the token file is
+        deleted before obtaining a fresh token.
+        """
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(tmp_path / "token.json"),
+            )
+        )
+
+        # Pre-populate token file with a stale token
+        stale_token = TokenInfo(
+            access_token="stale_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session.token_path.parent.mkdir(parents=True, exist_ok=True)
+        session.token_path.write_text(json.dumps(stale_token.to_dict()))
+        assert session.token_path.exists()
+
+        # First response: HTTP 403 -> triggers retry
+        first_response = self._make_mock_response(403)
+        # Second response: HTTP 200 OK -> success
+        second_response = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+
+        session._client.request = AsyncMock(
+            side_effect=[first_response, second_response]
+        )
+        # Mock authenticate to return a fresh token (avoids real OAuth flow)
+        session._auth_provider.authenticate = AsyncMock(
+            return_value=TokenInfo(
+                access_token="fresh_token",
+                user_id="user123",
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                api_key="test_client",
+            )
+        )
+
+        response = await session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+
+        assert response is second_response
+        # Token file was deleted before retry
+        assert not session.token_path.exists()
+        # Fresh token obtained on retry
+        assert session._auth_provider.authenticate.await_count == 1
+        # Two HTTP requests made (original + retry)
+        assert session._client.request.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_concurrent_403s_serialize_retries(self) -> None:
+        """Regression test: concurrent 403s serialize retries via token lock.
+
+        Previously the 403 handler released the lock before calling
+        _get_valid_token(), allowing multiple concurrent 403s to each trigger a
+        separate OAuth flow concurrently. Now the lock is held through the retry,
+        so concurrent 403s are serialized (one at a time) rather than overlapping.
+        """
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+            )
+        )
+
+        # Each request gets 403 then OK on retry
+        resp_403 = self._make_mock_response(403)
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(
+            side_effect=[resp_403, resp_ok, resp_403, resp_ok, resp_403, resp_ok]
+        )
+        # Mock authenticate to return a fresh token (avoids real OAuth flow)
+        session._auth_provider.authenticate = AsyncMock(
+            return_value=TokenInfo(
+                access_token="fresh_token",
+                user_id="user123",
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                api_key="test_client",
+            )
+        )
+
+        # Fire 3 concurrent requests
+        responses = await asyncio.gather(
+            *[
+                session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+                for _ in range(3)
+            ]
+        )
+
+        # All 3 requests succeeded
+        assert len(responses) == 3
+        # Lock serialized the retries: 1 initial authenticate + 3 retries = 4 total
+        # (each retry sees _token_info=None and authenticates separately)
+        assert session._auth_provider.authenticate.await_count == 4
+        # 6 total HTTP requests (3 original + 3 retries)
+        assert session._client.request.await_count == 6
+
+    # ------------------------------------------------------------------
+    # Token persistence and reuse tests
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_token_reused_across_multiple_requests(self, tmp_path) -> None:
+        """A valid cached token is reused across multiple requests without re-authentication."""
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(tmp_path / "token.json"),
+            )
+        )
+
+        # Pre-populate token file with a valid token
+        valid_token = TokenInfo(
+            access_token="cached_access_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session.token_path.parent.mkdir(parents=True, exist_ok=True)
+        session.token_path.write_text(json.dumps(valid_token.to_dict()))
+
+        # First request loads token from file
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        session._auth_provider.authenticate = AsyncMock()
+
+        token1 = await session._get_valid_token()
+        assert token1 == "cached_access_token"
+        # authenticate should NOT be called since token was loaded from file
+        session._auth_provider.authenticate.assert_not_awaited()
+
+        # Second request reuses the in-memory cached token
+        token2 = await session._get_valid_token()
+        assert token2 == "cached_access_token"
+        # Still no authenticate call
+        session._auth_provider.authenticate.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_token_loaded_from_file_on_new_session(self, tmp_path) -> None:
+        """A new session loads a valid token from the token file on disk."""
+        token_file = tmp_path / "token.json"
+
+        # Pre-populate token file with a valid token
+        valid_token = TokenInfo(
+            access_token="persisted_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(json.dumps(valid_token.to_dict()))
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        session._auth_provider.authenticate = AsyncMock()
+
+        token = await session._get_valid_token()
+        assert token == "persisted_token"
+        # authenticate should NOT be called since token was loaded from file
+        session._auth_provider.authenticate.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_empty_token_file_triggers_reauth(self, tmp_path) -> None:
+        """An empty/invalid token file triggers re-authentication."""
+        token_file = tmp_path / "token.json"
+        token_file.write_text("")  # Empty file
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        token = await session._get_valid_token()
+        assert token == "fresh_token"
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_malformed_token_file_triggers_reauth(self, tmp_path) -> None:
+        """A malformed token file triggers re-authentication."""
+        token_file = tmp_path / "token.json"
+        token_file.write_text("{not valid json")
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        token = await session._get_valid_token()
+        assert token == "fresh_token"
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_token_with_empty_access_token_triggers_reauth(self, tmp_path) -> None:
+        """A token file with an empty access_token triggers re-authentication."""
+        token_file = tmp_path / "token.json"
+
+        invalid_token = TokenInfo(
+            access_token="",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(json.dumps(invalid_token.to_dict()))
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        token = await session._get_valid_token()
+        assert token == "fresh_token"
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_token_file_deleted_on_403_forces_reauth_on_retry(self, tmp_path) -> None:
+        """After a 403, the token file is deleted and a fresh token is obtained on retry."""
+        token_file = tmp_path / "token.json"
+
+        # Pre-populate token file with a stale token
+        stale_token = TokenInfo(
+            access_token="stale_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(json.dumps(stale_token.to_dict()))
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        # First response: 403 -> triggers retry
+        # Second response: 200 OK -> success
+        resp_403 = self._make_mock_response(403)
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(side_effect=[resp_403, resp_ok])
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        response = await session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+
+        assert response is resp_ok
+        # Token file was deleted
+        assert not token_file.exists()
+        # Fresh token obtained via authenticate
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_token_file_deleted_on_application_level_expiry(self, tmp_path) -> None:
+        """After application-level token expiry, the token file is deleted and a fresh token is obtained."""
+        token_file = tmp_path / "token.json"
+
+        # Pre-populate token file with a stale token
+        stale_token = TokenInfo(
+            access_token="stale_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(json.dumps(stale_token.to_dict()))
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        # First response: 200 with "session expired" -> triggers retry
+        # Second response: 200 OK -> success
+        expired_response = self._make_mock_response(
+            200, {"stat": "Not_Ok", "emsg": "Session Expired : Invalid Session Key"}
+        )
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(side_effect=[expired_response, resp_ok])
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        response = await session._request("POST", "/TPSeries", json={"uid": "ABC123"})
+
+        assert response is resp_ok
+        # Token file was deleted
+        assert not token_file.exists()
+        # Fresh token obtained via authenticate
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_token_reuse_after_successful_reauth(self, tmp_path) -> None:
+        """After re-authentication, the new token is cached and reused on subsequent requests."""
+        token_file = tmp_path / "token.json"
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        # No token file exists initially -> authenticate
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        # First request triggers authentication
+        token1 = await session._get_valid_token()
+        assert token1 == "fresh_token"
+        session._auth_provider.authenticate.assert_awaited_once()
+
+        # Simulate what the real authenticate() does: save token to file
+        session._auth_provider.token_store.save(fresh_token)
+        assert token_file.exists()
+
+        # Second request reuses the in-memory cached token
+        token2 = await session._get_valid_token()
+        assert token2 == "fresh_token"
+        # authenticate should NOT be called again
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests_share_single_token(self, tmp_path) -> None:
+        """Concurrent requests that all need a token share a single authentication flow."""
+        token_file = tmp_path / "token.json"
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        resp_ok = self._make_mock_response(200, {"stat": "Ok", "data": {}})
+        session._client.request = AsyncMock(return_value=resp_ok)
+        fresh_token = TokenInfo(
+            access_token="fresh_token",
+            user_id="user123",
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            api_key="test_client",
+        )
+        session._auth_provider.authenticate = AsyncMock(return_value=fresh_token)
+
+        # Fire 5 concurrent requests with no cached token
+        tokens = await asyncio.gather(
+            *[
+                session._get_valid_token()
+                for _ in range(5)
+            ]
+        )
+
+        # All requests got the same token
+        assert all(t == "fresh_token" for t in tokens)
+        # Only ONE authenticate call (lock serialized access)
+        session._auth_provider.authenticate.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_authenticate_failure_propagates(self, tmp_path) -> None:
+        """If authentication fails, the error propagates to the caller."""
+        token_file = tmp_path / "token.json"
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        from quantrex.core.broker.shoonya.exceptions.exceptions import ShoonyaAuthError
+
+        session._auth_provider.authenticate = AsyncMock(
+            side_effect=ShoonyaAuthError("OAuth failed")
+        )
+
+        with pytest.raises(ShoonyaAuthError, match="OAuth failed"):
+            await session._get_valid_token()
+
+    @pytest.mark.asyncio
+    async def test_load_token_returns_none_when_file_missing(self, tmp_path) -> None:
+        """load_token returns None when the token file does not exist."""
+        token_file = tmp_path / "nonexistent.json"
+
+        session = ShoonyaSession(
+            SessionConfig(
+                client_id="test_client",
+                secret_key="test_secret",
+                redirect_url="http://localhost:8765/callback",
+                token_path=str(token_file),
+            )
+        )
+
+        token_info = await session._auth_provider.load_token()
+        assert token_info is None
+
+    @pytest.mark.asyncio
+    async def test_save_and_load_token_roundtrip(self, tmp_path) -> None:
+        """TokenStore save/load roundtrip preserves all token fields."""
+        from quantrex.core.broker.shoonya.auth.token_store import TokenStore
+
+        token_file = tmp_path / "token.json"
+        store = TokenStore(token_file)
+
+        original = TokenInfo(
+            access_token="access_token_123",
+            user_id="user456",
+            expires_at=datetime.now(UTC) + timedelta(days=30),
+            api_key="api_key_789",
+        )
+
+        store.save(original)
+        loaded = store.load()
+
+        assert loaded is not None
+        assert loaded.access_token == original.access_token
+        assert loaded.user_id == original.user_id
+        assert loaded.api_key == original.api_key
+        assert loaded.expires_at == original.expires_at
+        assert loaded.is_valid()
